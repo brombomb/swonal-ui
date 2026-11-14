@@ -23,13 +23,14 @@ import {
   Sun,
   Trophy,
   Users,
+  Video,
   Volume2,
   VolumeX,
   Wrench,
   X,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
-import { AccessoryType, DynamicMode, Exercise } from '../types';
+import { AccessoryType, DynamicMode, Exercise, HomeAssistantBusStatus } from '../types';
 import { formatDisplayWeight, stepDisplayWeight } from '../utils/units';
 
 const ACCENT_SWATCHES = [
@@ -119,6 +120,36 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [newProfileAccent, setNewProfileAccent] = useState('#CCFF00');
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
+  const [showDemoPip, setShowDemoPip] = useState(true);
+  const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
+
+  const refreshHaStatus = async () => {
+    try {
+      const res = await fetch('/api/integrations/ha/status');
+      if (res.ok) {
+        setHaStatus((await res.json()) as HomeAssistantBusStatus);
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+  };
+
+  const triggerHaTest = async () => {
+    try {
+      const res = await fetch('/api/integrations/ha/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: 'Kiosk diagnostic test event' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHaStatus(data.bus as HomeAssistantBusStatus);
+        setMockStatusMsg(`Published HA event to ${data.event.topic}`);
+      }
+    } catch {
+      setMockStatusMsg('Failed to trigger Home Assistant test event');
+    }
+  };
 
   const companionUrl = useMemo(() => {
     if (typeof window === 'undefined') return 'http://localhost:3000/companion';
@@ -363,7 +394,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Hardware Telemetry Pill (also opens Mock Diagnostic Drawer) */}
           <button
             type="button"
-            onClick={() => mockDialogRef.current?.showModal()}
+            onClick={() => {
+              void refreshHaStatus();
+              mockDialogRef.current?.showModal();
+            }}
             className={`px-3.5 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 transition ${
               daemonConnected && wsConnected
                 ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
@@ -551,19 +585,66 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => libraryDialogRef.current?.showModal()}
-              className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition"
-            >
-              <Dumbbell size={18} style={{ color: 'var(--accent-primary)' }} />
-              <span>Routines & Exercises</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {activeExercise?.mediaUrl && (
+                <button
+                  type="button"
+                  onClick={() => setShowDemoPip((v) => !v)}
+                  className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition"
+                >
+                  <Video size={17} style={{ color: 'var(--accent-primary)' }} />
+                  <span>{showDemoPip ? 'Hide Demo' : 'Form Demo'}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => libraryDialogRef.current?.showModal()}
+                className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition"
+              >
+                <Dumbbell size={18} style={{ color: 'var(--accent-primary)' }} />
+                <span>Routines & Exercises</span>
+              </button>
+            </div>
           </div>
         </section>
 
         {/* Central 360px Weight Dial + Left/Right Cable ROM Bars */}
         <section className="relative flex items-center justify-center my-auto py-4">
+          {/* Self-Hosted Exercise Demo Picture-in-Picture (PiP) Loop Card */}
+          {activeExercise?.mediaUrl && showDemoPip && (
+            <div
+              className="absolute right-20 top-2 w-60 rounded-2xl overflow-hidden surface-card border shadow-2xl z-20"
+              style={{ borderColor: 'var(--accent-primary)' }}
+            >
+              <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold bg-black/30">
+                <span className="truncate">{activeExercise.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDemoPip(false)}
+                  aria-label="Close Form Demo"
+                  className="opacity-70 hover:opacity-100 p-0.5"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {/\.(mp4|webm)(\?|$)/i.test(activeExercise.mediaUrl) ? (
+                <video
+                  src={activeExercise.mediaUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-36 object-cover bg-slate-950"
+                />
+              ) : (
+                <img
+                  src={activeExercise.mediaUrl}
+                  alt={`${activeExercise.name} form demo`}
+                  className="w-full h-36 object-contain bg-slate-950"
+                />
+              )}
+            </div>
+          )}
           {/* Left Cable ROM & Velocity Bar */}
           <div className="absolute left-4 flex flex-col items-center gap-3">
             <span className="text-xs font-mono font-bold uppercase tracking-widest opacity-70">
@@ -1421,6 +1502,37 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           >
             Reset Rep Counter
           </button>
+
+          {/* Home Assistant / MQTT Event Bus Diagnostics */}
+          <div className="elevated-pill rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-widest font-bold opacity-80">
+                Home Assistant / MQTT Bus
+              </p>
+              <button
+                type="button"
+                onClick={() => void triggerHaTest()}
+                className="px-3 py-1 rounded-lg text-xs font-bold text-slate-950"
+                style={{ backgroundColor: 'var(--accent-primary)' }}
+              >
+                Test Event
+              </button>
+            </div>
+            <p className="text-[11px] font-mono opacity-75">
+              Topic: {haStatus?.mqttTopicPrefix ?? 'swonal'}/state &amp; /session • MQTT:{' '}
+              {haStatus?.mqttConfigured
+                ? haStatus.mqttConnected
+                  ? 'CONNECTED'
+                  : 'CONNECTING'
+                : 'LOCAL LOG (set MQTT_BROKER_URL)'}{' '}
+              • Webhook: {haStatus?.webhookConfigured ? 'ACTIVE' : 'UNSET'}
+            </p>
+            {haStatus && haStatus.recentEvents.length > 0 && (
+              <p className="text-[11px] font-mono text-emerald-400 truncate">
+                Last: {haStatus.recentEvents[0].topic} ({haStatus.recentEvents[0].timestamp.slice(11, 19)})
+              </p>
+            )}
+          </div>
 
           {mockStatusMsg && (
             <p className="text-xs font-mono text-emerald-400 text-center">{mockStatusMsg}</p>

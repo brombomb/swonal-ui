@@ -9,6 +9,7 @@ import {
   WorkoutBlockSchema,
 } from '../mcp/mcpServer';
 import { sessionCoordinator } from '../services/sessionState';
+import { homeAssistantBus } from '../integrations/homeAssistantBus';
 import { estimateOneRepMaxLb, MAX_WEIGHT_LB, MIN_WEIGHT_LB } from '../utils/units';
 
 export interface DaemonCommandSender {
@@ -141,6 +142,23 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
             : undefined;
       const exercises = await getExercisesCatalog({ muscleGroup, accessory, unilateral });
       res.json(exercises);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/exercises/:id/media', async (req, res, next) => {
+    try {
+      const schema = z.object({
+        mediaUrl: z.string().max(500).nullable(),
+      });
+      const { mediaUrl } = schema.parse(req.body);
+      const updated = await prisma.exercise.update({
+        where: { id: req.params.id },
+        data: { mediaUrl },
+      });
+      bridge.broadcastToClients({ type: 'exercises_updated' });
+      res.json(updated);
     } catch (err) {
       next(err);
     }
@@ -381,6 +399,16 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         totalVolume: updatedSession.totalVolume,
       });
 
+      void homeAssistantBus.publishSessionEvent('set_logged', {
+        userId: session.userId,
+        sessionId: session.id,
+        exerciseId: parsed.exerciseId,
+        weightLb: parsed.weightLb,
+        repsCompleted: parsed.repsCompleted,
+        volumeLb: parsed.weightLb * parsed.repsCompleted,
+        newPr,
+      });
+
       res.status(201).json({
         setLog,
         newPr,
@@ -414,6 +442,27 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         orderBy: { updatedAt: 'desc' },
       });
       res.json(prs);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Home Assistant / MQTT Event Bus Diagnostics
+  router.get('/integrations/ha/status', (_req, res) => {
+    res.json(homeAssistantBus.getStatus());
+  });
+
+  router.post('/integrations/ha/test', async (req, res, next) => {
+    try {
+      const activeUserId = sessionCoordinator.getState().activeUserId;
+      const user = await prisma.user.findUnique({ where: { id: activeUserId } });
+      const record = await homeAssistantBus.publishSessionEvent('test_ping', {
+        userId: activeUserId,
+        userName: user?.name ?? 'Unknown',
+        accentColor: user?.accentColor ?? '#00F0FF',
+        note: typeof req.body?.note === 'string' ? req.body.note : 'Manual Home Assistant test trigger',
+      });
+      res.json({ status: 'published', event: record, bus: homeAssistantBus.getStatus() });
     } catch (err) {
       next(err);
     }

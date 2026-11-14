@@ -71,11 +71,30 @@ export const DEFAULT_USERS = {
   ROB_ID: '22222222-2222-4222-8222-222222222222',
 };
 
+export function resolveExerciseMediaUrl(name: string, muscleGroup: string): string {
+  const n = name.toLowerCase();
+  if (n.includes('lat pulldown') || n.includes('straight-arm pulldown')) return '/media/lat-pulldown.svg';
+  if (n.includes('row') || n.includes('face pull') || n.includes('reverse fly')) return '/media/row.svg';
+  if (n.includes('curl')) return '/media/curl.svg';
+  if (n.includes('tricep') || n.includes('close-grip')) return '/media/tricep.svg';
+  if (n.includes('squat') || n.includes('lunge') || n.includes('calf')) return '/media/squat.svg';
+  if (n.includes('deadlift') || n.includes('rdl') || n.includes('hip thrust') || n.includes('pull-through')) {
+    return '/media/deadlift.svg';
+  }
+  if (n.includes('overhead press') || n.includes('lateral raise') || n.includes('front raise') || n.includes('arnold') || n.includes('shrug')) {
+    return '/media/shoulder-press.svg';
+  }
+  if (muscleGroup === 'Core') return '/media/core.svg';
+  if (muscleGroup === 'Chest') return '/media/chest-press.svg';
+  return '/media/row.svg';
+}
+
 export async function seedDatabase(prisma: PrismaClient): Promise<void> {
   console.log(`Seeding ${SEED_EXERCISES.length} Tonal exercises...`);
   const exerciseMap = new Map<string, string>();
 
   for (const ex of SEED_EXERCISES) {
+    const mediaUrl = resolveExerciseMediaUrl(ex.name, ex.muscleGroup);
     const record = await prisma.exercise.upsert({
       where: { name: ex.name },
       update: {
@@ -86,8 +105,9 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
         recommendedAngle: ex.recommendedAngle,
         unilateral: ex.unilateral,
         notes: ex.notes,
+        mediaUrl,
       },
-      create: ex,
+      create: { ...ex, mediaUrl },
     });
     exerciseMap.set(ex.name, record.id);
   }

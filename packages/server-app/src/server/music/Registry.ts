@@ -2,6 +2,8 @@ import { IMusicProvider } from './MusicProvider';
 import { SpotifyProvider } from './providers/SpotifyProvider';
 import { YouTubeMusicProvider } from './providers/YouTubeMusicProvider';
 import { AppleMusicProvider } from './providers/AppleMusicProvider';
+import { AmazonMusicProvider } from './providers/AmazonMusicProvider';
+import { PlexampProvider } from './providers/PlexampProvider';
 
 export class MusicProviderRegistry {
   private readonly providers = new Map<string, IMusicProvider>();
@@ -10,6 +12,8 @@ export class MusicProviderRegistry {
     this.register(new SpotifyProvider());
     this.register(new YouTubeMusicProvider());
     this.register(new AppleMusicProvider());
+    this.register(new AmazonMusicProvider());
+    this.register(new PlexampProvider());
   }
 
   register(provider: IMusicProvider): void {

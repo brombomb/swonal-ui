@@ -147,6 +147,16 @@ docker compose up -d --no-deps --build server-app
 - **Resources:** `swonal://exercises/catalog`, `swonal://users/{userId}/profile-and-prs`, `swonal://users/{userId}/workouts`
 - **Tools:** `list_exercises`, `get_user_strength_history`, `create_custom_workout`, `update_workout_template`, `queue_workout_for_session`
 
-### Spotify & `librespot`
+### Spotify, `librespot`, & Community Music Providers
+- Five adapters are registered out of the box (`spotify`, `youtube_music`, `apple_music`, `amazon_music`, `plexamp`) and selectable per profile in **Playlists & Devices**.
 - Configure `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REDIRECT_URI` in `.env`, then authorize via `GET /api/music/spotify/auth`.
 - Without Spotify credentials, `SpotifyProvider` operates in an interactive local simulation mode with `"Tonal Gym (librespot)"` device selection and automatic volume ducking (`duckVolume`) during set/PR audio cues.
+- Set `PLEXAMP_URL` (e.g. `http://192.168.1.50:32500`) to forward transport controls to a headless Plexamp instance.
+
+### Self-Hosted Exercise Form Loops (`/media`)
+- All 50 seeded exercises include a `mediaUrl` pointing to animated SVG form loops served from `/media`.
+- Drop custom `.mp4`, `.webm`, or `.gif` clips into `MEDIA_DIR` (defaults to `/data/media` or `packages/server-app/data/media`) and assign them via `PATCH /api/exercises/:id/media` to render in the kiosk Picture-in-Picture (PiP) **Form Demo** card.
+
+### Home Assistant MQTT & Webhook Event Bus
+- Set `MQTT_BROKER_URL` (plus optional `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_TOPIC_PREFIX=swonal`) and/or `HA_WEBHOOK_URL` (`HA_WEBHOOK_TOKEN`) to publish `swonal/state` (weight engagement, active lifter, `accentColor`, mode, rep count, safety faults) and `swonal/session` events (`set_logged`, `workout_queued`, `safety_cutout`).
+- Inspect recent payloads and fire test events via `GET /api/integrations/ha/status`, `POST /api/integrations/ha/test`, or the **Hardware & Mock Controls** dialog.

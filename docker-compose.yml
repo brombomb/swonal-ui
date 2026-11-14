@@ -30,6 +30,14 @@ services:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
       - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://localhost:3000/api/music/spotify/callback}
+      - PLEXAMP_URL=${PLEXAMP_URL:-}
+      - MEDIA_DIR=${MEDIA_DIR:-/data/media}
+      - MQTT_BROKER_URL=${MQTT_BROKER_URL:-}
+      - MQTT_TOPIC_PREFIX=${MQTT_TOPIC_PREFIX:-swonal}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - HA_WEBHOOK_URL=${HA_WEBHOOK_URL:-}
+      - HA_WEBHOOK_TOKEN=${HA_WEBHOOK_TOKEN:-}
     volumes:
       - swonal-db-data:/data
 

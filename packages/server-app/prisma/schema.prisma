@@ -49,6 +49,7 @@ model Exercise {
   recommendedAngle    Int              @default(1)
   unilateral          Boolean          @default(false)
   notes               String?
+  mediaUrl            String?
   setLogs             SetLog[]
   personalRecords     PersonalRecord[]
 }

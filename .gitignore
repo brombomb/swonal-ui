@@ -17,7 +17,10 @@ packages/tonal-daemon/*.egg-info/
 *.db-shm
 .env
 packages/server-app/.env
-packages/server-app/data/
+packages/server-app/data/*
+!packages/server-app/data/media/
+packages/server-app/data/media/*
+!packages/server-app/data/media/*.svg
 packages/server-app/prisma/data/
 packages/tonal-daemon/config.yaml
 

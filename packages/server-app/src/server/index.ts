@@ -15,6 +15,7 @@ import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
 import { createMusicRouter } from './routes/musicRoutes';
 import { sessionCoordinator } from './services/sessionState';
+import { homeAssistantBus } from './integrations/homeAssistantBus';
 
 export interface SwonalServerOptions {
   port?: number;
@@ -61,6 +62,17 @@ export async function createSwonalServer(
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
 
+  homeAssistantBus.init();
+
+  // Self-hosted exercise form demo media (/data/media or local data/media)
+  const resolvedMediaDir =
+    process.env.MEDIA_DIR ||
+    (fs.existsSync('/data/media') ? '/data/media' : path.resolve(__dirname, '../../data/media'));
+  if (!fs.existsSync(resolvedMediaDir)) {
+    fs.mkdirSync(resolvedMediaDir, { recursive: true });
+  }
+  app.use('/media', express.static(resolvedMediaDir));
+
   const httpServer = http.createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
   const browserClients = new Set<WebSocket>();
@@ -106,11 +118,52 @@ export async function createSwonalServer(
     return false;
   };
 
+  let activeUserCache: { id: string; name: string; accentColor: string; themeMode: string; weightUnit: string } | null = null;
+  const syncActiveUserCache = async (userId: string) => {
+    const u = await prisma.user.findUnique({ where: { id: userId } });
+    if (u) {
+      activeUserCache = {
+        id: u.id,
+        name: u.name,
+        accentColor: u.accentColor,
+        themeMode: u.themeMode,
+        weightUnit: u.weightUnit,
+      };
+    }
+  };
+  void syncActiveUserCache(sessionCoordinator.getState().activeUserId);
+
+  const publishHaState = (safetyFault?: string | null) => {
+    const st = sessionCoordinator.getState();
+    if (!activeUserCache || activeUserCache.id !== st.activeUserId) {
+      void syncActiveUserCache(st.activeUserId);
+    }
+    homeAssistantBus.publishStateIfChanged({
+      userId: st.activeUserId,
+      userName: activeUserCache?.name,
+      accentColor: activeUserCache?.accentColor,
+      themeMode: activeUserCache?.themeMode,
+      weightUnit: activeUserCache?.weightUnit,
+      partnerModeEnabled: st.partnerModeEnabled,
+      weightEnabled: Boolean(latestTelemetry.weight_enabled),
+      targetWeightLb: Number(latestTelemetry.target_weight_lb ?? 45),
+      mode: String(latestTelemetry.profile_mode ?? 'standard'),
+      accessory: String(latestTelemetry.accessory ?? 'HANDLES'),
+      repCount: Number(latestTelemetry.rep_count ?? 0),
+      safetyFault: safetyFault ?? null,
+    });
+  };
+
   const onStateChanged = (state: ReturnType<typeof sessionCoordinator.getState>) => {
     broadcastToClients({ type: 'session_state', state });
+    void syncActiveUserCache(state.activeUserId).then(() => publishHaState());
   };
   const onWorkoutQueued = (payload: unknown) => {
     broadcastToClients({ type: 'workout_queued', workout: payload });
+    void homeAssistantBus.publishSessionEvent('workout_queued', {
+      userId: sessionCoordinator.getState().activeUserId,
+      workout: payload,
+    });
   };
 
   sessionCoordinator.on('state_changed', onStateChanged);
@@ -133,6 +186,14 @@ export async function createSwonalServer(
           const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
           if (msg.type === 'telemetry') {
             latestTelemetry = msg;
+            publishHaState();
+          } else if (msg.type === 'safety_event') {
+            publishHaState(String(msg.reason || 'SAFETY_CUTOUT'));
+            void homeAssistantBus.publishSessionEvent('safety_cutout', {
+              userId: sessionCoordinator.getState().activeUserId,
+              reason: msg.reason,
+              delta: msg.delta,
+            });
           } else if (msg.type === 'handle_event' && msg.action === 'spotify_next') {
             const activeUserId = sessionCoordinator.getState().activeUserId;
             void prisma.user
@@ -352,6 +413,7 @@ export async function createSwonalServer(
       browserClients.clear();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      await homeAssistantBus.close();
     },
   };
 }

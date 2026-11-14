@@ -24,6 +24,7 @@ export interface Exercise {
   recommendedAngle: number;
   unilateral: boolean;
   notes?: string | null;
+  mediaUrl?: string | null;
 }
 
 export interface WorkoutBlockItem {
@@ -193,4 +194,22 @@ export interface RoutineStep {
   mode: DynamicMode;
   modifierPct: number;
   exerciseId: string;
+}
+
+export interface HomeAssistantEventRecord {
+  id: string;
+  topic: string;
+  payload: Record<string, unknown>;
+  mqttDelivered: boolean;
+  webhookDelivered: boolean;
+  timestamp: string;
+}
+
+export interface HomeAssistantBusStatus {
+  mqttConfigured: boolean;
+  mqttConnected: boolean;
+  mqttTopicPrefix: string;
+  lastMqttError: string | null;
+  webhookConfigured: boolean;
+  recentEvents: HomeAssistantEventRecord[];
 }

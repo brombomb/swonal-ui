@@ -58,7 +58,9 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
 
   it('exercises MusicProviderRegistry, SpotifyProvider playback, device transfer, and volume ducking', async () => {
     const providers = musicRegistry.list();
-    expect(providers.map((p) => p.id)).toEqual(['spotify', 'youtube_music', 'apple_music']);
+    expect(providers.map((p) => p.id)).toEqual(
+      expect.arrayContaining(['spotify', 'youtube_music', 'apple_music', 'amazon_music', 'plexamp'])
+    );
 
     const spotify = musicRegistry.get('spotify');
     const userId = DEFAULT_USERS.JERI_ID;

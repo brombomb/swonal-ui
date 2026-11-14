@@ -334,7 +334,12 @@ export function useSwonalState() {
               timestamp: Date.now(),
             });
             soundEngine.playSafetyCutout(activeProviderId, activeUser?.id);
-          } else if (msg.type === 'users_updated' || msg.type === 'user_updated' || msg.type === 'templates_updated') {
+          } else if (
+            msg.type === 'users_updated' ||
+            msg.type === 'user_updated' ||
+            msg.type === 'templates_updated' ||
+            msg.type === 'exercises_updated'
+          ) {
             void refreshBootstrap();
           } else if (msg.type === 'music_updated') {
             if (activeUser?.id) {
@@ -729,6 +734,22 @@ export function useSwonalState() {
     setSoundMuted(next);
   }, [soundMuted]);
 
+  const switchMusicProvider = useCallback(
+    async (providerId: string) => {
+      if (!activeUser) return;
+      await fetch(`/api/users/${activeUser.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferredMusicProvider: providerId }),
+      });
+      setUsers((prev) =>
+        prev.map((u) => (u.id === activeUser.id ? { ...u, preferredMusicProvider: providerId } : u))
+      );
+      await refreshMusic(activeUser.id, providerId);
+    },
+    [activeUser, refreshMusic]
+  );
+
   useEffect(() => {
     autoLogCallbackRef.current = (reps: number) => {
       if (activeTemplateName && currentStep && reps >= currentStep.targetReps) {
@@ -787,6 +808,7 @@ export function useSwonalState() {
     setMusicVolume,
     playPlaylist,
     transferMusicDevice,
+    switchMusicProvider,
     refreshBootstrap,
     refreshUserHistory,
   };
