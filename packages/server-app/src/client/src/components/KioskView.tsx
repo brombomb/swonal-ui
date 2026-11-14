@@ -177,6 +177,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     last_calibrated_at?: number | null;
     expected_board?: string;
   } | null>(null);
+  const [networkInfo, setNetworkInfo] = useState<{
+    primaryIp: string | null;
+    ips: string[];
+    port: number;
+    companionBaseUrl: string | null;
+  } | null>(null);
+  const [selectedLanIp, setSelectedLanIp] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetch('/api/network-info')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info) => {
+        if (info) {
+          setNetworkInfo(info);
+          if (info.primaryIp) setSelectedLanIp(info.primaryIp);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     void fetch('/api/coach/config')
@@ -331,12 +350,26 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   };
 
   const companionUrl = useMemo(() => {
-    if (typeof window === 'undefined') return 'http://localhost:3000/companion';
     const sessionParam = sessionState.activeSessionId
       ? `?session=${encodeURIComponent(sessionState.activeSessionId)}`
       : '';
-    return `${window.location.origin}/companion${sessionParam}`;
-  }, [sessionState.activeSessionId]);
+    if (typeof window === 'undefined') {
+      return `http://127.0.0.1:3000/companion${sessionParam}`;
+    }
+    const isLocalhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(
+      window.location.hostname
+    );
+    let baseOrigin = window.location.origin;
+    if (isLocalhost) {
+      if (selectedLanIp) {
+        const port = networkInfo?.port ?? (window.location.port ? Number(window.location.port) : 3000);
+        baseOrigin = `${window.location.protocol}//${selectedLanIp}:${port}`;
+      } else if (networkInfo?.companionBaseUrl) {
+        baseOrigin = networkInfo.companionBaseUrl;
+      }
+    }
+    return `${baseOrigin}/companion${sessionParam}`;
+  }, [sessionState.activeSessionId, selectedLanIp, networkInfo]);
 
   useEffect(() => {
     void QRCode.toDataURL(companionUrl, {
@@ -1661,8 +1694,27 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {qrDataUrl && <img src={qrDataUrl} alt="Companion Remote QR Code" className="w-64 h-64" />}
         </div>
         <div className="flex flex-col gap-3">
+          {networkInfo && networkInfo.ips.length > 1 && (
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              {networkInfo.ips.map((ip) => (
+                <button
+                  key={ip}
+                  type="button"
+                  onClick={() => setSelectedLanIp(ip)}
+                  className={`px-2.5 py-1 rounded-lg font-mono text-xs font-bold ${
+                    selectedLanIp === ip ? 'text-slate-950' : 'elevated-pill opacity-75'
+                  }`}
+                  style={
+                    selectedLanIp === ip ? { backgroundColor: 'var(--accent-primary)' } : undefined
+                  }
+                >
+                  {ip}
+                </button>
+              ))}
+            </div>
+          )}
           <a
-            href="/companion"
+            href={companionUrl}
             className="w-full py-3 rounded-2xl font-extrabold text-center text-slate-950"
             style={{ backgroundColor: 'var(--accent-primary)' }}
           >

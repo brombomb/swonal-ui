@@ -687,5 +687,50 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     }
   });
 
+  // Network IP discovery for phone Companion QR code
+  router.get('/network-info', (req, res) => {
+    const ifaces = os.networkInterfaces();
+    const candidates: Array<{ iface: string; address: string; score: number }> = [];
+
+    for (const [iface, entries] of Object.entries(ifaces)) {
+      if (!entries) continue;
+      for (const entry of entries) {
+        if (entry.family !== 'IPv4' || entry.internal) continue;
+        const lower = iface.toLowerCase();
+        let score = 10;
+        if (/^(docker|veth|br-|virbr|tun|tap|utun)/.test(lower)) {
+          score = 1;
+        } else if (/^(wl|wlan|en|eth|enp)/.test(lower)) {
+          score = 20;
+        }
+        if (entry.address.startsWith('192.168.') || entry.address.startsWith('10.')) {
+          score += 5;
+        }
+        candidates.push({ iface, address: entry.address, score });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const ips = Array.from(new Set(candidates.map((c) => c.address)));
+    const primaryIp = ips[0] ?? null;
+
+    const hostHeader = req.get('host') || '';
+    const portMatch = hostHeader.match(/:(\d+)$/);
+    const port = portMatch ? Number(portMatch[1]) : Number(process.env.PORT || 3000);
+    const overrideBase = (process.env.COMPANION_BASE_URL || process.env.PUBLIC_URL || '').replace(
+      /\/+$/,
+      ''
+    );
+    const companionBaseUrl =
+      overrideBase || (primaryIp ? `${req.protocol}://${primaryIp}:${port}` : null);
+
+    res.json({
+      primaryIp,
+      ips,
+      port,
+      companionBaseUrl,
+    });
+  });
+
   return router;
 }
