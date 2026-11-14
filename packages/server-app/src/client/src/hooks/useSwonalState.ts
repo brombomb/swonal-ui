@@ -11,6 +11,7 @@ import {
   PersonalRecord,
   RoutineStep,
   SafetyEvent,
+  SessionPrHit,
   SharedSessionState,
   SymmetryMetrics,
   TelemetryFrame,
@@ -18,6 +19,7 @@ import {
   VbtMetrics,
   WorkoutBlock,
   WorkoutSession,
+  WorkoutSummaryData,
   WorkoutTemplate,
 } from '../types';
 import { soundEngine } from '../utils/soundEngine';
@@ -94,6 +96,59 @@ export function flattenTemplateBlocks(blocks: WorkoutBlock[]): RoutineStep[] {
   return steps;
 }
 
+function buildWorkoutSummary(
+  session: WorkoutSession,
+  prsHit: SessionPrHit[]
+): WorkoutSummaryData {
+  const logs = session.setLogs ?? [];
+  const startedMs = new Date(session.startedAt).getTime();
+  const completedIso = session.completedAt ?? new Date().toISOString();
+  const completedMs = new Date(completedIso).getTime();
+  const durationSeconds = Math.max(0, Math.round((completedMs - startedMs) / 1000));
+
+  const totalReps = logs.reduce((sum, s) => sum + (s.repsCompleted ?? 0), 0);
+  const rpeLogs = logs.filter((s) => typeof s.rpe === 'number' && s.rpe !== null);
+  const avgRpe =
+    rpeLogs.length > 0
+      ? Math.round(
+          (rpeLogs.reduce((sum, s) => sum + Number(s.rpe), 0) / rpeLogs.length) * 10
+        ) / 10
+      : null;
+
+  const muscleMap = new Map<string, { volumeLb: number; sets: number }>();
+  for (const log of logs) {
+    const mg = log.exercise?.muscleGroup || 'Full Body';
+    const cur = muscleMap.get(mg) ?? { volumeLb: 0, sets: 0 };
+    cur.volumeLb += log.volumeLb ?? 0;
+    cur.sets += 1;
+    muscleMap.set(mg, cur);
+  }
+  const totalVol = Math.max(1, session.totalVolume);
+  const muscleBreakdown = Array.from(muscleMap.entries())
+    .map(([muscleGroup, stats]) => ({
+      muscleGroup,
+      volumeLb: Math.round(stats.volumeLb),
+      sets: stats.sets,
+      pct: Math.round((stats.volumeLb / totalVol) * 100),
+    }))
+    .sort((a, b) => b.volumeLb - a.volumeLb);
+
+  return {
+    sessionId: session.id,
+    userId: session.userId,
+    sessionName: session.template?.name ?? 'Free Lift Session',
+    startedAt: session.startedAt,
+    completedAt: completedIso,
+    durationSeconds,
+    totalVolumeLb: Math.round(session.totalVolume),
+    totalSets: logs.length,
+    totalReps,
+    avgRpe,
+    prsHit,
+    muscleBreakdown,
+  };
+}
+
 export function useSwonalState() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -136,6 +191,9 @@ export function useSwonalState() {
   const [routineSteps, setRoutineSteps] = useState<RoutineStep[]>([]);
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [restSecondsRemaining, setRestSecondsRemaining] = useState<number>(0);
+  const [lastCompletedWorkoutSummary, setLastCompletedWorkoutSummary] =
+    useState<WorkoutSummaryData | null>(null);
+  const sessionPrsRef = useRef<SessionPrHit[]>([]);
 
   // Music state
   const [musicProviders, setMusicProviders] = useState<MusicProviderMeta[]>([]);
@@ -697,6 +755,24 @@ export function useSwonalState() {
         soundEngine.playPersonalRecord(activeProviderId, activeUser.id);
         setLastPrBanner(`NEW PR! ${activeExercise.name}`);
         setTimeout(() => setLastPrBanner(null), 5000);
+        const prIdx = sessionPrsRef.current.findIndex(
+          (p) => p.exerciseId === activeExercise.id
+        );
+        const est1Rm =
+          repsCompleted <= 1
+            ? telemetry.target_weight_lb
+            : Math.round(telemetry.target_weight_lb * (1 + repsCompleted / 30) * 10) / 10;
+        const prHit: SessionPrHit = {
+          exerciseId: activeExercise.id,
+          exerciseName: activeExercise.name,
+          oneRepMaxEstLb: est1Rm,
+          maxWeightLb: telemetry.target_weight_lb,
+        };
+        if (prIdx >= 0) {
+          sessionPrsRef.current[prIdx] = prHit;
+        } else {
+          sessionPrsRef.current.push(prHit);
+        }
       } else {
         soundEngine.playSetComplete(activeProviderId, activeUser.id);
       }
@@ -714,10 +790,20 @@ export function useSwonalState() {
             setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct);
           }
         } else {
-          // Workout finished
-          await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/complete`, {
-            method: 'POST',
-          });
+          // Workout finished — complete session and show Post-Workout Summary
+          sendWs({ type: 'disable_weight' });
+          sendWs({ type: 'skip_rest_timer' });
+          const completeResp = await fetch(
+            `/api/sessions/${encodeURIComponent(sessionId)}/complete`,
+            { method: 'POST' }
+          );
+          if (completeResp.ok) {
+            const completed = (await completeResp.json()) as WorkoutSession;
+            setLastCompletedWorkoutSummary(
+              buildWorkoutSummary(completed, [...sessionPrsRef.current])
+            );
+          }
+          sessionPrsRef.current = [];
           setActiveTemplateName(null);
           setRoutineSteps([]);
           setCurrentStepIdx(0);
@@ -744,6 +830,30 @@ export function useSwonalState() {
       refreshUserHistory,
     ]
   );
+
+  const finishActiveWorkout = useCallback(async () => {
+    const sessionId = sessionState.activeSessionId;
+    sendWs({ type: 'disable_weight' });
+    sendWs({ type: 'skip_rest_timer' });
+    if (sessionId) {
+      const resp = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/complete`, {
+        method: 'POST',
+      });
+      if (resp.ok) {
+        const completed = (await resp.json()) as WorkoutSession;
+        setLastCompletedWorkoutSummary(
+          buildWorkoutSummary(completed, [...sessionPrsRef.current])
+        );
+      }
+    }
+    sessionPrsRef.current = [];
+    setActiveTemplateName(null);
+    setRoutineSteps([]);
+    setCurrentStepIdx(0);
+    if (activeUser) {
+      await refreshUserHistory(activeUser.id);
+    }
+  }, [sessionState.activeSessionId, activeUser, sendWs, refreshUserHistory]);
 
   // Music Controls
   const toggleMusicPlay = useCallback(async () => {
@@ -935,6 +1045,9 @@ export function useSwonalState() {
     startWorkoutTemplate,
     stepRoutine,
     logCompletedSet,
+    finishActiveWorkout,
+    lastCompletedWorkoutSummary,
+    dismissWorkoutSummary: () => setLastCompletedWorkoutSummary(null),
     skipRestTimer: () => sendWs({ type: 'skip_rest_timer' }),
     extendRestTimer: (sec = 15) =>
       sendWs({ type: 'start_rest_timer', seconds: restSecondsRemaining + sec }),

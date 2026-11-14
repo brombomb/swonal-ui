@@ -248,3 +248,32 @@ export interface AiCoachPublicConfig {
   baseUrl: string | null;
   supportedProviders: Array<{ id: string; label: string }>;
 }
+
+export interface SessionPrHit {
+  exerciseId: string;
+  exerciseName: string;
+  oneRepMaxEstLb: number;
+  maxWeightLb: number;
+}
+
+export interface MuscleGroupVolumeItem {
+  muscleGroup: string;
+  volumeLb: number;
+  sets: number;
+  pct: number;
+}
+
+export interface WorkoutSummaryData {
+  sessionId: string;
+  userId: string;
+  sessionName: string;
+  startedAt: string;
+  completedAt: string;
+  durationSeconds: number;
+  totalVolumeLb: number;
+  totalSets: number;
+  totalReps: number;
+  avgRpe: number | null;
+  prsHit: SessionPrHit[];
+  muscleBreakdown: MuscleGroupVolumeItem[];
+}

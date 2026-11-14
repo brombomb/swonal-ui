@@ -43,6 +43,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
+import { PostWorkoutSummaryModal } from './PostWorkoutSummaryModal';
+import { ProgressionAnalytics } from './ProgressionAnalytics';
 import {
   AccessoryType,
   AiCoachPublicConfig,
@@ -116,6 +118,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     selectFreeExercise,
     startWorkoutTemplate,
     logCompletedSet,
+    finishActiveWorkout,
+    lastCompletedWorkoutSummary,
+    dismissWorkoutSummary,
     skipRestTimer,
     extendRestTimer,
     toggleMusicPlay,
@@ -133,6 +138,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const profileDialogRef = useRef<HTMLDialogElement>(null);
   const mockDialogRef = useRef<HTMLDialogElement>(null);
   const musicDialogRef = useRef<HTMLDialogElement>(null);
+  const progressionDialogRef = useRef<HTMLDialogElement>(null);
   const aiDialogRef = useRef<HTMLDialogElement>(null);
   const diagnosticsDialogRef = useRef<HTMLDialogElement>(null);
 
@@ -934,6 +940,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               )}
               <button
                 type="button"
+                onClick={() => progressionDialogRef.current?.showModal()}
+                className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
+              >
+                <TrendingUp size={20} style={{ color: 'var(--accent-primary)' }} />
+                <span>Progress &amp; PRs</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => libraryDialogRef.current?.showModal()}
                 className="elevated-pill px-6 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
               >
@@ -1214,6 +1228,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               >
                 Complete &amp; Log Set
               </button>
+              {sessionState.activeSessionId && (
+                <button
+                  type="button"
+                  onClick={() => void finishActiveWorkout()}
+                  className="min-h-[64px] px-5 py-4 rounded-2xl elevated-pill font-bold text-base hover:opacity-90 transition"
+                >
+                  Finish Workout
+                </button>
+              )}
             </div>
 
             {/* Up Next Scheduled Movement Preview */}
@@ -2421,6 +2444,44 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
         </div>
       </dialog>
+
+      {/* DIALOG 9: STRENGTH PROGRESSION & ANALYTICS */}
+      <dialog
+        ref={progressionDialogRef}
+        closedby="any"
+        aria-labelledby="progression-dialog-title"
+        className="rounded-3xl p-8 max-w-3xl w-full max-h-[85vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2.5">
+            <TrendingUp size={24} style={{ color: 'var(--accent-primary)' }} />
+            <h2 id="progression-dialog-title" className="text-2xl font-black">
+              {activeUser?.name}&apos;s Strength Progression &amp; PRs
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => progressionDialogRef.current?.close()}
+            className="elevated-pill p-2 rounded-xl"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <ProgressionAnalytics
+          sessions={sessions}
+          personalRecords={personalRecords}
+          unit={activeUnit}
+        />
+      </dialog>
+
+      {/* POST-WORKOUT SUMMARY MODAL */}
+      <PostWorkoutSummaryModal
+        summary={lastCompletedWorkoutSummary}
+        unit={activeUnit}
+        accentColor={activeUser?.accentColor ?? '#00F0FF'}
+        onClose={dismissWorkoutSummary}
+      />
     </div>
   );
 };

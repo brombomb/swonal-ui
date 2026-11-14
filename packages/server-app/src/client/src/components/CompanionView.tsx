@@ -27,6 +27,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
+import { ProgressionAnalytics } from './ProgressionAnalytics';
 import { BlockType, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
 
@@ -1233,6 +1234,12 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
         {tab === 'history' && (
           <div className="space-y-4">
+            <ProgressionAnalytics
+              sessions={sessions}
+              personalRecords={personalRecords}
+              unit={activeUnit}
+            />
+
             <section className="surface-card rounded-3xl p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <Trophy size={20} style={{ color: 'var(--accent-primary)' }} />

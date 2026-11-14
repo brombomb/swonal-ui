@@ -435,6 +435,15 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       const completed = await prisma.workoutSession.update({
         where: { id: req.params.id },
         data: { completedAt: new Date() },
+        include: {
+          template: { select: { name: true } },
+          setLogs: {
+            include: {
+              exercise: { select: { name: true, muscleGroup: true, accessory: true } },
+            },
+            orderBy: { timestamp: 'asc' },
+          },
+        },
       });
       sessionCoordinator.setActiveSession(null, null);
       sessionCoordinator.setRestTimer(null);
