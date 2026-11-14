@@ -1,10 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-- **Active Milestone:** Milestone 4 — Athletic Design System & 1080x1920 Portrait Kiosk UI (`/`)
-- **Last Completed Task:** Milestone 3 verified (`vitest`: 5/5 passed, `tsc --noEmit` & `esbuild` clean) & committed
-- **Next Immediate Task:** Configure Vite, Tailwind CSS, and Adaptive Theme Engine (`[data-theme="dark"]`, `[data-theme="light"]`, dynamic user accent CSS vars)
-- **Verification / Test Status:** Milestone 1 `pytest` 7/7 PASSED | Milestone 2 & 3 `vitest` 5/5 PASSED
+- **Active Milestone:** Milestone 5 — Mobile Companion Web View (`/companion`) & Real-Time Sync
+- **Last Completed Task:** Milestone 4 verified (`tsc --noEmit`, `vite build`, `esbuild` clean) & committed
+- **Next Immediate Task:** Build `CompanionView.tsx` (`/companion` responsive Live Remote Control, Couch Workout Builder, Send to Tonal, Strength History & PRs)
+- **Verification / Test Status:** Milestone 1 `pytest` 7/7 | Milestone 2 & 3 `vitest` 5/5 | Milestone 4 `tsc` + `vite build` PASSED
 
 ---
 
@@ -39,12 +39,12 @@
 - [x] Commit Milestone 3 (`feat(milestone-3): ...`)
 
 ## Milestone 4: Athletic Design System & 1080x1920 Portrait Kiosk UI (`/`)
-- [ ] Configure Vite, Tailwind CSS, and Adaptive Theme Engine (`[data-theme="dark"]`, `[data-theme="light"]`, dynamic user accent CSS vars)
-- [ ] Implement Web Audio synthesized workout sound engine (`soundEngine.ts`) with music ducking
-- [ ] Implement `useSwonalState.ts` real-time state, telemetry, partner rotation, and unit hook
-- [ ] Build `KioskView.tsx` (`1080x1920` Top Status Bar, Center Workout Stage with 360px SVG dial, ROM bars, Arm Position Guide, Routine Selector, Mock Diagnostic Drawer, Persistent Music Dock)
-- [ ] Verify TypeScript (`tsc --noEmit`) and production frontend build (`npm run build`)
-- [ ] Commit Milestone 4 (`feat(milestone-4): ...`)
+- [x] Configure Vite, Tailwind CSS, and Adaptive Theme Engine (`[data-theme="dark"]`, `[data-theme="light"]`, dynamic user accent CSS vars)
+- [x] Implement Web Audio synthesized workout sound engine (`soundEngine.ts`) with music ducking
+- [x] Implement `useSwonalState.ts` real-time state, telemetry, partner rotation, and unit hook
+- [x] Build `KioskView.tsx` (`1080x1920` Top Status Bar, Center Workout Stage with 360px SVG dial, ROM bars, Arm Position Guide, Routine Selector, Mock Diagnostic Drawer, Persistent Music Dock)
+- [x] Verify TypeScript (`tsc --noEmit`) and production frontend build (`npm run build`)
+- [x] Commit Milestone 4 (`feat(milestone-4): ...`)
 
 ## Milestone 5: Mobile Companion Web View (`/companion`) & Real-Time Sync
 - [ ] Build `CompanionView.tsx` (`/companion` responsive Live Remote Control, Couch Workout Builder, Send to Tonal, Strength History & PRs)
