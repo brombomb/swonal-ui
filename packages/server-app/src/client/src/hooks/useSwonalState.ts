@@ -833,6 +833,30 @@ export function useSwonalState() {
     [activeUser, activeProviderId, refreshMusic]
   );
 
+  const stepRoutine = useCallback(
+    (delta: number) => {
+      if (routineSteps.length > 0) {
+        const nextIdx = Math.max(0, Math.min(routineSteps.length - 1, currentStepIdx + delta));
+        if (nextIdx === currentStepIdx) return;
+        setCurrentStepIdx(nextIdx);
+        const step = routineSteps[nextIdx];
+        setSelectedExerciseId(step.exerciseId);
+        const ex = exercises.find((e) => e.id === step.exerciseId);
+        if (ex) sendWs({ type: 'set_accessory', accessory: ex.accessory });
+        setWeight(step.targetWeightLb, step.mode, step.modifierPct);
+        return;
+      }
+      if (exercises.length > 0 && activeExercise) {
+        const idx = exercises.findIndex((e) => e.id === activeExercise.id);
+        const nextIdx = (idx + delta + exercises.length) % exercises.length;
+        const nextEx = exercises[nextIdx];
+        setSelectedExerciseId(nextEx.id);
+        sendWs({ type: 'set_accessory', accessory: nextEx.accessory });
+      }
+    },
+    [routineSteps, currentStepIdx, exercises, activeExercise, sendWs, setWeight]
+  );
+
   const toggleSoundMuted = useCallback(() => {
     const next = !soundMuted;
     soundEngine.setMuted(next);
@@ -906,6 +930,7 @@ export function useSwonalState() {
     togglePartnerMode,
     selectFreeExercise,
     startWorkoutTemplate,
+    stepRoutine,
     logCompletedSet,
     skipRestTimer: () => sendWs({ type: 'skip_rest_timer' }),
     extendRestTimer: (sec = 15) =>

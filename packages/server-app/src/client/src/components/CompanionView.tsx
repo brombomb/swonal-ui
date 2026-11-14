@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
   Dumbbell,
   FastForward,
   History,
@@ -25,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
 import { BlockType, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
-import { formatDisplayWeight, KG_TO_LB, stepDisplayWeight } from '../utils/units';
+import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
 
 type SwonalHookReturn = ReturnType<typeof useSwonalState>;
 type CompanionTab = 'remote' | 'builder' | 'history';
@@ -53,6 +55,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     daemonConnected,
     wsConnected,
     activeExercise,
+    currentStep,
     restSecondsRemaining,
     musicState,
     playlists,
@@ -61,6 +64,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     switchUser,
     updateUserPreferences,
     togglePartnerMode,
+    stepRoutine,
     logCompletedSet,
     skipRestTimer,
     extendRestTimer,
@@ -75,6 +79,37 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const [tab, setTab] = useState<CompanionTab>('remote');
   const [selectedRpe, setSelectedRpe] = useState<number>(8);
   const [toast, setToast] = useState<string | null>(null);
+  const [holdingEngage, setHoldingEngage] = useState(false);
+  const [isMockMode, setIsMockMode] = useState(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
+
+  useEffect(() => {
+    void fetch('/api/daemon/health')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { mock_mode?: boolean } | null) => {
+        if (d?.mock_mode) setIsMockMode(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  const beginHoldEngage = () => {
+    if (telemetry.weight_enabled) return;
+    setHoldingEngage(true);
+    holdTimerRef.current = setTimeout(() => {
+      setHoldingEngage(false);
+      toggleWeight();
+    }, 450);
+  };
+
+  const cancelHoldEngage = () => {
+    setHoldingEngage(false);
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
 
   // Couch Workout Builder state
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -307,7 +342,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     >
       {/* Mobile-First Header */}
       <header className="sticky top-0 z-20 backdrop-blur-xl border-b px-4 py-3" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}>
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+        <div className="max-w-lg mx-auto w-full flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 overflow-x-auto">
             {users.map((u) => {
               const active = u.id === activeUser?.id;
@@ -317,9 +352,16 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   type="button"
                   onClick={() => void switchUser(u.id)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition ${
-                    active ? 'text-slate-950' : 'elevated-pill opacity-75'
+                    active ? '' : 'elevated-pill opacity-75'
                   }`}
-                  style={active ? { backgroundColor: u.accentColor } : undefined}
+                  style={
+                    active
+                      ? {
+                          backgroundColor: u.accentColor,
+                          color: getContrastTextColor(u.accentColor),
+                        }
+                      : undefined
+                  }
                 >
                   <span>{u.name}</span>
                 </button>
@@ -332,11 +374,11 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               type="button"
               onClick={() => togglePartnerMode(!sessionState.partnerModeEnabled)}
               className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 ${
-                sessionState.partnerModeEnabled ? 'text-slate-950' : 'elevated-pill'
+                sessionState.partnerModeEnabled ? '' : 'elevated-pill'
               }`}
               style={
                 sessionState.partnerModeEnabled
-                  ? { backgroundColor: 'var(--accent-primary)' }
+                  ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
                   : undefined
               }
             >
@@ -379,7 +421,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
       {/* Toast Feedback */}
       {toast && (
-        <div className="max-w-3xl mx-auto px-4 pt-3">
+        <div className="max-w-lg mx-auto w-full px-4 pt-3">
           <div
             className="surface-card rounded-2xl px-4 py-2.5 text-sm font-bold flex items-center gap-2 border"
             style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)' }}
@@ -391,37 +433,86 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       )}
 
       {/* Main Content */}
-      <main className="max-w-3xl mx-auto px-4 py-4 space-y-4">
+      <main className="max-w-lg mx-auto w-full px-4 py-4 pb-24 space-y-4">
         {tab === 'remote' && (
           <>
             {/* Live Telemetry & Big Weight Toggle Card */}
             <section className="surface-card rounded-3xl p-5 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
                   <p className="text-[11px] uppercase tracking-widest font-bold opacity-65">
                     Active Movement
                   </p>
-                  <h2 className="text-xl font-black">
+                  <h2 className="text-xl font-black truncate">
                     {activeExercise?.name ?? 'Free Lift'}
                   </h2>
+                  <p className="text-xs font-semibold opacity-80 mt-0.5">
+                    {currentStep
+                      ? `Set ${currentStep.setNumber} of ${currentStep.totalSetsInItem} • Target ${currentStep.targetReps} Reps`
+                      : 'Free Lift Mode'}
+                  </p>
+                  {activeExercise && (
+                    <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-lg elevated-pill text-[11px] font-mono font-bold opacity-85">
+                      {activeExercise.accessory} • H{activeExercise.recommendedHeight} R
+                      {activeExercise.recommendedRotation} A{activeExercise.recommendedAngle}
+                    </span>
+                  )}
                 </div>
-                <div className="text-right font-mono tabular-nums">
+                <div className="text-right font-mono tabular-nums shrink-0">
                   <p className="text-xs opacity-65">REPS</p>
-                  <p className="text-3xl font-black">{telemetry.rep_count}</p>
+                  <p className="text-3xl font-black">
+                    {telemetry.rep_count}
+                    {currentStep ? (
+                      <span className="text-lg opacity-55"> / {currentStep.targetReps}</span>
+                    ) : null}
+                  </p>
+                  <div className="flex items-center justify-end gap-1.5 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => stepRoutine(-1)}
+                      className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5"
+                    >
+                      <ChevronLeft size={13} />
+                      <span>Prev</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => stepRoutine(1)}
+                      className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5"
+                    >
+                      <span>Next</span>
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-between gap-4">
                 <button
                   type="button"
-                  onClick={toggleWeight}
-                  className={`flex-1 py-6 rounded-3xl flex flex-col items-center justify-center border-2 transition ${
-                    telemetry.weight_enabled ? 'text-slate-950' : 'elevated-pill'
-                  }`}
+                  onClick={() => {
+                    if (telemetry.weight_enabled) {
+                      toggleWeight();
+                    }
+                  }}
+                  onDoubleClick={() => {
+                    if (!telemetry.weight_enabled) {
+                      cancelHoldEngage();
+                      toggleWeight();
+                    }
+                  }}
+                  onPointerDown={beginHoldEngage}
+                  onPointerUp={cancelHoldEngage}
+                  onPointerLeave={cancelHoldEngage}
+                  onPointerCancel={cancelHoldEngage}
+                  className={`flex-1 py-6 rounded-3xl flex flex-col items-center justify-center border-2 transition select-none ${
+                    telemetry.weight_enabled ? '' : 'elevated-pill'
+                  } ${holdingEngage ? 'scale-[0.98] opacity-90' : ''}`}
                   style={
                     telemetry.weight_enabled
                       ? {
                           backgroundColor: 'var(--accent-primary)',
+                          color: accentTextColor,
                           borderColor: 'var(--accent-primary)',
                           boxShadow: '0 0 28px var(--accent-glow)',
                         }
@@ -432,7 +523,11 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     {displayCurrentWeight} {activeUnit}
                   </span>
                   <span className="text-xs uppercase tracking-widest font-extrabold mt-2">
-                    {telemetry.weight_enabled ? 'WEIGHT ON • TAP TO STOP' : 'WEIGHT OFF • TAP TO ENGAGE'}
+                    {telemetry.weight_enabled
+                      ? 'WEIGHT ON • TAP TO STOP'
+                      : holdingEngage
+                        ? 'HOLDING TO ENGAGE...'
+                        : 'WEIGHT OFF • HOLD OR DOUBLE-TAP TO ENGAGE'}
                   </span>
                 </button>
               </div>
@@ -529,9 +624,13 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       type="button"
                       onClick={() => setWeight(telemetry.target_weight_lb, m.id, m.defaultPct)}
                       className={`px-3.5 py-2 rounded-xl text-xs font-bold ${
-                        active ? 'text-slate-950' : 'elevated-pill opacity-80'
+                        active ? '' : 'elevated-pill opacity-80'
                       }`}
-                      style={active ? { backgroundColor: 'var(--accent-primary)' } : undefined}
+                      style={
+                        active
+                          ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                          : undefined
+                      }
                     >
                       {m.label}
                     </button>
@@ -595,8 +694,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       void logCompletedSet(undefined, selectedRpe);
                       showToast('Logged set!');
                     }}
-                    className="flex-1 py-3 rounded-2xl font-extrabold text-sm text-slate-950"
-                    style={{ backgroundColor: 'var(--accent-primary)' }}
+                    className="flex-1 py-3 rounded-2xl font-extrabold text-sm"
+                    style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
                   >
                     Log Set & Start Rest
                   </button>
@@ -633,8 +732,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   <button
                     type="button"
                     onClick={() => void toggleMusicPlay()}
-                    className="w-11 h-11 rounded-full flex items-center justify-center text-slate-950"
-                    style={{ backgroundColor: 'var(--accent-primary)' }}
+                    className="w-11 h-11 rounded-full flex items-center justify-center"
+                    style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
                   >
                     {musicState.isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
                   </button>
@@ -678,35 +777,37 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               </div>
             </section>
 
-            {/* Quick Mock Handle Triggers */}
-            <section className="surface-card rounded-3xl p-4 space-y-2">
-              <p className="text-[11px] uppercase tracking-widest font-bold opacity-65">
-                Mock Hardware Handle Shortcuts
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => void triggerMockBle('toggle_weight')}
-                  className="elevated-pill py-2.5 rounded-xl text-xs font-bold"
-                >
-                  Handle 1x
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void triggerMockBle('spotify_next')}
-                  className="elevated-pill py-2.5 rounded-xl text-xs font-bold"
-                >
-                  Handle 2x (Skip)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void triggerMockBle('emergency_stop')}
-                  className="bg-red-500/15 border border-red-500/35 text-red-400 py-2.5 rounded-xl text-xs font-bold"
-                >
-                  E-Stop Hold
-                </button>
-              </div>
-            </section>
+            {/* Collapsible Mock Hardware Handle Shortcuts (shown only in --mock mode) */}
+            {isMockMode && (
+              <details className="surface-card rounded-3xl p-4">
+                <summary className="text-[11px] uppercase tracking-widest font-bold opacity-75 cursor-pointer select-none">
+                  Mock Hardware Handle Shortcuts
+                </summary>
+                <div className="grid grid-cols-3 gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => void triggerMockBle('toggle_weight')}
+                    className="elevated-pill py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    Handle 1x
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void triggerMockBle('spotify_next')}
+                    className="elevated-pill py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    Handle 2x (Skip)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void triggerMockBle('emergency_stop')}
+                    className="bg-red-500/15 border border-red-500/35 text-red-400 py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    E-Stop Hold
+                  </button>
+                </div>
+              </details>
+            )}
           </>
         )}
 
@@ -1144,7 +1245,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
         className="fixed bottom-0 inset-x-0 z-20 border-t backdrop-blur-xl"
         style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}
       >
-        <div className="max-w-3xl mx-auto grid grid-cols-3 h-16">
+        <div className="max-w-lg mx-auto grid grid-cols-3 h-16">
           <button
             type="button"
             onClick={() => setTab('remote')}
