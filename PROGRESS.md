@@ -1,10 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-- **Active Milestone:** Milestone 5 — Mobile Companion Web View (`/companion`) & Real-Time Sync
-- **Last Completed Task:** Milestone 4 verified (`tsc --noEmit`, `vite build`, `esbuild` clean) & committed
-- **Next Immediate Task:** Build `CompanionView.tsx` (`/companion` responsive Live Remote Control, Couch Workout Builder, Send to Tonal, Strength History & PRs)
-- **Verification / Test Status:** Milestone 1 `pytest` 7/7 | Milestone 2 & 3 `vitest` 5/5 | Milestone 4 `tsc` + `vite build` PASSED
+- **Active Milestone:** Milestone 6 — Dockerization, End-to-End Integration Verification, & Documentation
+- **Last Completed Task:** Milestone 5 verified (`vitest` 5/5, `tsc --noEmit`, `vite build`, `esbuild` clean) & committed
+- **Next Immediate Task:** Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`
+- **Verification / Test Status:** Milestone 1 `pytest` 7/7 | Milestone 2-5 `vitest` 5/5 & build PASSED
 
 ---
 
@@ -47,10 +47,10 @@
 - [x] Commit Milestone 4 (`feat(milestone-4): ...`)
 
 ## Milestone 5: Mobile Companion Web View (`/companion`) & Real-Time Sync
-- [ ] Build `CompanionView.tsx` (`/companion` responsive Live Remote Control, Couch Workout Builder, Send to Tonal, Strength History & PRs)
-- [ ] Wire dual-layout routing (`/`, `/companion`) in `App.tsx`
-- [ ] Verify TypeScript (`tsc --noEmit`) and production build (`npm run build`)
-- [ ] Commit Milestone 5 (`feat(milestone-5): ...`)
+- [x] Build `CompanionView.tsx` (`/companion` responsive Live Remote Control, Couch Workout Builder, Send to Tonal, Strength History & PRs)
+- [x] Wire dual-layout routing (`/`, `/companion`) in `App.tsx`
+- [x] Verify TypeScript (`tsc --noEmit`) and production build (`npm run build`)
+- [x] Commit Milestone 5 (`feat(milestone-5): ...`)
 
 ## Milestone 6: Dockerization, End-to-End Integration Verification, & Documentation
 - [ ] Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`

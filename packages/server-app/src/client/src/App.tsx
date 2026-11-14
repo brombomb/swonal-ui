@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { CompanionView } from './components/CompanionView';
 import { KioskView } from './components/KioskView';
 import { useSwonalState } from './hooks/useSwonalState';
 
@@ -26,11 +27,7 @@ export function App() {
   }, [isCompanion]);
 
   if (isCompanion) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <p className="text-lg font-bold">Companion View Loading (Milestone 5)...</p>
-      </div>
-    );
+    return <CompanionView swonal={swonal} />;
   }
 
   return (
