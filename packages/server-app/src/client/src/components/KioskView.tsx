@@ -453,11 +453,28 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
   return (
     <div
-      className={`relative w-[1080px] h-[1920px] flex flex-col justify-between p-7 select-none overflow-hidden transition-colors duration-300 ${
+      className={`relative swonal-canvas w-[1080px] h-[1920px] flex flex-col justify-between p-7 select-none overflow-hidden transition-colors duration-300 ${
         restSecondsRemaining > 0 ? 'rest-edge-glow' : ''
       }`}
-      style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
+      style={{ color: 'var(--text-primary)' }}
     >
+      {/* Subtle Industrial Dot-Grid Texture */}
+      <div
+        aria-hidden="true"
+        className="swonal-dot-grid absolute inset-0 opacity-[0.03] pointer-events-none z-0"
+      />
+      {/* Dynamic Ambient Profile Bloom */}
+      <div
+        aria-hidden="true"
+        className="absolute -top-32 -right-32 w-[680px] h-[680px] rounded-full blur-[140px] opacity-80 pointer-events-none z-0 transition-colors duration-500"
+        style={{ backgroundColor: 'var(--accent-muted)' }}
+      />
+      <div
+        aria-hidden="true"
+        className="absolute -bottom-44 -left-44 w-[520px] h-[520px] rounded-full blur-[140px] opacity-40 pointer-events-none z-0 transition-colors duration-500"
+        style={{ backgroundColor: 'var(--accent-muted)' }}
+      />
+
       {/* TOP STATUS BAR */}
       <header className="relative surface-card rounded-3xl px-6 py-4 flex items-center justify-between gap-4 z-30">
         {/* Household Profile Quick Switcher */}

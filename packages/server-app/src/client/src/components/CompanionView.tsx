@@ -341,9 +341,21 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
   return (
     <div
-      className="min-h-screen pb-24 transition-colors duration-300"
-      style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
+      className="relative swonal-canvas min-h-screen pb-24 overflow-x-hidden transition-colors duration-300"
+      style={{ color: 'var(--text-primary)' }}
     >
+      {/* Subtle Industrial Dot-Grid Texture */}
+      <div
+        aria-hidden="true"
+        className="swonal-dot-grid fixed inset-0 opacity-[0.03] pointer-events-none z-0"
+      />
+      {/* Dynamic Ambient Profile Bloom */}
+      <div
+        aria-hidden="true"
+        className="fixed -top-24 -right-24 w-[420px] h-[420px] rounded-full blur-[140px] opacity-80 pointer-events-none z-0 transition-colors duration-500"
+        style={{ backgroundColor: 'var(--accent-muted)' }}
+      />
+
       {/* Mobile-First Header */}
       <header className="sticky top-0 z-20 backdrop-blur-xl border-b px-4 py-3" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}>
         <div className="max-w-lg mx-auto w-full flex items-center justify-between gap-2">
