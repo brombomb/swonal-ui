@@ -1,10 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-- **Active Milestone:** Milestone 6 — Dockerization, End-to-End Integration Verification, & Documentation
-- **Last Completed Task:** Milestone 5 verified (`vitest` 5/5, `tsc --noEmit`, `vite build`, `esbuild` clean) & committed
-- **Next Immediate Task:** Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`
-- **Verification / Test Status:** Milestone 1 `pytest` 7/7 | Milestone 2-5 `vitest` 5/5 & build PASSED
+- **Active Milestone:** All Milestones Complete (Milestone 1 – Milestone 6)
+- **Last Completed Task:** Milestone 6 verified (`docker compose config`, `pytest` 7/7, `vitest` 5/5, `tsc --noEmit`, `vite build` + `esbuild`, `scripts/verify-e2e.mjs`) & committed
+- **Next Immediate Task:** None — Phase 1 and Phase 1.5 implementation complete
+- **Verification / Test Status:** ALL PASSED (`pytest` 7/7 | `vitest` 5/5 | `tsc --noEmit` 0 errors | `npm run build` clean | `verify-e2e.mjs` exited 0 | `docker compose config` OK)
 
 ---
 
@@ -53,8 +53,8 @@
 - [x] Commit Milestone 5 (`feat(milestone-5): ...`)
 
 ## Milestone 6: Dockerization, End-to-End Integration Verification, & Documentation
-- [ ] Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`
-- [ ] Write and run automated E2E verification script (`scripts/verify-e2e.mjs`)
-- [ ] Write comprehensive `README.md`
-- [ ] Run full test suites (`pytest`, `vitest`, `tsc --noEmit`, `npm run build`, E2E script) and verify clean git tree
-- [ ] Commit Milestone 6 (`feat(milestone-6): ...`)
+- [x] Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`
+- [x] Write and run automated E2E verification script (`scripts/verify-e2e.mjs`)
+- [x] Write comprehensive `README.md`
+- [x] Run full test suites (`pytest`, `vitest`, `tsc --noEmit`, `npm run build`, E2E script) and verify clean git tree
+- [x] Commit Milestone 6 (`feat(milestone-6): ...`)

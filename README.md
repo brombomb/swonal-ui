@@ -1,0 +1,152 @@
+# swonal-ui
+
+**Open-Source Workout Controller, Hardware Motor Bridge, Pluggable Music Hub, & MCP Server for Rooted Tonal V1**
+
+`swonal-ui` modernizes the rooted **Tonal 1 (V1)** smart home gym using a dual-tier architecture:
+1. **`packages/tonal-daemon`** (Python 3.11+, FastAPI, WebSockets on `:8765`) — Runs directly on the Tonal Android 6.0 host via Magisk `service.d`, bridging `/dev/ttyACM0` (`swolectl`), BLE Smart Handles/Bar (`bleak`), Stock <-> Custom Android mode switching, and the **Phase 1.5 Bar Tilt Safety Cutout** ("Auto-Unrack"). Includes a full 30Hz `--mock` hardware simulator for offline development.
+2. **`packages/server-app`** (Node.js 22, TypeScript, Express, WebSockets, Prisma + SQLite, React + Vite + Tailwind on `:3000`) — Runs on your local home server or Docker host, serving:
+   - **Portrait Kiosk UI (`/`)**: Optimized for the `1080x1920` Tonal touchscreen with Adaptive Dark (`Carbon Obsidian`) & Light (`Daylight Studio`) themes, per-user accent colors, `LB`/`KG` conversion, Partner "Work In" co-lifting rotation, 360px SVG load dial, arm position alignment guide, Web Audio cues with automatic music ducking, and Companion QR modal.
+   - **Mobile Companion View (`/companion`)**: Mobile-first responsive remote control, Couch Workout Builder (multi-block `WARMUP`, `STRAIGHT_SET`, `SUPERSET`, `CIRCUIT` routines), one-tap **Send to Tonal**, and PR/session history.
+   - **Pluggable Music Provider Architecture**: Adapter pattern (`IMusicProvider`) with full `SpotifyProvider` (OAuth 2.0 + `librespot` Connect + volume ducking + offline simulation) and community stubs for `YouTubeMusicProvider` and `AppleMusicProvider`.
+   - **Built-in Model Context Protocol (MCP) Server**: Exposes `/mcp/sse` (HTTP SSE) and `stdio` transports so AI assistants can inspect the 50-exercise catalog, read PRs/history, design routines, and queue workouts directly to the Tonal screen.
+
+---
+
+## Repository Structure
+
+```
+swonal-ui/
+├── docker-compose.yml
+├── .env.example
+├── PROGRESS.md
+├── DECISIONS.md
+├── scripts/
+│   └── verify-e2e.mjs
+└── packages/
+    ├── tonal-daemon/              # Python hardware daemon & --mock simulator (:8765)
+    │   ├── pyproject.toml
+    │   ├── Dockerfile
+    │   ├── config.example.yaml
+    │   ├── start-daemon.sh
+    │   ├── src/
+    │   │   ├── main.py
+    │   │   ├── motor_bridge.py
+    │   │   ├── mock_motor.py
+    │   │   ├── ble_handles.py
+    │   │   └── mode_switcher.py
+    │   └── tests/test_daemon.py
+    └── server-app/                # Node.js backend, Prisma SQLite, MCP, & React UI (:3000)
+        ├── Dockerfile
+        ├── package.json
+        ├── prisma/
+        │   ├── schema.prisma
+        │   └── seed.ts
+        ├── src/
+        │   ├── server/
+        │   │   ├── index.ts
+        │   │   ├── db.ts
+        │   │   ├── mcp/
+        │   │   ├── music/
+        │   │   ├── routes/
+        │   │   ├── services/
+        │   │   └── utils/units.ts
+        │   └── client/
+        │       └── src/
+        │           ├── App.tsx
+        │           ├── components/KioskView.tsx
+        │           ├── components/CompanionView.tsx
+        │           ├── hooks/useSwonalState.ts
+        │           └── utils/
+        └── tests/
+```
+
+---
+
+## Quickstart: Local Mock Development
+
+### 1. Start the Python Hardware Daemon (`--mock`)
+```bash
+cd packages/tonal-daemon
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/pytest -v
+.venv/bin/python -m src.main --mock
+```
+The daemon listens on `http://0.0.0.0:8765` (`/health`, `/ws`, `/api/mode/*`, `/api/mock/*`).
+
+### 2. Initialize Database, Build, & Start `server-app`
+```bash
+cd packages/server-app
+npm install
+cp ../../.env.example .env
+npx prisma db push
+npx tsx prisma/seed.ts
+npm test
+npm run typecheck
+npm run build
+npm start
+```
+Open:
+- **Portrait Kiosk UI:** `http://localhost:3000/`
+- **Mobile Companion Remote:** `http://localhost:3000/companion`
+- **MCP SSE Endpoint:** `http://localhost:3000/mcp/sse`
+
+### 3. Run the Full End-to-End Integration Verification Suite
+Ensure ports `8765` and `3000` are free, then run from the repository root:
+```bash
+node scripts/verify-e2e.mjs
+```
+This launches both `tonal-daemon --mock` and `server-app`, verifies REST APIs, 30Hz WebSocket telemetry, rep counting, simulated BLE events, Partner "Work In" rotation, the Phase 1.5 Bar Tilt Safety Cutout, music volume ducking, and `/mcp/sse`.
+
+---
+
+## Quickstart: Docker Compose (Full Mock Stack)
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+This launches:
+- `tonal-daemon-mock` on port `8765` (`MOCK_TONAL=true`)
+- `server-app` on port `3000` with persistent SQLite storage in volume `swonal-db-data:/data`
+
+To connect the Dockerized `server-app` to a **physical rooted Tonal V1 tablet** on your LAN, set `TONAL_DAEMON_URL=http://<TONAL_IP>:8765` and `TONAL_DAEMON_WS_URL=ws://<TONAL_IP>:8765/ws` in `.env` and start `server-app`:
+```bash
+docker compose up -d --no-deps --build server-app
+```
+
+---
+
+## Deploying `tonal-daemon` to Rooted Tonal V1
+
+1. Follow `RUNBOOK-Tonal V1 Rooting & On-Device Setup Guide.md` to root the MediaTek Android 6.0 host with Magisk and set up Termux/Python 3.11+.
+2. Copy `packages/tonal-daemon` to `/data/swonal/packages/tonal-daemon` on the tablet.
+3. Copy `config.example.yaml` to `config.yaml` and configure your Bluetooth MAC addresses (`handle_left_mac`, `handle_right_mac`, `bar_control_mac`) and `daemon.server_url`.
+4. Install the boot script into Magisk `service.d`:
+   ```sh
+   cp packages/tonal-daemon/start-daemon.sh /data/adb/service.d/99-swonal-daemon.sh
+   chmod +x /data/adb/service.d/99-swonal-daemon.sh
+   ```
+5. Reboot and verify `curl http://<TONAL_IP>:8765/health`.
+
+---
+
+## Configuration & Integration Reference
+
+### Canonical Units (`LB` / `KG`)
+- Motor resistance commands and SQLite records (`SetLog.weightLb`, `PersonalRecord.maxWeightLb`, `WorkoutTemplate.blocksJson[].items[].targetWeightLb`) always store canonical **pounds (`5.0–200.0 lb`)**.
+- Switching a user profile to `KG` dynamically converts UI dial values (`0.5 kg` / `2.5 kg` steps), PR charts, volume totals, and MCP `unit: "KG"` tool responses (`1 lb = 0.45359237 kg`).
+
+### Phase 1.5 Bar Tilt Safety Cutout
+- When `active_accessory == "BAR"` and `weight_enabled == True`, `MotorBridge._check_bar_tilt_safety()` monitors `abs(left_cable.position - right_cable.position)`.
+- If the delta exceeds `bar_tilt_threshold_delta` (default `35.0`) continuously for `bar_tilt_dwell_ms` (`250 ms`), resistance is immediately disabled and a `{"type": "safety_event", "reason": "BAR_TILT_CUTOUT"}` alert is broadcast to the UI.
+
+### Built-in MCP Server
+- **HTTP SSE:** Connect AI agents (Claude Desktop, Home Assistant, custom agents) to `http://<SERVER_IP>:3000/mcp/sse`.
+- **Stdio:** `npm --prefix packages/server-app run mcp:stdio`
+- **Resources:** `swonal://exercises/catalog`, `swonal://users/{userId}/profile-and-prs`, `swonal://users/{userId}/workouts`
+- **Tools:** `list_exercises`, `get_user_strength_history`, `create_custom_workout`, `update_workout_template`, `queue_workout_for_session`
+
+### Spotify & `librespot`
+- Configure `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REDIRECT_URI` in `.env`, then authorize via `GET /api/music/spotify/auth`.
+- Without Spotify credentials, `SpotifyProvider` operates in an interactive local simulation mode with `"Tonal Gym (librespot)"` device selection and automatic volume ducking (`duckVolume`) during set/PR audio cues.

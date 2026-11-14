@@ -1,0 +1,38 @@
+services:
+  tonal-daemon-mock:
+    build:
+      context: ./packages/tonal-daemon
+      dockerfile: Dockerfile
+    container_name: swonal-daemon-mock
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      - MOCK_TONAL=true
+      - DAEMON_PORT=8765
+
+  server-app:
+    build:
+      context: ./packages/server-app
+      dockerfile: Dockerfile
+    container_name: swonal-server
+    restart: unless-stopped
+    depends_on:
+      - tonal-daemon-mock
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=file:/data/swonal.db
+      - TONAL_DAEMON_URL=${TONAL_DAEMON_URL:-http://tonal-daemon-mock:8765}
+      - TONAL_DAEMON_WS_URL=${TONAL_DAEMON_WS_URL:-ws://tonal-daemon-mock:8765/ws}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://localhost:3000/api/music/spotify/callback}
+    volumes:
+      - swonal-db-data:/data
+
+volumes:
+  swonal-db-data:
+    driver: local
