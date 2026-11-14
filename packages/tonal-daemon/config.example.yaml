@@ -1,0 +1,26 @@
+daemon:
+  host: "0.0.0.0"
+  port: 8765
+  mock_mode: false
+  watchdog_timeout_sec: 5.0
+  server_url: "http://192.168.1.100:3000"
+
+serial:
+  port: "/dev/ttyACM0"
+  baudrate: 115200
+  expected_board: "501-0100_rev004"
+  expected_firmware: "5.2.18.0"
+
+safety:
+  allow_motor_commands: true
+  minimum_resistance_lb: 5.0
+  maximum_resistance_lb: 200.0
+  bar_tilt_cutoff_enabled: true
+  bar_tilt_threshold_delta: 35.0
+  bar_tilt_dwell_ms: 250
+
+bluetooth:
+  handle_left_mac: "AA:BB:CC:DD:EE:01"
+  handle_right_mac: "AA:BB:CC:DD:EE:02"
+  bar_control_mac: "AA:BB:CC:DD:EE:03"
+  gatt_characteristic_uuid: "00002a37-0000-1000-8000-00805f9b34fb"

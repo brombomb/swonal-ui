@@ -1,0 +1,60 @@
+# swonal-ui Implementation Progress
+
+## Current Status
+- **Active Milestone:** Milestone 2 — Database Layer, Seed Catalog, & Pluggable Music Provider Architecture
+- **Last Completed Task:** Milestone 1 verified (`pytest`: 7 passed in 1.60s) & committed
+- **Next Immediate Task:** Initialize `packages/server-app` (`package.json` with Prisma `^5.22.0`, `tsconfig.json`, `.env`)
+- **Verification / Test Status:** Milestone 1 `pytest` 7/7 PASSED
+
+---
+
+## Step 0: Persistent Record & Task Keeping Protocol
+- [x] Create `.gitignore`
+- [x] Create `PROGRESS.md`
+- [x] Create `DECISIONS.md`
+
+## Milestone 1: Monorepo Scaffolding, Python `packages/tonal-daemon`, & Mock Hardware Engine
+- [x] Scaffold `packages/tonal-daemon` directory, `pyproject.toml`, `config.example.yaml`, and `start-daemon.sh`
+- [x] Implement `packages/tonal-daemon/src/mock_motor.py` (30Hz sine-wave cable pulls, dynamic modes, rep counting, arm positions, bar tilt injection)
+- [x] Implement `packages/tonal-daemon/src/motor_bridge.py` (`swolectl` wrapper, safety bounds `5-200 lb`, heartbeat watchdog, Phase 1.5 `_check_bar_tilt_safety`)
+- [x] Implement `packages/tonal-daemon/src/ble_handles.py` (`bleak` BLE Smart Handles/Bar listener + single/double/long press + mock simulation)
+- [x] Implement `packages/tonal-daemon/src/mode_switcher.py` (Stock <-> Custom Android handoff via `su` / mock transitions)
+- [x] Implement `packages/tonal-daemon/src/main.py` (FastAPI + WebSocket hub on `:8765`, REST endpoints, mock debug endpoints)
+- [x] Write and verify `packages/tonal-daemon/tests/test_daemon.py` (`pytest`)
+- [x] Commit Milestone 1 (`feat(milestone-1): ...`)
+
+## Milestone 2: Database Layer, Seed Catalog, & Pluggable Music Provider Architecture
+- [ ] Initialize `packages/server-app` (`package.json` with Prisma `^5.22.0`, `tsconfig.json`, `.env`)
+- [ ] Implement `packages/server-app/prisma/schema.prisma` (canonical `lb` storage) and run `prisma db push`
+- [ ] Implement `packages/server-app/prisma/seed.ts` (48 exercises, Jeri & Rob profiles, PRs, templates) and run seed
+- [ ] Implement `src/server/db.ts` and `src/server/utils/units.ts` (`LB` <-> `KG` conversion)
+- [ ] Implement Pluggable Music Provider Architecture (`MusicProvider.ts`, `Registry.ts`, `SpotifyProvider.ts`, `YouTubeMusicProvider.ts`, `AppleMusicProvider.ts`)
+- [ ] Write and verify Milestone 2 unit tests (`vitest`)
+- [ ] Commit Milestone 2 (`feat(milestone-2): ...`)
+
+## Milestone 3: Built-in Model Context Protocol (MCP) Server Layer
+- [ ] Implement `src/server/mcp/mcpServer.ts` (3 resources & 5 tools with `LB`/`KG` conversion, HTTP SSE + `stdio`)
+- [ ] Implement `src/server/index.ts` and REST/WebSocket proxy routes (daemon WS relay, session state sync, partner rotation, music & daemon REST proxies, `/mcp/sse`)
+- [ ] Write and verify Milestone 3 MCP & API unit tests (`vitest`)
+- [ ] Commit Milestone 3 (`feat(milestone-3): ...`)
+
+## Milestone 4: Athletic Design System & 1080x1920 Portrait Kiosk UI (`/`)
+- [ ] Configure Vite, Tailwind CSS, and Adaptive Theme Engine (`[data-theme="dark"]`, `[data-theme="light"]`, dynamic user accent CSS vars)
+- [ ] Implement Web Audio synthesized workout sound engine (`soundEngine.ts`) with music ducking
+- [ ] Implement `useSwonalState.ts` real-time state, telemetry, partner rotation, and unit hook
+- [ ] Build `KioskView.tsx` (`1080x1920` Top Status Bar, Center Workout Stage with 360px SVG dial, ROM bars, Arm Position Guide, Routine Selector, Mock Diagnostic Drawer, Persistent Music Dock)
+- [ ] Verify TypeScript (`tsc --noEmit`) and production frontend build (`npm run build`)
+- [ ] Commit Milestone 4 (`feat(milestone-4): ...`)
+
+## Milestone 5: Mobile Companion Web View (`/companion`) & Real-Time Sync
+- [ ] Build `CompanionView.tsx` (`/companion` responsive Live Remote Control, Couch Workout Builder, Send to Tonal, Strength History & PRs)
+- [ ] Wire dual-layout routing (`/`, `/companion`) in `App.tsx`
+- [ ] Verify TypeScript (`tsc --noEmit`) and production build (`npm run build`)
+- [ ] Commit Milestone 5 (`feat(milestone-5): ...`)
+
+## Milestone 6: Dockerization, End-to-End Integration Verification, & Documentation
+- [ ] Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`
+- [ ] Write and run automated E2E verification script (`scripts/verify-e2e.mjs`)
+- [ ] Write comprehensive `README.md`
+- [ ] Run full test suites (`pytest`, `vitest`, `tsc --noEmit`, `npm run build`, E2E script) and verify clean git tree
+- [ ] Commit Milestone 6 (`feat(milestone-6): ...`)

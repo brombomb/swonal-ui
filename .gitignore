@@ -1,0 +1,25 @@
+# Dependencies & Virtual Environments
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build Outputs
+dist/
+packages/server-app/dist/
+packages/tonal-daemon/*.egg-info/
+
+# Local Databases & Environment Files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+packages/server-app/.env
+packages/server-app/data/
+packages/tonal-daemon/config.yaml
+
+# Logs & OS Files
+*.log
+.DS_Store
