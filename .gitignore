@@ -18,6 +18,7 @@ packages/tonal-daemon/*.egg-info/
 .env
 packages/server-app/.env
 packages/server-app/data/
+packages/server-app/prisma/data/
 packages/tonal-daemon/config.yaml
 
 # Logs & OS Files

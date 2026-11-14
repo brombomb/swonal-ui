@@ -15,3 +15,7 @@
 
 ## 4. Phase 1.5 Bar Tilt Safety Cutout
 - `_check_bar_tilt_safety` triggers only when `bar_tilt_cutoff_enabled == True`, `weight_enabled == True`, `active_accessory == "BAR"`, and `abs(left_pos - right_pos) > bar_tilt_threshold_delta` (default `35.0`) continuously for at least `bar_tilt_dwell_ms` (default `250 ms`). Upon triggering, it disables resistance immediately and broadcasts `{"type": "safety_event", "reason": "BAR_TILT_CUTOUT", "delta": ...}` over WebSocket.
+
+## 5. MCP SDK + Zod TypeScript Compilation & Server Bundling
+- `@modelcontextprotocol/sdk` v1.32.2 paired with `zod@3.25.76` exposes dual `zod/v3` + `zod/v4` compatibility union generics on `McpServer.registerTool`, which caused exponential TypeScript type instantiation (OOM at 4GB) when passing nested Zod schemas directly. Wrapping registration inside `registerZodTool<S extends z.ZodObject<z.ZodRawShape>>` in `src/server/mcp/mcpServer.ts` preserves full runtime Zod parsing and handler parameter typing while keeping `tsc --noEmit` under 2 seconds.
+- `build:server` uses `esbuild` (`--bundle --platform=node --target=node22 --packages=external`) to emit `dist/server/index.js` and `dist/server/stdio.js` cleanly in <100ms while `npm run typecheck` (`tsc --noEmit`) validates all TypeScript sources across `src/server` and `src/client`.

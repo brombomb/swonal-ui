@@ -8,7 +8,7 @@
     "dev:client": "vite",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
-    "build:server": "tsc -p tsconfig.server.json",
+    "build:server": "esbuild src/server/index.ts src/server/mcp/stdio.ts --bundle --platform=node --target=node22 --outdir=dist/server --packages=external",
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -1,10 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-- **Active Milestone:** Milestone 3 — Built-in Model Context Protocol (MCP) Server Layer
-- **Last Completed Task:** Milestone 2 verified (`vitest`: 3 passed, `tsc --noEmit` clean) & committed
-- **Next Immediate Task:** Implement `src/server/mcp/mcpServer.ts` (3 resources & 5 tools, HTTP SSE + `stdio`)
-- **Verification / Test Status:** Milestone 1 `pytest` 7/7 PASSED | Milestone 2 `vitest` 3/3 PASSED
+- **Active Milestone:** Milestone 4 — Athletic Design System & 1080x1920 Portrait Kiosk UI (`/`)
+- **Last Completed Task:** Milestone 3 verified (`vitest`: 5/5 passed, `tsc --noEmit` & `esbuild` clean) & committed
+- **Next Immediate Task:** Configure Vite, Tailwind CSS, and Adaptive Theme Engine (`[data-theme="dark"]`, `[data-theme="light"]`, dynamic user accent CSS vars)
+- **Verification / Test Status:** Milestone 1 `pytest` 7/7 PASSED | Milestone 2 & 3 `vitest` 5/5 PASSED
 
 ---
 
@@ -33,10 +33,10 @@
 - [x] Commit Milestone 2 (`feat(milestone-2): ...`)
 
 ## Milestone 3: Built-in Model Context Protocol (MCP) Server Layer
-- [ ] Implement `src/server/mcp/mcpServer.ts` (3 resources & 5 tools with `LB`/`KG` conversion, HTTP SSE + `stdio`)
-- [ ] Implement `src/server/index.ts` and REST/WebSocket proxy routes (daemon WS relay, session state sync, partner rotation, music & daemon REST proxies, `/mcp/sse`)
-- [ ] Write and verify Milestone 3 MCP & API unit tests (`vitest`)
-- [ ] Commit Milestone 3 (`feat(milestone-3): ...`)
+- [x] Implement `src/server/mcp/mcpServer.ts` (3 resources & 5 tools with `LB`/`KG` conversion, HTTP SSE + `stdio`)
+- [x] Implement `src/server/index.ts` and REST/WebSocket proxy routes (daemon WS relay, session state sync, partner rotation, music & daemon REST proxies, `/mcp/sse`)
+- [x] Write and verify Milestone 3 MCP & API unit tests (`vitest`)
+- [x] Commit Milestone 3 (`feat(milestone-3): ...`)
 
 ## Milestone 4: Athletic Design System & 1080x1920 Portrait Kiosk UI (`/`)
 - [ ] Configure Vite, Tailwind CSS, and Adaptive Theme Engine (`[data-theme="dark"]`, `[data-theme="light"]`, dynamic user accent CSS vars)
