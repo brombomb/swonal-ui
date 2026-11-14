@@ -1,10 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-- **Active Milestone:** Milestone 2 — Database Layer, Seed Catalog, & Pluggable Music Provider Architecture
-- **Last Completed Task:** Milestone 1 verified (`pytest`: 7 passed in 1.60s) & committed
-- **Next Immediate Task:** Initialize `packages/server-app` (`package.json` with Prisma `^5.22.0`, `tsconfig.json`, `.env`)
-- **Verification / Test Status:** Milestone 1 `pytest` 7/7 PASSED
+- **Active Milestone:** Milestone 3 — Built-in Model Context Protocol (MCP) Server Layer
+- **Last Completed Task:** Milestone 2 verified (`vitest`: 3 passed, `tsc --noEmit` clean) & committed
+- **Next Immediate Task:** Implement `src/server/mcp/mcpServer.ts` (3 resources & 5 tools, HTTP SSE + `stdio`)
+- **Verification / Test Status:** Milestone 1 `pytest` 7/7 PASSED | Milestone 2 `vitest` 3/3 PASSED
 
 ---
 
@@ -24,13 +24,13 @@
 - [x] Commit Milestone 1 (`feat(milestone-1): ...`)
 
 ## Milestone 2: Database Layer, Seed Catalog, & Pluggable Music Provider Architecture
-- [ ] Initialize `packages/server-app` (`package.json` with Prisma `^5.22.0`, `tsconfig.json`, `.env`)
-- [ ] Implement `packages/server-app/prisma/schema.prisma` (canonical `lb` storage) and run `prisma db push`
-- [ ] Implement `packages/server-app/prisma/seed.ts` (48 exercises, Jeri & Rob profiles, PRs, templates) and run seed
-- [ ] Implement `src/server/db.ts` and `src/server/utils/units.ts` (`LB` <-> `KG` conversion)
-- [ ] Implement Pluggable Music Provider Architecture (`MusicProvider.ts`, `Registry.ts`, `SpotifyProvider.ts`, `YouTubeMusicProvider.ts`, `AppleMusicProvider.ts`)
-- [ ] Write and verify Milestone 2 unit tests (`vitest`)
-- [ ] Commit Milestone 2 (`feat(milestone-2): ...`)
+- [x] Initialize `packages/server-app` (`package.json` with Prisma `^5.22.0`, `tsconfig.json`, `.env`)
+- [x] Implement `packages/server-app/prisma/schema.prisma` (canonical `lb` storage) and run `prisma db push`
+- [x] Implement `packages/server-app/prisma/seed.ts` (48+ exercises, Jeri & Rob profiles, PRs, templates) and run seed
+- [x] Implement `src/server/db.ts` and `src/server/utils/units.ts` (`LB` <-> `KG` conversion)
+- [x] Implement Pluggable Music Provider Architecture (`MusicProvider.ts`, `Registry.ts`, `SpotifyProvider.ts`, `YouTubeMusicProvider.ts`, `AppleMusicProvider.ts`)
+- [x] Write and verify Milestone 2 unit tests (`vitest`)
+- [x] Commit Milestone 2 (`feat(milestone-2): ...`)
 
 ## Milestone 3: Built-in Model Context Protocol (MCP) Server Layer
 - [ ] Implement `src/server/mcp/mcpServer.ts` (3 resources & 5 tools with `LB`/`KG` conversion, HTTP SSE + `stdio`)

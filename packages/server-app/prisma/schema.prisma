@@ -1,0 +1,105 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                     String             @id @default(uuid())
+  name                   String
+  avatarColor            String             @default("#3B82F6")
+  preferredMusicProvider String             @default("spotify")
+  themeMode              String             @default("dark") // "dark" | "light" | "system"
+  accentColor            String             @default("#00F0FF") // Custom hex accent color per user
+  weightUnit             String             @default("LB") // "LB" | "KG"
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  musicIntegrations      MusicIntegration[]
+  templates              WorkoutTemplate[]
+  sessions               WorkoutSession[]
+  personalRecords        PersonalRecord[]
+}
+
+model MusicIntegration {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String   // "spotify" | "youtube_music" | "apple_music" | "amazon_music"
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiry       Int?
+  preferredDeviceId String?
+  metadataJson      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, provider])
+}
+
+model Exercise {
+  id                  String           @id @default(uuid())
+  name                String           @unique
+  muscleGroup         String
+  accessory           String           @default("HANDLES") // HANDLES, BAR, ROPE, BODYWEIGHT
+  recommendedHeight   Int              @default(4)
+  recommendedRotation Int              @default(2)
+  recommendedAngle    Int              @default(1)
+  unilateral          Boolean          @default(false)
+  notes               String?
+  setLogs             SetLog[]
+  personalRecords     PersonalRecord[]
+}
+
+model WorkoutTemplate {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  blocksJson  String           // JSON serialized structured layout of warmups, supersets, and blocks
+  createdAt   DateTime         @default(now())
+  sessions    WorkoutSession[]
+}
+
+model WorkoutSession {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templateId  String?
+  template    WorkoutTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  startedAt   DateTime         @default(now())
+  completedAt DateTime?
+  totalVolume Float            @default(0.0)
+  setLogs     SetLog[]
+}
+
+model SetLog {
+  id            String         @id @default(uuid())
+  sessionId     String
+  session       WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exerciseId    String
+  exercise      Exercise       @relation(fields: [exerciseId], references: [id])
+  setNumber     Int
+  mode          String         @default("standard") // standard, eccentric, chains, spotter, burnout
+  weightLb      Float
+  repsCompleted Int
+  volumeLb      Float
+  rpe           Float?
+  timestamp     DateTime       @default(now())
+}
+
+model PersonalRecord {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId   String
+  exercise     Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  oneRepMaxEst Float
+  maxWeightLb  Float
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, exerciseId])
+}
