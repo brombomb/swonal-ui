@@ -1499,9 +1499,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
               <p className="text-sm opacity-70 truncate">
-                {musicState.artistName} •{' '}
-                {devices.find((d) => d.id === musicState.activeDeviceId)?.name ??
-                  'Tonal Gym (librespot)'}
+                {musicState.isConnected
+                  ? `${musicState.artistName} • ${
+                      devices.find((d) => d.id === musicState.activeDeviceId)?.name ??
+                      'No active device'
+                    }`
+                  : 'Connect a music service to play'}
               </p>
               <div className="w-64 h-1.5 rounded-full elevated-pill mt-2 overflow-hidden">
                 <div
@@ -1519,19 +1522,21 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           <div className="flex items-center gap-5">
             <button
               type="button"
+              disabled={!musicState.isConnected}
               onClick={() => void previousTrack()}
-              className="p-2.5 rounded-xl elevated-pill hover:opacity-80 transition"
+              className="p-2.5 rounded-xl elevated-pill hover:opacity-80 transition disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Previous Track"
             >
               <Rewind size={22} />
             </button>
             <button
               type="button"
+              disabled={!musicState.isConnected}
               onClick={() => void toggleMusicPlay()}
-              className="w-14 h-14 rounded-full flex items-center justify-center text-slate-950 transition hover:scale-105"
+              className="w-14 h-14 rounded-full flex items-center justify-center text-slate-950 transition hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               style={{
                 backgroundColor: 'var(--accent-primary)',
-                boxShadow: '0 0 22px var(--accent-glow)',
+                boxShadow: musicState.isConnected ? '0 0 22px var(--accent-glow)' : 'none',
               }}
               aria-label={musicState.isPlaying ? 'Pause Music' : 'Play Music'}
             >
@@ -1543,8 +1548,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </button>
             <button
               type="button"
+              disabled={!musicState.isConnected}
               onClick={() => void nextTrack()}
-              className="p-2.5 rounded-xl elevated-pill hover:opacity-80 transition"
+              className="p-2.5 rounded-xl elevated-pill hover:opacity-80 transition disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Next Track"
             >
               <FastForward size={22} />
@@ -2154,8 +2160,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Connect Audio Devices */}
           <div>
             <p className="text-xs uppercase tracking-widest font-bold opacity-70 mb-2">
-              Output Devices (librespot / Connect)
+              Output Devices
             </p>
+            {devices.length === 0 ? (
+              <p className="text-sm opacity-70 elevated-pill rounded-2xl p-4">
+                {musicState.isConnected
+                  ? 'No active playback devices found. Open your music app on a speaker or phone.'
+                  : 'Connect a music service to play and select output devices.'}
+              </p>
+            ) : (
             <div className="grid grid-cols-2 gap-3">
               {devices.map((dev) => (
                 <button
@@ -2185,6 +2198,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </button>
               ))}
             </div>
+            )}
           </div>
 
           {/* Playlists */}
@@ -2192,6 +2206,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <p className="text-xs uppercase tracking-widest font-bold opacity-70 mb-2">
               Workout Playlists
             </p>
+            {playlists.length === 0 ? (
+              <p className="text-sm opacity-70 elevated-pill rounded-2xl p-4">
+                {musicState.isConnected
+                  ? 'No playlists found on your account.'
+                  : 'Connect a music service to load your playlists.'}
+              </p>
+            ) : (
             <div className="space-y-2">
               {playlists.map((pl) => (
                 <button
@@ -2211,6 +2232,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </button>
               ))}
             </div>
+            )}
           </div>
         </div>
       </dialog>

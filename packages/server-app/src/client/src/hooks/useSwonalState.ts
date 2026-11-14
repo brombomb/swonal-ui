@@ -141,12 +141,13 @@ export function useSwonalState() {
   const [musicProviders, setMusicProviders] = useState<MusicProviderMeta[]>([]);
   const [musicState, setMusicState] = useState<MusicPlaybackState>({
     isPlaying: false,
-    trackName: 'Heavy Workout Mix',
-    artistName: 'Librespot',
-    albumName: 'Tonal Gym Speaker',
+    trackName: 'Music Service Not Connected',
+    artistName: 'Connect a music service to play',
+    albumName: '',
     progressMs: 0,
-    durationMs: 200000,
+    durationMs: 0,
     volumePct: 72,
+    isConnected: false,
   });
   const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
   const [devices, setDevices] = useState<MusicDevice[]>([]);

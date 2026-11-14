@@ -776,29 +776,36 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                         </span>
                       )}
                     </div>
-                    <p className="text-xs opacity-70 truncate">{musicState.artistName}</p>
+                    <p className="text-xs opacity-70 truncate">
+                      {musicState.isConnected
+                        ? musicState.artistName
+                        : 'Connect a music service to play'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    disabled={!musicState.isConnected}
                     onClick={() => void previousTrack()}
-                    className="elevated-pill p-2.5 rounded-xl"
+                    className="elevated-pill p-2.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Rewind size={18} />
                   </button>
                   <button
                     type="button"
+                    disabled={!musicState.isConnected}
                     onClick={() => void toggleMusicPlay()}
-                    className="w-11 h-11 rounded-full flex items-center justify-center"
+                    className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
                   >
                     {musicState.isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
                   </button>
                   <button
                     type="button"
+                    disabled={!musicState.isConnected}
                     onClick={() => void nextTrack()}
-                    className="elevated-pill p-2.5 rounded-xl"
+                    className="elevated-pill p-2.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <FastForward size={18} />
                   </button>

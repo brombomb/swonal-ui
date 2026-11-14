@@ -56,7 +56,7 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
     expect(blockTypes.has('CIRCUIT')).toBe(true);
   });
 
-  it('exercises MusicProviderRegistry, SpotifyProvider playback, device transfer, and volume ducking', async () => {
+  it('exercises MusicProviderRegistry and requires Spotify connection before playback', async () => {
     const providers = musicRegistry.list();
     expect(providers.map((p) => p.id)).toEqual(
       expect.arrayContaining(['spotify', 'youtube_music', 'apple_music', 'amazon_music', 'plexamp'])
@@ -65,38 +65,17 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
     const spotify = musicRegistry.get('spotify');
     const userId = DEFAULT_USERS.JERI_ID;
 
-    const authUrl = await spotify.getAuthUrl(userId);
-    expect(authUrl).toContain('spotify');
-
-    await spotify.setVolume(userId, 80);
-    await spotify.play(userId);
-    const playingState = await spotify.getPlaybackState(userId);
-    expect(playingState.isPlaying).toBe(true);
-    const firstTrack = playingState.trackName;
-
-    await spotify.nextTrack(userId);
-    const nextState = await spotify.getPlaybackState(userId);
-    expect(nextState.trackName).not.toBe(firstTrack);
+    const disconnectedState = await spotify.getPlaybackState(userId);
+    expect(disconnectedState.isConnected).toBe(false);
+    expect(disconnectedState.isPlaying).toBe(false);
+    expect(disconnectedState.artistName).toContain('Connect a music service to play');
 
     const playlists = await spotify.getPlaylists(userId);
-    expect(playlists.length).toBeGreaterThanOrEqual(3);
+    expect(playlists).toEqual([]);
 
     const devices = await spotify.getDevices(userId);
-    expect(devices.some((d) => d.name.includes('librespot'))).toBe(true);
+    expect(devices).toEqual([]);
 
-    await spotify.transferPlayback(userId, 'gym-sonos-02');
-    const updatedState = await spotify.getPlaybackState(userId);
-    expect(updatedState.activeDeviceId).toBe('gym-sonos-02');
-
-    // Duck volume to 25% for 150ms, verify immediate duck and restore after 220ms
-    await spotify.duckVolume(userId, 25, 150);
-    const duckedState = await spotify.getPlaybackState(userId);
-    expect(duckedState.volumePct).toBe(25);
-    expect(duckedState.isDucked).toBe(true);
-
-    await new Promise((r) => setTimeout(r, 220));
-    const restoredState = await spotify.getPlaybackState(userId);
-    expect(restoredState.volumePct).toBe(80);
-    expect(restoredState.isDucked).toBe(false);
+    await expect(spotify.play(userId)).rejects.toThrow('must be connected');
   });
 });
