@@ -916,6 +916,8 @@ export function useSwonalState() {
     currentStepIdx,
     restSecondsRemaining,
     musicProviders,
+    musicConfigured:
+      musicProviders.some((p) => p.configured) || Boolean(musicState.isConnected),
     musicState,
     playlists,
     devices,

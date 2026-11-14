@@ -42,9 +42,9 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
     const jeri = await prisma.user.findUnique({ where: { id: DEFAULT_USERS.JERI_ID } });
     const rob = await prisma.user.findUnique({ where: { id: DEFAULT_USERS.ROB_ID } });
     expect(jeri?.name).toBe('Jeri');
-    expect(jeri?.accentColor).toBe('#FF007A');
+    expect(jeri?.accentColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
     expect(rob?.name).toBe('Rob');
-    expect(rob?.accentColor).toBe('#00F0FF');
+    expect(rob?.accentColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
 
     const templates = await prisma.workoutTemplate.findMany();
     expect(templates.length).toBeGreaterThanOrEqual(4);

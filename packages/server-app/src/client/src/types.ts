@@ -145,6 +145,7 @@ export interface SharedSessionState {
 export interface MusicProviderMeta {
   id: string;
   displayName: string;
+  configured?: boolean;
   capabilities: {
     supportsConnectDevices: boolean;
     supportsVolumeDucking: boolean;

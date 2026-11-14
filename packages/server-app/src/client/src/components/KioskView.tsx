@@ -10,6 +10,7 @@ import {
   Dumbbell,
   FastForward,
   Gauge,
+  Info,
   Key,
   ListMusic,
   Mic,
@@ -99,6 +100,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     currentStepIdx,
     restSecondsRemaining,
     musicProviders,
+    musicConfigured,
     musicState,
     playlists,
     devices,
@@ -132,6 +134,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const mockDialogRef = useRef<HTMLDialogElement>(null);
   const musicDialogRef = useRef<HTMLDialogElement>(null);
   const aiDialogRef = useRef<HTMLDialogElement>(null);
+  const diagnosticsDialogRef = useRef<HTMLDialogElement>(null);
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [libraryTab, setLibraryTab] = useState<'routines' | 'exercises'>('routines');
@@ -145,6 +148,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [showDemoPip, setShowDemoPip] = useState(true);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
+  const [showArmInfo, setShowArmInfo] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
   const [coachConfig, setCoachConfig] = useState<AiCoachPublicConfig | null>(null);
   const [coachPrompt, setCoachPrompt] = useState('');
@@ -591,6 +595,31 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <Palette size={17} style={{ color: 'var(--accent-primary)' }} />
                   <span>Accent Color &amp; Profiles</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickSettings(false);
+                    aiDialogRef.current?.showModal();
+                  }}
+                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                >
+                  <Key size={17} style={{ color: 'var(--accent-primary)' }} />
+                  <span>AI Voice Coach (BYOK)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickSettings(false);
+                    void refreshCalibration();
+                    diagnosticsDialogRef.current?.showModal();
+                  }}
+                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                >
+                  <Database size={17} style={{ color: 'var(--accent-primary)' }} />
+                  <span>Session Export &amp; Diagnostics</span>
+                </button>
               </div>
             )}
           </div>
@@ -794,9 +823,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
 
           <div className="flex flex-col items-end gap-3 shrink-0">
-            {/* Arm Position Guide Badge */}
+            {/* Arm Position Guide Badge + H/R/A Info Bubble */}
             {activeExercise && (
-              <div className="flex items-center gap-2.5">
+              <div className="relative flex items-center gap-2.5">
                 <div
                   className={`px-5 py-3 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 ${
                     armsAligned
@@ -810,7 +839,28 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     R{activeExercise.recommendedRotation} A{activeExercise.recommendedAngle} •{' '}
                     {activeExercise.accessory}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowArmInfo((v) => !v)}
+                    aria-label="Explain Arm Position Codes"
+                    className="ml-1 opacity-75 hover:opacity-100"
+                  >
+                    <Info size={16} />
+                  </button>
                 </div>
+                {showArmInfo && (
+                  <div className="absolute right-0 top-14 w-80 surface-card rounded-2xl p-4 shadow-2xl border text-xs space-y-1.5 z-40">
+                    <div className="flex items-center justify-between font-bold uppercase tracking-wider opacity-75">
+                      <span>Arm Position Guide</span>
+                      <button type="button" onClick={() => setShowArmInfo(false)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <p><strong>H (Height):</strong> Vertical rail notch (1 low – 6 high)</p>
+                    <p><strong>R (Rotation):</strong> Horizontal arm swing (1 – 3)</p>
+                    <p><strong>A (Angle):</strong> Pivot angle tilt (1 – 2)</p>
+                  </div>
+                )}
                 {!armsAligned && (
                   <button
                     type="button"
@@ -1290,8 +1340,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
             </div>
 
-            {/* 3. Voice Coach & BYOK AI */}
-            <div className="surface-card rounded-3xl p-5 space-y-3">
+            {/* 3. Voice Coach (Full Width — BYOK AI Settings live in Quick Settings) */}
+            <div className="col-span-2 surface-card rounded-3xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Bot size={20} style={{ color: 'var(--accent-primary)' }} />
@@ -1299,24 +1349,23 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     Voice Coach ({coachConfig?.provider.toUpperCase() ?? 'LOCAL'})
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => aiDialogRef.current?.showModal()}
-                  className="elevated-pill px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5"
-                >
-                  <Key size={14} style={{ color: 'var(--accent-primary)' }} />
-                  <span>BYOK AI Key</span>
-                </button>
+                <span className="text-xs font-mono opacity-65">
+                  Configure AI Provider in Settings ⚙
+                </span>
               </div>
-              <p className="text-sm font-medium opacity-85 line-clamp-2 min-h-[40px]">{coachReply}</p>
+              <p className="text-sm font-medium opacity-85 line-clamp-2">{coachReply}</p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={startVoiceListening}
                   className={`px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-1.5 shrink-0 ${
-                    isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-950'
+                    isListening ? 'bg-red-500 text-white animate-pulse' : ''
                   }`}
-                  style={!isListening ? { backgroundColor: 'var(--accent-primary)' } : undefined}
+                  style={
+                    !isListening
+                      ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                      : undefined
+                  }
                 >
                   {isListening ? <MicOff size={18} /> : <Mic size={18} />}
                   <span>{isListening ? 'Listening' : 'Speak'}</span>
@@ -1360,58 +1409,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
             </div>
-
-            {/* 4. Session Volume, Export & DB Backup */}
-            <div className="surface-card rounded-3xl p-5 flex flex-col justify-between space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <h3 className="font-black text-base uppercase tracking-wider">
-                    Session &amp; Diagnostics
-                  </h3>
-                </div>
-                <span className="font-mono tabular-nums text-sm font-bold opacity-75">
-                  {sessions.length} Recent Sessions
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between font-mono tabular-nums">
-                <div>
-                  <p className="text-xs uppercase opacity-65">Last Session Volume</p>
-                  <p className="text-3xl font-black">
-                    {formatDisplayWeight(sessions[0]?.totalVolume ?? 0, activeUnit)} {activeUnit}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs uppercase opacity-65">Cable Calibration</p>
-                  <p className="text-sm font-bold text-emerald-400">
-                    L {calibrationStatus?.zero_offsets?.left ?? 0} / R{' '}
-                    {calibrationStatus?.zero_offsets?.right ?? 0}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <a
-                  href={`/api/export/sessions.csv?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
-                  className="flex-1 elevated-pill py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90"
-                >
-                  <Download size={16} />
-                  <span>Export CSV</span>
-                </a>
-                <a
-                  href="/api/admin/backup/db"
-                  className="flex-1 elevated-pill py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90"
-                >
-                  <Database size={16} />
-                  <span>Backup SQLite</span>
-                </a>
-              </div>
-            </div>
           </div>
         </section>
       </main>
 
-      {/* PERSISTENT BOTTOM MUSIC DOCK */}
-      <footer className="surface-card rounded-3xl px-6 py-5 mt-3">
+      {/* PERSISTENT BOTTOM MUSIC DOCK (Shown only when a music provider is configured) */}
+      {musicConfigured && (
+        <footer className="surface-card rounded-3xl px-6 py-5 mt-3">
         <div className="flex items-center justify-between gap-6">
           {/* Track Metadata */}
           <div className="flex items-center gap-4 min-w-0 flex-1">
@@ -1532,6 +1536,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
         </div>
       </footer>
+      )}
 
       {/* DIALOG 1: COMPANION QR CODE */}
       <dialog
@@ -2246,11 +2251,85 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           <button
             type="button"
             onClick={() => void saveCoachConfig()}
-            className="w-full py-3.5 rounded-2xl font-black text-slate-950"
-            style={{ backgroundColor: 'var(--accent-primary)' }}
+            className="w-full py-3.5 rounded-2xl font-black"
+            style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
           >
             Save AI Coach Settings
           </button>
+        </div>
+      </dialog>
+
+      {/* DIALOG 8: SESSION EXPORT, BACKUP & DIAGNOSTICS */}
+      <dialog
+        ref={diagnosticsDialogRef}
+        closedby="any"
+        aria-labelledby="diag-dialog-title"
+        className="rounded-3xl p-8 max-w-lg w-full"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <Activity size={22} style={{ color: 'var(--accent-primary)' }} />
+            <h2 id="diag-dialog-title" className="text-2xl font-black">
+              Session Export &amp; Diagnostics
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => diagnosticsDialogRef.current?.close()}
+            className="elevated-pill p-2 rounded-xl"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="elevated-pill rounded-2xl p-4 flex items-center justify-between font-mono tabular-nums">
+            <div>
+              <p className="text-xs uppercase opacity-65">Last Session Volume</p>
+              <p className="text-2xl font-black">
+                {formatDisplayWeight(sessions[0]?.totalVolume ?? 0, activeUnit)} {activeUnit}
+              </p>
+              <p className="text-xs opacity-70">{sessions.length} Recent Sessions</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs uppercase opacity-65">Cable Calibration</p>
+              <p className="text-sm font-bold text-emerald-400">
+                L {calibrationStatus?.zero_offsets?.left ?? 0} / R{' '}
+                {calibrationStatus?.zero_offsets?.right ?? 0}
+              </p>
+              <button
+                type="button"
+                onClick={() => void zeroCalibration()}
+                className="mt-1 px-3 py-1 rounded-lg elevated-pill text-xs font-bold"
+              >
+                Zero Offsets
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <a
+              href={`/api/export/sessions.csv?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+              className="elevated-pill py-3 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5"
+            >
+              <Download size={15} />
+              <span>Export CSV</span>
+            </a>
+            <a
+              href={`/api/export/sessions.json?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+              className="elevated-pill py-3 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5"
+            >
+              <Download size={15} />
+              <span>Export JSON</span>
+            </a>
+            <a
+              href="/api/admin/backup/db"
+              className="elevated-pill py-3 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5"
+            >
+              <Database size={15} />
+              <span>Backup DB</span>
+            </a>
+          </div>
         </div>
       </dialog>
     </div>

@@ -28,14 +28,26 @@ export class MusicProviderRegistry {
     return provider;
   }
 
+  isProviderConfigured(providerId: string): boolean {
+    if (providerId === 'spotify') {
+      return Boolean(process.env.SPOTIFY_CLIENT_ID?.trim() && process.env.SPOTIFY_CLIENT_SECRET?.trim());
+    }
+    if (providerId === 'plexamp') {
+      return Boolean(process.env.PLEXAMP_URL?.trim());
+    }
+    return process.env.ENABLE_SIMULATED_MUSIC === 'true';
+  }
+
   list(): Array<{
     id: string;
     displayName: string;
+    configured: boolean;
     capabilities: IMusicProvider['capabilities'];
   }> {
     return Array.from(this.providers.values()).map((p) => ({
       id: p.id,
       displayName: p.displayName,
+      configured: this.isProviderConfigured(p.id),
       capabilities: p.capabilities,
     }));
   }
