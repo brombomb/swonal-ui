@@ -85,7 +85,7 @@ export class SpotifyProvider implements IMusicProvider {
   }
 
   private getRedirectUri(): string {
-    return process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:3000/api/music/spotify/callback';
+    return process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:3000/api/spotify/callback';
   }
 
   private getOrCreateSimSession(userId: string): SimUserSession {
@@ -132,7 +132,7 @@ export class SpotifyProvider implements IMusicProvider {
       'user-modify-playback-state',
       'user-read-currently-playing',
       'playlist-read-private',
-      'playlist-read-collaborative',
+      'streaming',
     ].join(' ');
 
     if (!clientId) {
@@ -323,6 +323,25 @@ export class SpotifyProvider implements IMusicProvider {
       };
     }
 
+    if (resp && resp.status === 204) {
+      return {
+        isPlaying: false,
+        trackName: 'Spotify Connected',
+        artistName: 'Select a playlist or device to play',
+        albumName: 'Spotify Connect',
+        progressMs: 0,
+        durationMs: 0,
+        volumePct: 75,
+        isDucked: this.activeDuckTimers.has(userId),
+        isConnected: true,
+      };
+    }
+
+    const existing = await prisma.musicIntegration.findUnique({
+      where: { userId_provider: { userId, provider: this.id } },
+      select: { id: true, preferredDeviceId: true },
+    });
+
     const session = this.getOrCreateSimSession(userId);
     const track = this.advanceSimProgress(session);
     return {
@@ -332,10 +351,10 @@ export class SpotifyProvider implements IMusicProvider {
       albumName: track.albumName,
       progressMs: session.progressMs,
       durationMs: track.durationMs,
-      activeDeviceId: session.activeDeviceId,
+      activeDeviceId: existing?.preferredDeviceId ?? session.activeDeviceId,
       volumePct: session.volumePct,
       isDucked: session.isDucked,
-      isConnected: false,
+      isConnected: Boolean(existing),
     };
   }
 

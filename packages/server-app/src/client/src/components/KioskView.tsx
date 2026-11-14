@@ -620,6 +620,37 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <Database size={17} style={{ color: 'var(--accent-primary)' }} />
                   <span>Session Export &amp; Diagnostics</span>
                 </button>
+
+                {musicState.isConnected && activeProviderId === 'spotify' ? (
+                  <div className="w-full rounded-xl py-2.5 px-3 bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 font-bold text-sm flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <Music size={16} />
+                      <span>Spotify Connected</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowQuickSettings(false);
+                        musicDialogRef.current?.showModal();
+                      }}
+                      className="text-xs underline opacity-90 hover:opacity-100"
+                    >
+                      Playlists
+                    </button>
+                  </div>
+                ) : (
+                  <a
+                    href={
+                      activeUser
+                        ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
+                        : '/api/spotify/login'
+                    }
+                    className="w-full py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
+                  >
+                    <Music size={17} />
+                    <span>Connect Spotify</span>
+                  </a>
+                )}
               </div>
             )}
           </div>
@@ -1439,6 +1470,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h4 className="font-extrabold text-lg truncate">{musicState.trackName}</h4>
+                {musicState.isConnected && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35 shrink-0">
+                    Spotify Connected
+                  </span>
+                )}
                 {musicState.isDucked && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/20 text-amber-400">
                     Ducked
@@ -1525,13 +1561,27 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               {soundMuted ? <VolumeX size={18} /> : <Activity size={18} />}
             </button>
 
+            {!musicState.isConnected && (
+              <a
+                href={
+                  activeUser
+                    ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
+                    : '/api/spotify/login'
+                }
+                className="px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
+              >
+                <Music size={17} />
+                <span>Connect Spotify</span>
+              </a>
+            )}
+
             <button
               type="button"
               onClick={() => musicDialogRef.current?.showModal()}
               className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90"
             >
               <ListMusic size={18} style={{ color: 'var(--accent-primary)' }} />
-              <span>Playlists & Devices</span>
+              <span>Playlists &amp; Devices</span>
             </button>
           </div>
         </div>

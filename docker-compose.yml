@@ -29,7 +29,7 @@ services:
       - TONAL_DAEMON_WS_URL=${TONAL_DAEMON_WS_URL:-ws://tonal-daemon-mock:8765/ws}
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
-      - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://localhost:3000/api/music/spotify/callback}
+      - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://localhost:3000/api/spotify/callback}
       - PLEXAMP_URL=${PLEXAMP_URL:-}
       - MEDIA_DIR=${MEDIA_DIR:-/data/media}
       - MQTT_BROKER_URL=${MQTT_BROKER_URL:-}

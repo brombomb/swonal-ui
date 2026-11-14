@@ -14,6 +14,8 @@ import { musicRegistry } from './music/Registry';
 import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
 import { createMusicRouter } from './routes/musicRoutes';
+import { createSpotifyRouter } from './routes/spotify';
+import { getServerConfig } from './config';
 import { sessionCoordinator } from './services/sessionState';
 import { homeAssistantBus } from './integrations/homeAssistantBus';
 
@@ -46,6 +48,8 @@ const DAEMON_FORWARD_TYPES = new Set([
 export async function createSwonalServer(
   options: SwonalServerOptions = {}
 ): Promise<SwonalServerHandle> {
+  const serverConfig = getServerConfig();
+
   // Auto-seed fresh SQLite databases cleanly (essential for first Docker boot)
   const existingUsers = await prisma.user.count();
   if (existingUsers === 0) {
@@ -53,9 +57,9 @@ export async function createSwonalServer(
   }
 
   const daemonHttpUrl =
-    options.daemonHttpUrl ?? process.env.TONAL_DAEMON_URL ?? 'http://localhost:8765';
+    options.daemonHttpUrl ?? serverConfig.TONAL_DAEMON_URL;
   const daemonWsUrl =
-    options.daemonWsUrl ?? process.env.TONAL_DAEMON_WS_URL ?? 'ws://localhost:8765/ws';
+    options.daemonWsUrl ?? serverConfig.TONAL_DAEMON_WS_URL;
   const connectDaemonWs = options.connectDaemonWs ?? true;
 
   const app = express();
@@ -321,6 +325,7 @@ export async function createSwonalServer(
     })
   );
   app.use('/api/music', createMusicRouter(broadcastToClients));
+  app.use('/api/spotify', createSpotifyRouter(broadcastToClients));
   app.use('/api/daemon', createDaemonRouter(daemonHttpUrl));
 
   // Built-in MCP SSE Transport

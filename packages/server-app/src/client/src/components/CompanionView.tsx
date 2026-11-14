@@ -756,7 +756,14 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     <Music size={22} />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-extrabold truncate">{musicState.trackName}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-extrabold truncate">{musicState.trackName}</p>
+                      {musicState.isConnected && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35 shrink-0">
+                          Spotify Connected
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs opacity-70 truncate">{musicState.artistName}</p>
                   </div>
                 </div>
@@ -801,6 +808,20 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   {musicState.volumePct ?? 72}%
                 </span>
               </div>
+
+              {!musicState.isConnected && (
+                <a
+                  href={
+                    activeUser
+                      ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
+                      : '/api/spotify/login'
+                  }
+                  className="w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
+                >
+                  <Music size={15} />
+                  <span>Connect Spotify</span>
+                </a>
+              )}
 
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {playlists.map((pl) => (
