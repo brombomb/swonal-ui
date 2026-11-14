@@ -76,5 +76,23 @@ export function createDaemonRouter(daemonHttpUrl: string): Router {
     }
   });
 
+  router.get('/calibration', async (_req, res) => {
+    try {
+      const out = await forward('/api/calibration', 'GET');
+      res.status(out.status).json(out.data);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : 'Daemon unreachable' });
+    }
+  });
+
+  router.post('/calibration/zero', async (_req, res) => {
+    try {
+      const out = await forward('/api/calibration/zero', 'POST');
+      res.status(out.status).json(out.data);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : 'Daemon unreachable' });
+    }
+  });
+
   return router;
 }

@@ -3,10 +3,17 @@ import QRCode from 'qrcode';
 import {
   Activity,
   AlertTriangle,
+  Bot,
   CheckCircle2,
+  Database,
+  Download,
   Dumbbell,
   FastForward,
+  Gauge,
+  Key,
   ListMusic,
+  Mic,
+  MicOff,
   Moon,
   Music,
   Palette,
@@ -16,11 +23,15 @@ import {
   QrCode,
   Radio,
   Rewind,
+  Scale,
+  Send,
+  Settings,
   ShieldAlert,
   SkipForward,
   Sliders,
   Sparkles,
   Sun,
+  TrendingUp,
   Trophy,
   Users,
   Video,
@@ -28,10 +39,17 @@ import {
   VolumeX,
   Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
-import { AccessoryType, DynamicMode, Exercise, HomeAssistantBusStatus } from '../types';
-import { formatDisplayWeight, stepDisplayWeight } from '../utils/units';
+import {
+  AccessoryType,
+  AiCoachPublicConfig,
+  DynamicMode,
+  Exercise,
+  HomeAssistantBusStatus,
+} from '../types';
+import { formatDisplayWeight, getContrastTextColor, stepDisplayWeight } from '../utils/units';
 
 const ACCENT_SWATCHES = [
   { name: 'Electric Cyan', hex: '#00F0FF' },
@@ -71,6 +89,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     toggleSoundMuted,
     activeExercise,
     activeExercisePr,
+    overloadSuggestion,
+    vbtMetrics,
+    symmetryMetrics,
+    sessions,
     activeTemplateName,
     routineSteps,
     currentStep,
@@ -109,6 +131,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const profileDialogRef = useRef<HTMLDialogElement>(null);
   const mockDialogRef = useRef<HTMLDialogElement>(null);
   const musicDialogRef = useRef<HTMLDialogElement>(null);
+  const aiDialogRef = useRef<HTMLDialogElement>(null);
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [libraryTab, setLibraryTab] = useState<'routines' | 'exercises'>('routines');
@@ -121,7 +144,153 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [showDemoPip, setShowDemoPip] = useState(true);
+  const [showQuickSettings, setShowQuickSettings] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
+  const [coachConfig, setCoachConfig] = useState<AiCoachPublicConfig | null>(null);
+  const [coachPrompt, setCoachPrompt] = useState('');
+  const [coachReply, setCoachReply] = useState<string>(
+    'Tap the mic or ask about PRs, progressive overload, or say "Add 5 pounds".'
+  );
+  const [coachAction, setCoachAction] = useState<{
+    type: 'set_weight_delta' | 'toggle_weight' | 'skip_rest';
+    deltaLb?: number;
+    label: string;
+  } | null>(null);
+  const [coachBusy, setCoachBusy] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [byokProvider, setByokProvider] = useState<'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama'>('local');
+  const [byokModel, setByokModel] = useState('');
+  const [byokApiKey, setByokApiKey] = useState('');
+  const [byokBaseUrl, setByokBaseUrl] = useState('');
+  const [calibrationStatus, setCalibrationStatus] = useState<{
+    zero_offsets?: { left: number; right: number };
+    last_calibrated_at?: number | null;
+    expected_board?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    void fetch('/api/coach/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg: AiCoachPublicConfig | null) => {
+        if (cfg) {
+          setCoachConfig(cfg);
+          setByokProvider(cfg.provider);
+          setByokModel(cfg.model);
+          setByokBaseUrl(cfg.baseUrl || '');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const askCoach = async (promptText: string) => {
+    const trimmed = promptText.trim();
+    if (!trimmed || !activeUser) return;
+    setCoachBusy(true);
+    try {
+      const res = await fetch('/api/coach/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: activeUser.id,
+          prompt: trimmed,
+          exerciseName: activeExercise?.name,
+          currentWeightLb: telemetry.target_weight_lb,
+          repCount: telemetry.rep_count,
+          meanVelocity: vbtMetrics.currentVelocity,
+          velocityDropPct: vbtMetrics.velocityDropPct,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCoachReply(data.reply);
+        setCoachAction(data.suggestedAction ?? null);
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window && !soundMuted) {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance(data.reply);
+          utter.rate = 1.04;
+          window.speechSynthesis.speak(utter);
+        }
+      }
+    } finally {
+      setCoachBusy(false);
+    }
+  };
+
+  const startVoiceListening = () => {
+    const SpeechRec =
+      (window as unknown as Record<string, unknown>).SpeechRecognition ||
+      (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    if (!SpeechRec || typeof SpeechRec !== 'function') {
+      setCoachReply('Browser voice recognition unavailable here — type your question below.');
+      return;
+    }
+    const recognition = new (SpeechRec as new () => {
+      lang: string;
+      interimResults: boolean;
+      maxAlternatives: number;
+      onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
+      onerror: () => void;
+      onend: () => void;
+      start: () => void;
+    })();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setIsListening(true);
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript;
+      if (transcript) {
+        setCoachPrompt(transcript);
+        void askCoach(transcript);
+      }
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
+  };
+
+  const saveCoachConfig = async () => {
+    const res = await fetch('/api/coach/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: byokProvider,
+        model: byokModel || undefined,
+        apiKey: byokApiKey || undefined,
+        baseUrl: byokBaseUrl || undefined,
+      }),
+    });
+    if (res.ok) {
+      const cfg = (await res.json()) as AiCoachPublicConfig;
+      setCoachConfig(cfg);
+      setByokApiKey('');
+      aiDialogRef.current?.close();
+    }
+  };
+
+  const refreshCalibration = async () => {
+    try {
+      const res = await fetch('/api/daemon/calibration');
+      if (res.ok) setCalibrationStatus(await res.json());
+    } catch {
+      // Ignore
+    }
+  };
+
+  const zeroCalibration = async () => {
+    try {
+      const res = await fetch('/api/daemon/calibration/zero', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setCalibrationStatus(data);
+        setMockStatusMsg('Cable encoder zero offsets calibrated');
+      } else {
+        setMockStatusMsg(data.detail || 'Calibration requires weight OFF');
+      }
+    } catch {
+      setMockStatusMsg('Calibration endpoint unreachable');
+    }
+  };
 
   const refreshHaStatus = async () => {
     try {
@@ -215,8 +384,16 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   }, [exercises, muscleFilter, accessoryFilter, exerciseSearch]);
 
   // SVG Gauge Math
-  const radius = 195;
+  const radius = 232;
   const circumference = 2 * Math.PI * radius;
+  const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
+  const nextStep =
+    activeTemplateName && currentStepIdx + 1 < routineSteps.length
+      ? routineSteps[currentStepIdx + 1]
+      : null;
+  const nextExercise = nextStep
+    ? exercises.find((e) => e.id === nextStep.exerciseId) ?? null
+    : null;
   const shownWeightLb = telemetry.weight_enabled
     ? telemetry.applied_resistance_lb
     : telemetry.target_weight_lb;
@@ -278,7 +455,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
     >
       {/* TOP STATUS BAR */}
-      <header className="surface-card rounded-3xl px-6 py-4 flex items-center justify-between gap-4">
+      <header className="relative surface-card rounded-3xl px-6 py-4 flex items-center justify-between gap-4 z-30">
         {/* Household Profile Quick Switcher */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -289,7 +466,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   key={u.id}
                   type="button"
                   onClick={() => void switchUser(u.id)}
-                  className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl transition font-semibold ${
+                  className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl transition font-bold ${
                     isActive
                       ? 'ring-2 shadow-lg'
                       : 'opacity-70 hover:opacity-100 elevated-pill'
@@ -305,8 +482,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   }
                 >
                   <span
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-black text-slate-950"
-                    style={{ backgroundColor: u.accentColor }}
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-black"
+                    style={{
+                      backgroundColor: u.accentColor,
+                      color: getContrastTextColor(u.accentColor),
+                    }}
                   >
                     {u.name.slice(0, 2).toUpperCase()}
                   </span>
@@ -314,14 +494,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </button>
               );
             })}
-            <button
-              type="button"
-              onClick={() => profileDialogRef.current?.showModal()}
-              title="Customize Theme, Accent Color, or Add Profile"
-              className="w-11 h-11 rounded-2xl elevated-pill flex items-center justify-center hover:opacity-90 transition"
-            >
-              <Palette size={20} style={{ color: 'var(--accent-primary)' }} />
-            </button>
           </div>
 
           {/* Partner Work-In Mode Toggle */}
@@ -329,19 +501,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <button
               type="button"
               onClick={() => togglePartnerMode(!sessionState.partnerModeEnabled)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold transition ${
-                sessionState.partnerModeEnabled ? 'text-slate-950' : 'elevated-pill'
-              }`}
+              className="flex items-center gap-2 px-4 py-3 rounded-2xl text-sm font-extrabold transition elevated-pill"
               style={
                 sessionState.partnerModeEnabled
                   ? {
                       backgroundColor: 'var(--accent-primary)',
+                      color: accentTextColor,
                       boxShadow: '0 0 18px var(--accent-glow)',
                     }
                   : undefined
               }
             >
-              <Users size={17} />
+              <Users size={18} />
               <span>
                 {sessionState.partnerModeEnabled && partnerUser
                   ? `Work In: ${activeUser?.name} ⇄ ${partnerUser.name}`
@@ -351,41 +522,85 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           )}
         </div>
 
-        {/* Right Utility Controls */}
+        {/* Right Utility Controls (Consolidated Quick-Settings Popover + Phone + Hardware + Original Tonal) */}
         <div className="flex items-center gap-2.5">
-          {/* LB / KG Unit Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              if (!activeUser) return;
-              const nextUnit = activeUnit === 'LB' ? 'KG' : 'LB';
-              void updateUserPreferences(activeUser.id, { weightUnit: nextUnit });
-            }}
-            className="elevated-pill px-3.5 py-2.5 rounded-2xl font-mono font-bold text-sm hover:opacity-90 transition"
-          >
-            {activeUnit}
-          </button>
+          {/* Quick Settings Popover Trigger (Theme, Units, Accent Color / Profiles) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowQuickSettings((v) => !v)}
+              aria-label="Quick Settings"
+              title="Customize Theme, Units, & Accent Color"
+              className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
+            >
+              <Settings size={19} style={{ color: 'var(--accent-primary)' }} />
+              <span className="font-mono">{activeUnit}</span>
+            </button>
 
-          {/* Light / Dark Theme Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              if (!activeUser) return;
-              const nextTheme = isLightTheme ? 'dark' : 'light';
-              void updateUserPreferences(activeUser.id, { themeMode: nextTheme });
-            }}
-            title="Toggle Daylight Studio / Carbon Obsidian"
-            className="elevated-pill w-11 h-11 rounded-2xl flex items-center justify-center hover:opacity-90 transition"
-          >
-            {isLightTheme ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
+            {showQuickSettings && (
+              <div className="absolute right-0 top-14 w-72 surface-card rounded-2xl p-4 shadow-2xl border space-y-3 z-40">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-widest font-bold opacity-70">
+                    Quick Preferences
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickSettings(false)}
+                    className="opacity-70 hover:opacity-100"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeUser) return;
+                      void updateUserPreferences(activeUser.id, {
+                        weightUnit: activeUnit === 'LB' ? 'KG' : 'LB',
+                      });
+                    }}
+                    className="elevated-pill py-3 px-3 rounded-xl font-mono font-bold text-sm flex items-center justify-center gap-1.5"
+                  >
+                    <span>Units: {activeUnit}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeUser) return;
+                      void updateUserPreferences(activeUser.id, {
+                        themeMode: isLightTheme ? 'dark' : 'light',
+                      });
+                    }}
+                    className="elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5"
+                  >
+                    {isLightTheme ? <Moon size={16} /> : <Sun size={16} />}
+                    <span>{isLightTheme ? 'Light' : 'Dark'}</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickSettings(false);
+                    profileDialogRef.current?.showModal();
+                  }}
+                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                >
+                  <Palette size={17} style={{ color: 'var(--accent-primary)' }} />
+                  <span>Accent Color &amp; Profiles</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Companion QR Remote Modal */}
           <button
             type="button"
             onClick={() => qrDialogRef.current?.showModal()}
             title="Open Companion QR Code Remote"
-            className="elevated-pill px-3.5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold hover:opacity-90 transition"
+            className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
           >
             <QrCode size={18} style={{ color: 'var(--accent-primary)' }} />
             <span>Phone</span>
@@ -396,6 +611,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             type="button"
             onClick={() => {
               void refreshHaStatus();
+              void refreshCalibration();
               mockDialogRef.current?.showModal();
             }}
             className={`px-3.5 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 transition ${
@@ -499,45 +715,32 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </button>
           </div>
         )}
-
-        {lastPrBanner && (
-          <div
-            className="surface-card rounded-2xl px-6 py-3 flex items-center justify-center gap-3 font-black text-lg"
-            style={{
-              borderColor: 'var(--accent-primary)',
-              color: 'var(--accent-primary)',
-            }}
-          >
-            <Trophy size={24} />
-            <span>{lastPrBanner}</span>
-          </div>
-        )}
       </div>
 
       {/* CENTER WORKOUT STAGE */}
       <main className="flex-1 flex flex-col justify-between py-2">
         {/* Active Exercise & Routine Header Card */}
-        <section className="surface-card rounded-3xl px-7 py-5 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3 mb-1.5">
+        <section className="surface-card rounded-3xl px-8 py-6 flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3 mb-2">
               <span
-                className="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider text-slate-950"
-                style={{ backgroundColor: 'var(--accent-primary)' }}
+                className="px-4 py-1.5 rounded-full text-sm font-extrabold uppercase tracking-wider"
+                style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
               >
                 {activeTemplateName
                   ? `${currentStep?.blockType.replace('_', ' ')} • Step ${currentStepIdx + 1}/${routineSteps.length}`
                   : 'Free Lift Mode'}
               </span>
               {activeExercise && (
-                <span className="text-sm font-semibold opacity-75">
+                <span className="text-base font-bold opacity-80">
                   {activeExercise.muscleGroup} • {activeExercise.accessory}
                 </span>
               )}
             </div>
-            <h1 className="text-4xl font-black tracking-tight">
+            <h1 className="text-5xl font-black tracking-tight truncate">
               {activeExercise?.name ?? 'Select Movement'}
             </h1>
-            <div className="flex items-center gap-5 mt-2 text-sm font-semibold opacity-80">
+            <div className="mt-2 text-lg font-bold opacity-85">
               {currentStep ? (
                 <span>
                   Set {currentStep.setNumber} of {currentStep.totalSetsInItem} • Target{' '}
@@ -546,27 +749,62 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               ) : (
                 <span>{activeExercise?.notes || 'Tap weight gauge or use handle click to engage'}</span>
               )}
-              {activeExercisePr && (
-                <span className="font-mono tabular-nums" style={{ color: 'var(--accent-primary)' }}>
-                  PR 1RM: {formatDisplayWeight(activeExercisePr.oneRepMaxEst, activeUnit)}{' '}
-                  {activeUnit}
+            </div>
+            {/* Fixed-height PR & Progressive Overload Slot (below circuit step so UI never shifts) */}
+            <div className="min-h-[42px] flex flex-wrap items-center gap-3 mt-2.5">
+              <span
+                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl elevated-pill font-mono tabular-nums text-sm font-extrabold"
+                style={{ color: activeExercisePr ? 'var(--accent-primary)' : undefined }}
+              >
+                <Trophy size={16} />
+                {activeExercisePr
+                  ? `PR 1RM: ${formatDisplayWeight(activeExercisePr.oneRepMaxEst, activeUnit)} ${activeUnit} (Max ${formatDisplayWeight(activeExercisePr.maxWeightLb, activeUnit)} ${activeUnit})`
+                  : 'PR 1RM: Baseline Pending'}
+              </span>
+              {lastPrBanner && (
+                <span
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-black text-sm"
+                  style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                >
+                  <Sparkles size={15} />
+                  <span>{lastPrBanner}</span>
                 </span>
+              )}
+              {overloadSuggestion?.ready && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setWeight(
+                      overloadSuggestion.recommendedWeightLb,
+                      telemetry.profile_mode,
+                      telemetry.modifier_pct
+                    )
+                  }
+                  title={overloadSuggestion.reason}
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-extrabold text-sm hover:bg-emerald-500/30 transition"
+                >
+                  <TrendingUp size={16} />
+                  <span>
+                    +{formatDisplayWeight(overloadSuggestion.recommendedBumpLb, activeUnit, true)}{' '}
+                    {activeUnit} Ready
+                  </span>
+                </button>
               )}
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-3">
+          <div className="flex flex-col items-end gap-3 shrink-0">
             {/* Arm Position Guide Badge */}
             {activeExercise && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <div
-                  className={`px-4 py-2 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 ${
+                  className={`px-5 py-3 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 ${
                     armsAligned
                       ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                       : 'bg-amber-500/15 border-amber-500/40 text-amber-400'
                   }`}
                 >
-                  <CheckCircle2 size={16} />
+                  <CheckCircle2 size={18} />
                   <span>
                     ARMS {armsAligned ? 'ALIGNED' : 'ADJUST'} • H{activeExercise.recommendedHeight}{' '}
                     R{activeExercise.recommendedRotation} A{activeExercise.recommendedAngle} •{' '}
@@ -577,7 +815,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <button
                     type="button"
                     onClick={() => void alignMockArmsToExercise(activeExercise)}
-                    className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
+                    className="elevated-pill px-4 py-3 rounded-2xl text-sm font-bold hover:opacity-90"
                   >
                     Sync Arms
                   </button>
@@ -585,35 +823,35 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {activeExercise?.mediaUrl && (
                 <button
                   type="button"
                   onClick={() => setShowDemoPip((v) => !v)}
-                  className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition"
+                  className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
                 >
-                  <Video size={17} style={{ color: 'var(--accent-primary)' }} />
+                  <Video size={20} style={{ color: 'var(--accent-primary)' }} />
                   <span>{showDemoPip ? 'Hide Demo' : 'Form Demo'}</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => libraryDialogRef.current?.showModal()}
-                className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition"
+                className="elevated-pill px-6 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
               >
-                <Dumbbell size={18} style={{ color: 'var(--accent-primary)' }} />
-                <span>Routines & Exercises</span>
+                <Dumbbell size={20} style={{ color: 'var(--accent-primary)' }} />
+                <span>Routines &amp; Exercises</span>
               </button>
             </div>
           </div>
         </section>
 
-        {/* Central 360px Weight Dial + Left/Right Cable ROM Bars */}
-        <section className="relative flex items-center justify-center my-auto py-4">
+        {/* Central ~520px Weight Dial flanked closely by Left/Right Cable ROM Bars + Direct Steppers */}
+        <section className="relative flex flex-col items-center justify-center my-auto py-2 gap-4">
           {/* Self-Hosted Exercise Demo Picture-in-Picture (PiP) Loop Card */}
           {activeExercise?.mediaUrl && showDemoPip && (
             <div
-              className="absolute right-20 top-2 w-60 rounded-2xl overflow-hidden surface-card border shadow-2xl z-20"
+              className="absolute right-2 top-0 w-56 rounded-2xl overflow-hidden surface-card border shadow-2xl z-20"
               style={{ borderColor: 'var(--accent-primary)' }}
             >
               <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold bg-black/30">
@@ -634,254 +872,277 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   loop
                   muted
                   playsInline
-                  className="w-full h-36 object-cover bg-slate-950"
+                  className="w-full h-32 object-cover bg-slate-950"
                 />
               ) : (
                 <img
                   src={activeExercise.mediaUrl}
                   alt={`${activeExercise.name} form demo`}
-                  className="w-full h-36 object-contain bg-slate-950"
+                  className="w-full h-32 object-contain bg-slate-950"
                 />
               )}
             </div>
           )}
-          {/* Left Cable ROM & Velocity Bar */}
-          <div className="absolute left-4 flex flex-col items-center gap-3">
-            <span className="text-xs font-mono font-bold uppercase tracking-widest opacity-70">
-              LEFT
-            </span>
-            <div className="w-12 h-[420px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
-              <div
-                className="w-full rounded-full transition-all duration-75"
-                style={{
-                  height: `${Math.min((telemetry.left_cable.position / 200) * 100, 100)}%`,
-                  backgroundColor: 'var(--accent-primary)',
-                  boxShadow: '0 0 20px var(--accent-glow)',
-                }}
-              />
+
+          {/* Flanking ROM Bars + 520px Dial Row */}
+          <div className="flex items-center justify-center gap-8">
+            {/* Left Cable ROM & Velocity Bar */}
+            <div className="flex flex-col items-center gap-2.5">
+              <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
+                LEFT
+              </span>
+              <div className="w-12 h-[440px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
+                <div
+                  className="w-full rounded-full transition-all duration-75"
+                  style={{
+                    height: `${Math.min((telemetry.left_cable.position / 200) * 100, 100)}%`,
+                    backgroundColor: 'var(--accent-primary)',
+                    boxShadow: '0 0 20px var(--accent-glow)',
+                  }}
+                />
+              </div>
+              <div className="text-center font-mono tabular-nums">
+                <p className="text-lg font-black">
+                  {formatDisplayWeight(telemetry.left_cable.load_lb, activeUnit, true)} {activeUnit}
+                </p>
+                <p className="text-xs opacity-75">{telemetry.left_cable.velocity.toFixed(1)} cm/s</p>
+                <p className="text-[11px] opacity-55">ROM {telemetry.left_cable.position.toFixed(0)}</p>
+              </div>
             </div>
-            <div className="text-center font-mono tabular-nums">
-              <p className="text-lg font-bold">
-                {formatDisplayWeight(telemetry.left_cable.load_lb, activeUnit, true)} {activeUnit}
-              </p>
-              <p className="text-xs opacity-70">{telemetry.left_cable.velocity.toFixed(1)} cm/s</p>
-              <p className="text-[11px] opacity-50">ROM {telemetry.left_cable.position.toFixed(0)}</p>
+
+            {/* ~520px Interactive SVG Weight Gauge & Tap Target */}
+            <div className="relative flex items-center justify-center">
+              <svg className="w-[520px] h-[520px] -rotate-90" viewBox="0 0 520 520">
+                <circle
+                  cx="260"
+                  cy="260"
+                  r={radius}
+                  stroke="var(--bg-elevated)"
+                  strokeWidth="32"
+                  fill="transparent"
+                />
+                <circle
+                  cx="260"
+                  cy="260"
+                  r={radius}
+                  stroke={telemetry.weight_enabled ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                  strokeOpacity={telemetry.weight_enabled ? 1 : 0.35}
+                  strokeWidth="32"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeDashoffset}
+                  strokeLinecap="round"
+                  fill="transparent"
+                  className="transition-all duration-100"
+                />
+              </svg>
+
+              <button
+                type="button"
+                onClick={toggleWeight}
+                aria-label="Toggle Weight Resistance"
+                className={`absolute w-[400px] h-[400px] rounded-full flex flex-col items-center justify-center transition-all duration-300 border-4 ${
+                  telemetry.weight_enabled ? 'accent-glow-ring scale-[1.02]' : 'surface-card'
+                }`}
+                style={{
+                  borderColor: telemetry.weight_enabled
+                    ? 'var(--accent-primary)'
+                    : 'var(--border-subtle)',
+                  backgroundColor: telemetry.weight_enabled
+                    ? 'var(--accent-muted)'
+                    : 'var(--bg-surface)',
+                }}
+              >
+                <span className="font-mono tabular-nums text-[7.5rem] leading-none font-black tracking-tighter">
+                  {activeUnit === 'KG'
+                    ? displayWeight.toFixed(1).replace(/\.0$/, '')
+                    : Math.round(displayWeight)}
+                </span>
+                <span className="text-xl uppercase tracking-[0.22em] font-extrabold opacity-80 mt-2">
+                  {telemetry.weight_enabled ? `Applied ${activeUnit}` : `Target ${activeUnit}`}
+                </span>
+                <div
+                  className={`mt-5 px-8 py-3 rounded-full font-black text-base tracking-widest uppercase transition ${
+                    telemetry.weight_enabled ? 'animate-pulse' : 'elevated-pill'
+                  }`}
+                  style={
+                    telemetry.weight_enabled
+                      ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                      : undefined
+                  }
+                >
+                  {telemetry.weight_enabled ? 'WEIGHT ON' : 'WEIGHT OFF'}
+                </div>
+              </button>
+
+              {/* Peripheral Edge-Glow Rest Timer Overlay */}
+              {restSecondsRemaining > 0 && (
+                <div
+                  className="absolute -bottom-4 px-8 py-4 rounded-3xl surface-card border-2 flex items-center gap-6 z-20"
+                  style={{
+                    borderColor: 'var(--accent-primary)',
+                    boxShadow: '0 0 36px var(--accent-glow)',
+                  }}
+                >
+                  <div>
+                    <p className="text-xs uppercase tracking-widest font-bold opacity-70">
+                      Rest Timer
+                    </p>
+                    <p
+                      className="font-mono tabular-nums text-4xl font-black"
+                      style={{ color: 'var(--accent-primary)' }}
+                    >
+                      {Math.floor(restSecondsRemaining / 60)}:
+                      {String(restSecondsRemaining % 60).padStart(2, '0')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => extendRestTimer(15)}
+                      className="elevated-pill px-5 py-3 rounded-xl font-bold text-base"
+                    >
+                      +15s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={skipRestTimer}
+                      className="px-5 py-3 rounded-xl font-bold text-base flex items-center gap-1.5"
+                      style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                    >
+                      <SkipForward size={18} />
+                      <span>Skip</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Cable ROM & Velocity Bar */}
+            <div className="flex flex-col items-center gap-2.5">
+              <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
+                RIGHT
+              </span>
+              <div className="w-12 h-[440px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
+                <div
+                  className="w-full rounded-full transition-all duration-75"
+                  style={{
+                    height: `${Math.min((telemetry.right_cable.position / 200) * 100, 100)}%`,
+                    backgroundColor: 'var(--accent-primary)',
+                    boxShadow: '0 0 20px var(--accent-glow)',
+                  }}
+                />
+              </div>
+              <div className="text-center font-mono tabular-nums">
+                <p className="text-lg font-black">
+                  {formatDisplayWeight(telemetry.right_cable.load_lb, activeUnit, true)} {activeUnit}
+                </p>
+                <p className="text-xs opacity-75">{telemetry.right_cable.velocity.toFixed(1)} cm/s</p>
+                <p className="text-[11px] opacity-55">
+                  ROM {telemetry.right_cable.position.toFixed(0)}
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* 360px Interactive SVG Weight Gauge & Tap Target */}
-          <div className="relative flex items-center justify-center">
-            <svg className="w-[540px] h-[540px] -rotate-90" viewBox="0 0 540 540">
-              <circle
-                cx="270"
-                cy="270"
-                r={radius}
-                stroke="var(--bg-elevated)"
-                strokeWidth="30"
-                fill="transparent"
-              />
-              <circle
-                cx="270"
-                cy="270"
-                r={radius}
-                stroke={telemetry.weight_enabled ? 'var(--accent-primary)' : 'var(--text-muted)'}
-                strokeOpacity={telemetry.weight_enabled ? 1 : 0.35}
-                strokeWidth="30"
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                strokeLinecap="round"
-                fill="transparent"
-                className="transition-all duration-100"
-              />
-            </svg>
-
+          {/* Direct Weight Stepper Strip Directly Below Dial */}
+          <div className="flex items-center justify-center gap-4">
             <button
               type="button"
-              onClick={toggleWeight}
-              aria-label="Toggle Weight Resistance"
-              className={`absolute w-[360px] h-[360px] rounded-full flex flex-col items-center justify-center transition-all duration-300 border-4 ${
-                telemetry.weight_enabled ? 'accent-glow-ring scale-[1.02]' : 'surface-card'
-              }`}
-              style={{
-                borderColor: telemetry.weight_enabled
-                  ? 'var(--accent-primary)'
-                  : 'var(--border-subtle)',
-                backgroundColor: telemetry.weight_enabled
-                  ? 'var(--accent-muted)'
-                  : 'var(--bg-surface)',
-              }}
+              onClick={() =>
+                setWeight(stepDisplayWeight(telemetry.target_weight_lb, -stepLarge, activeUnit))
+              }
+              className="elevated-pill min-w-[78px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
             >
-              <span className="font-mono tabular-nums text-[92px] leading-none font-black tracking-tighter">
-                {activeUnit === 'KG' ? displayWeight.toFixed(1).replace(/\.0$/, '') : Math.round(displayWeight)}
-              </span>
-              <span className="text-lg uppercase tracking-[0.22em] font-bold opacity-75 mt-2">
-                {telemetry.weight_enabled ? `Applied ${activeUnit}` : `Target ${activeUnit}`}
-              </span>
-              <div
-                className={`mt-5 px-7 py-2.5 rounded-full font-black text-sm tracking-widest uppercase transition ${
-                  telemetry.weight_enabled ? 'text-slate-950 animate-pulse' : 'elevated-pill'
-                }`}
-                style={
-                  telemetry.weight_enabled
-                    ? { backgroundColor: 'var(--accent-primary)' }
-                    : undefined
-                }
-              >
-                {telemetry.weight_enabled ? 'WEIGHT ON' : 'WEIGHT OFF'}
-              </div>
+              -{stepLarge}
             </button>
-
-            {/* Peripheral Edge-Glow Rest Timer Overlay */}
-            {restSecondsRemaining > 0 && (
-              <div
-                className="absolute -bottom-6 px-8 py-4 rounded-3xl surface-card border-2 flex items-center gap-6"
-                style={{
-                  borderColor: 'var(--accent-primary)',
-                  boxShadow: '0 0 36px var(--accent-glow)',
-                }}
-              >
-                <div>
-                  <p className="text-xs uppercase tracking-widest font-bold opacity-70">
-                    Rest Timer
-                  </p>
-                  <p
-                    className="font-mono tabular-nums text-4xl font-black"
-                    style={{ color: 'var(--accent-primary)' }}
-                  >
-                    {Math.floor(restSecondsRemaining / 60)}:
-                    {String(restSecondsRemaining % 60).padStart(2, '0')}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => extendRestTimer(15)}
-                    className="elevated-pill px-4 py-2 rounded-xl font-bold text-sm"
-                  >
-                    +15s
-                  </button>
-                  <button
-                    type="button"
-                    onClick={skipRestTimer}
-                    className="px-4 py-2 rounded-xl font-bold text-sm text-slate-950 flex items-center gap-1.5"
-                    style={{ backgroundColor: 'var(--accent-primary)' }}
-                  >
-                    <SkipForward size={16} />
-                    <span>Skip</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right Cable ROM & Velocity Bar */}
-          <div className="absolute right-4 flex flex-col items-center gap-3">
-            <span className="text-xs font-mono font-bold uppercase tracking-widest opacity-70">
-              RIGHT
+            <button
+              type="button"
+              onClick={() =>
+                setWeight(stepDisplayWeight(telemetry.target_weight_lb, -stepSmall, activeUnit))
+              }
+              className="elevated-pill min-w-[72px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+            >
+              -{stepSmall}
+            </button>
+            <span className="font-mono tabular-nums text-base font-extrabold uppercase tracking-widest opacity-75 px-3">
+              Target {displayTarget} {activeUnit}
             </span>
-            <div className="w-12 h-[420px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
-              <div
-                className="w-full rounded-full transition-all duration-75"
-                style={{
-                  height: `${Math.min((telemetry.right_cable.position / 200) * 100, 100)}%`,
-                  backgroundColor: 'var(--accent-primary)',
-                  boxShadow: '0 0 20px var(--accent-glow)',
-                }}
-              />
-            </div>
-            <div className="text-center font-mono tabular-nums">
-              <p className="text-lg font-bold">
-                {formatDisplayWeight(telemetry.right_cable.load_lb, activeUnit, true)} {activeUnit}
-              </p>
-              <p className="text-xs opacity-70">{telemetry.right_cable.velocity.toFixed(1)} cm/s</p>
-              <p className="text-[11px] opacity-50">
-                ROM {telemetry.right_cable.position.toFixed(0)}
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setWeight(stepDisplayWeight(telemetry.target_weight_lb, stepSmall, activeUnit))
+              }
+              className="elevated-pill min-w-[72px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+            >
+              +{stepSmall}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setWeight(stepDisplayWeight(telemetry.target_weight_lb, stepLarge, activeUnit))
+              }
+              className="elevated-pill min-w-[78px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+            >
+              +{stepLarge}
+            </button>
           </div>
         </section>
 
-        {/* Weight Stepper, Rep Counter, Dynamic Modes, & Accessory Controls */}
+        {/* Consolidated Rep Callout (0 / 12), Complete Set, Up Next Preview, & Dynamic Modes */}
         <section className="space-y-4">
-          {/* Reps & Target Weight Stepper Card */}
-          <div className="surface-card rounded-3xl px-8 py-5 flex items-center justify-between">
-            {/* Completed Reps */}
-            <div className="flex items-center gap-5">
+          <div className="surface-card rounded-3xl px-8 py-5 flex items-center justify-between gap-4">
+            {/* Completed / Target Reps Callout */}
+            <div className="flex items-center gap-6">
               <div>
-                <p className="text-xs uppercase tracking-widest font-bold opacity-65">
+                <p className="text-sm uppercase tracking-widest font-bold opacity-65">
                   Completed Reps
                 </p>
-                <p className="font-mono tabular-nums text-6xl font-black mt-1">
+                <p className="font-mono tabular-nums text-6xl font-black mt-0.5">
                   {telemetry.rep_count}
+                  {currentStep ? (
+                    <span className="text-3xl opacity-55"> / {currentStep.targetReps}</span>
+                  ) : null}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => void logCompletedSet()}
-                className="px-6 py-4 rounded-2xl font-black text-base text-slate-950 transition hover:scale-[1.02]"
+                className="min-h-[64px] px-8 py-4 rounded-2xl font-black text-lg transition hover:scale-[1.02]"
                 style={{
                   backgroundColor: 'var(--accent-primary)',
-                  boxShadow: '0 0 22px var(--accent-glow)',
+                  color: accentTextColor,
+                  boxShadow: '0 0 24px var(--accent-glow)',
                 }}
               >
-                Complete & Log Set
+                Complete &amp; Log Set
               </button>
             </div>
 
-            <div className="h-14 w-px opacity-20 bg-current" />
-
-            {/* Target Weight +/- Buttons */}
-            <div className="flex flex-col items-center">
-              <p className="text-xs uppercase tracking-widest font-bold opacity-65 mb-2">
-                Target Load ({activeUnit})
+            {/* Up Next Scheduled Movement Preview */}
+            <div className="elevated-pill rounded-2xl px-5 py-3.5 text-right max-w-sm">
+              <p className="text-[11px] uppercase tracking-widest font-extrabold opacity-65">
+                Up Next
               </p>
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeight(stepDisplayWeight(telemetry.target_weight_lb, -stepLarge, activeUnit))
-                  }
-                  className="elevated-pill px-3.5 py-2.5 rounded-xl font-mono font-bold text-lg hover:opacity-80"
-                >
-                  -{stepLarge}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeight(stepDisplayWeight(telemetry.target_weight_lb, -stepSmall, activeUnit))
-                  }
-                  className="elevated-pill px-3.5 py-2.5 rounded-xl font-mono font-bold text-lg hover:opacity-80"
-                >
-                  -{stepSmall}
-                </button>
-                <span className="font-mono tabular-nums text-4xl font-black w-28 text-center">
-                  {displayTarget}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeight(stepDisplayWeight(telemetry.target_weight_lb, stepSmall, activeUnit))
-                  }
-                  className="elevated-pill px-3.5 py-2.5 rounded-xl font-mono font-bold text-lg hover:opacity-80"
-                >
-                  +{stepSmall}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeight(stepDisplayWeight(telemetry.target_weight_lb, stepLarge, activeUnit))
-                  }
-                  className="elevated-pill px-3.5 py-2.5 rounded-xl font-mono font-bold text-lg hover:opacity-80"
-                >
-                  +{stepLarge}
-                </button>
-              </div>
+              {nextExercise && nextStep ? (
+                <>
+                  <p className="font-black text-base truncate">{nextExercise.name}</p>
+                  <p className="text-xs font-mono font-bold opacity-80">
+                    {nextExercise.accessory} • H{nextExercise.recommendedHeight} R
+                    {nextExercise.recommendedRotation} A{nextExercise.recommendedAngle} •{' '}
+                    {nextStep.targetReps} reps
+                  </p>
+                </>
+              ) : (
+                <p className="font-bold text-sm opacity-75">
+                  {activeTemplateName ? 'Final Step in Routine' : 'Free Lift — Tap Routines to Load'}
+                </p>
+              )}
             </div>
           </div>
 
           {/* Dynamic Mode Selector Pills + Accessory Selector */}
-          <div className="surface-card rounded-3xl px-6 py-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2.5">
+          <div className="surface-card rounded-3xl px-7 py-5 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
               {DYNAMIC_MODES.map((m) => {
                 const active = telemetry.profile_mode === m.id;
                 return (
@@ -889,13 +1150,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     key={m.id}
                     type="button"
                     onClick={() => setWeight(telemetry.target_weight_lb, m.id, m.defaultPct)}
-                    className={`px-4 py-3 rounded-2xl font-bold text-sm transition ${
-                      active ? 'text-slate-950' : 'elevated-pill opacity-80 hover:opacity-100'
+                    className={`px-5 py-4 rounded-2xl font-extrabold text-base transition ${
+                      active ? '' : 'elevated-pill opacity-85 hover:opacity-100'
                     }`}
                     style={
                       active
                         ? {
                             backgroundColor: 'var(--accent-primary)',
+                            color: accentTextColor,
                             boxShadow: '0 0 18px var(--accent-glow)',
                           }
                         : undefined
@@ -908,7 +1170,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               })}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               {(['HANDLES', 'BAR', 'ROPE'] as AccessoryType[]).map((acc) => {
                 const active = telemetry.accessory === acc;
                 return (
@@ -916,8 +1178,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     key={acc}
                     type="button"
                     onClick={() => setAccessory(acc)}
-                    className={`px-3 py-2.5 rounded-xl font-mono text-xs font-bold transition ${
-                      active ? 'border-2' : 'elevated-pill opacity-70'
+                    className={`px-4 py-4 rounded-2xl font-mono text-sm font-black transition ${
+                      active ? 'border-2' : 'elevated-pill opacity-75'
                     }`}
                     style={
                       active
@@ -932,6 +1194,217 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* 2x2 Live Athletic Telemetry, Symmetry, VBT & BYOK Voice Coach Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* 1. Form Symmetry & Balance Meter */}
+            <div className="surface-card rounded-3xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Scale size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-base uppercase tracking-wider">
+                    Form Symmetry &amp; Balance
+                  </h3>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-mono font-black ${
+                    symmetryMetrics.status === 'critical'
+                      ? 'bg-red-500/20 text-red-400'
+                      : symmetryMetrics.status === 'drift'
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : 'bg-emerald-500/20 text-emerald-400'
+                  }`}
+                >
+                  {symmetryMetrics.status.toUpperCase()} • Δ {symmetryMetrics.positionDelta.toFixed(1)}
+                </span>
+              </div>
+              <div className="relative h-4 rounded-full elevated-pill overflow-hidden">
+                <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/40 z-10" />
+                <div
+                  className="absolute top-0.5 bottom-0.5 w-6 rounded-full transition-all duration-75"
+                  style={{
+                    left: `calc(${Math.max(4, Math.min(92, 50 + symmetryMetrics.signedBalance * 1.1))}% - 12px)`,
+                    backgroundColor:
+                      symmetryMetrics.status === 'critical'
+                        ? '#EF4444'
+                        : symmetryMetrics.status === 'drift'
+                          ? '#F59E0B'
+                          : 'var(--accent-primary)',
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-sm font-mono tabular-nums font-bold opacity-80">
+                <span>L {symmetryMetrics.leftLoadPct}%</span>
+                <span>Centered Bar Target</span>
+                <span>R {symmetryMetrics.rightLoadPct}%</span>
+              </div>
+            </div>
+
+            {/* 2. Velocity-Based Training (VBT) & Auto-Regulation */}
+            <div className="surface-card rounded-3xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Gauge size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-base uppercase tracking-wider">
+                    Velocity &amp; Fatigue (VBT)
+                  </h3>
+                </div>
+                {vbtMetrics.fatigueAlert ? (
+                  <button
+                    type="button"
+                    onClick={() => setWeight(telemetry.target_weight_lb, 'spotter', 0)}
+                    className="px-3 py-1 rounded-xl bg-amber-500/25 border border-amber-400/50 text-amber-300 text-xs font-black flex items-center gap-1"
+                  >
+                    <Zap size={14} />
+                    <span>Enable Spotter</span>
+                  </button>
+                ) : (
+                  <span className="font-mono tabular-nums text-xs font-bold opacity-75">
+                    Peak {vbtMetrics.peakSetVelocity.toFixed(1)} cm/s
+                  </span>
+                )}
+              </div>
+              <div className="flex items-baseline justify-between font-mono tabular-nums">
+                <span className="text-3xl font-black">
+                  {vbtMetrics.currentVelocity.toFixed(1)}{' '}
+                  <span className="text-sm font-bold opacity-70">cm/s</span>
+                </span>
+                <span
+                  className={`text-lg font-black ${
+                    vbtMetrics.velocityDropPct >= 25 ? 'text-amber-400' : 'text-emerald-400'
+                  }`}
+                >
+                  -{vbtMetrics.velocityDropPct.toFixed(0)}% Velocity Drop
+                </span>
+              </div>
+              <div className="h-3 rounded-full elevated-pill overflow-hidden">
+                <div
+                  className="h-full transition-all duration-150"
+                  style={{
+                    width: `${Math.min(100, vbtMetrics.velocityDropPct * 2)}%`,
+                    backgroundColor: vbtMetrics.velocityDropPct >= 25 ? '#F59E0B' : '#10B981',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* 3. Voice Coach & BYOK AI */}
+            <div className="surface-card rounded-3xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bot size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-base uppercase tracking-wider">
+                    Voice Coach ({coachConfig?.provider.toUpperCase() ?? 'LOCAL'})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => aiDialogRef.current?.showModal()}
+                  className="elevated-pill px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5"
+                >
+                  <Key size={14} style={{ color: 'var(--accent-primary)' }} />
+                  <span>BYOK AI Key</span>
+                </button>
+              </div>
+              <p className="text-sm font-medium opacity-85 line-clamp-2 min-h-[40px]">{coachReply}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={startVoiceListening}
+                  className={`px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-1.5 shrink-0 ${
+                    isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-950'
+                  }`}
+                  style={!isListening ? { backgroundColor: 'var(--accent-primary)' } : undefined}
+                >
+                  {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                  <span>{isListening ? 'Listening' : 'Speak'}</span>
+                </button>
+                <input
+                  type="text"
+                  value={coachPrompt}
+                  onChange={(e) => setCoachPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void askCoach(coachPrompt);
+                  }}
+                  placeholder="Ask PRs or say 'Add 5 lbs'..."
+                  className="flex-1 min-w-0 px-3.5 py-3 rounded-xl elevated-pill text-sm outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={coachBusy}
+                  onClick={() => void askCoach(coachPrompt)}
+                  aria-label="Send to Coach"
+                  className="elevated-pill px-4 py-3 rounded-xl font-bold"
+                >
+                  <Send size={18} />
+                </button>
+                {coachAction && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (coachAction.type === 'set_weight_delta' && coachAction.deltaLb) {
+                        setWeight(telemetry.target_weight_lb + coachAction.deltaLb);
+                      } else if (coachAction.type === 'toggle_weight') {
+                        toggleWeight();
+                      } else if (coachAction.type === 'skip_rest') {
+                        skipRestTimer();
+                      }
+                      setCoachAction(null);
+                    }}
+                    className="px-3.5 py-3 rounded-xl bg-emerald-500/25 text-emerald-300 text-xs font-black shrink-0"
+                  >
+                    {coachAction.label}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Session Volume, Export & DB Backup */}
+            <div className="surface-card rounded-3xl p-5 flex flex-col justify-between space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-base uppercase tracking-wider">
+                    Session &amp; Diagnostics
+                  </h3>
+                </div>
+                <span className="font-mono tabular-nums text-sm font-bold opacity-75">
+                  {sessions.length} Recent Sessions
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between font-mono tabular-nums">
+                <div>
+                  <p className="text-xs uppercase opacity-65">Last Session Volume</p>
+                  <p className="text-3xl font-black">
+                    {formatDisplayWeight(sessions[0]?.totalVolume ?? 0, activeUnit)} {activeUnit}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs uppercase opacity-65">Cable Calibration</p>
+                  <p className="text-sm font-bold text-emerald-400">
+                    L {calibrationStatus?.zero_offsets?.left ?? 0} / R{' '}
+                    {calibrationStatus?.zero_offsets?.right ?? 0}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <a
+                  href={`/api/export/sessions.csv?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+                  className="flex-1 elevated-pill py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90"
+                >
+                  <Download size={16} />
+                  <span>Export CSV</span>
+                </a>
+                <a
+                  href="/api/admin/backup/db"
+                  className="flex-1 elevated-pill py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90"
+                >
+                  <Database size={16} />
+                  <span>Backup SQLite</span>
+                </a>
+              </div>
             </div>
           </div>
         </section>
@@ -1492,16 +1965,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              sendWs({ type: 'reset_reps' });
-              setMockStatusMsg('Reset rep counter to 0');
-            }}
-            className="w-full elevated-pill py-2.5 rounded-xl text-sm font-bold"
-          >
-            Reset Rep Counter
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                sendWs({ type: 'reset_reps' });
+                setMockStatusMsg('Reset rep counter to 0');
+              }}
+              className="elevated-pill py-3 rounded-xl text-sm font-bold"
+            >
+              Reset Rep Counter
+            </button>
+            <button
+              type="button"
+              onClick={() => void zeroCalibration()}
+              className="elevated-pill py-3 rounded-xl text-sm font-bold"
+            >
+              Zero Cable Calibration
+            </button>
+          </div>
 
           {/* Home Assistant / MQTT Event Bus Diagnostics */}
           <div className="elevated-pill rounded-2xl p-4 space-y-2">
@@ -1658,6 +2140,117 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               ))}
             </div>
           </div>
+        </div>
+      </dialog>
+
+      {/* DIALOG 7: BYOK AI VOICE COACH SETTINGS */}
+      <dialog
+        ref={aiDialogRef}
+        closedby="any"
+        aria-labelledby="ai-dialog-title"
+        className="rounded-3xl p-8 max-w-lg w-full"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <Key size={22} style={{ color: 'var(--accent-primary)' }} />
+            <h2 id="ai-dialog-title" className="text-2xl font-black">
+              Voice Coach (BYOK AI Provider)
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => aiDialogRef.current?.close()}
+            className="elevated-pill p-2 rounded-xl"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs uppercase tracking-widest font-bold opacity-70 mb-2">
+              Provider
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {(coachConfig?.supportedProviders ?? [
+                { id: 'local', label: 'Built-In Local Coach' },
+                { id: 'openai', label: 'OpenAI (BYOK)' },
+                { id: 'anthropic', label: 'Anthropic Claude' },
+                { id: 'gemini', label: 'Google Gemini' },
+                { id: 'ollama', label: 'Ollama (Local)' },
+              ]).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() =>
+                    setByokProvider(p.id as 'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama')
+                  }
+                  className={`px-3 py-2.5 rounded-xl text-xs font-bold text-left ${
+                    byokProvider === p.id ? 'text-slate-950' : 'elevated-pill'
+                  }`}
+                  style={
+                    byokProvider === p.id
+                      ? { backgroundColor: 'var(--accent-primary)' }
+                      : undefined
+                  }
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs uppercase tracking-widest font-bold opacity-70 mb-1">
+              Model Name
+            </label>
+            <input
+              type="text"
+              value={byokModel}
+              onChange={(e) => setByokModel(e.target.value)}
+              placeholder="gpt-4o-mini / claude-3-5-haiku-latest / gemini-2.5-flash"
+              className="w-full px-4 py-3 rounded-xl elevated-pill text-sm outline-none"
+            />
+          </div>
+
+          {byokProvider !== 'local' && byokProvider !== 'ollama' && (
+            <div>
+              <label className="block text-xs uppercase tracking-widest font-bold opacity-70 mb-1">
+                API Key {coachConfig?.keyHint ? `(Saved: ${coachConfig.keyHint})` : ''}
+              </label>
+              <input
+                type="password"
+                value={byokApiKey}
+                onChange={(e) => setByokApiKey(e.target.value)}
+                placeholder="Paste provider API key (stored in memory / .env)"
+                className="w-full px-4 py-3 rounded-xl elevated-pill text-sm outline-none"
+              />
+            </div>
+          )}
+
+          {byokProvider === 'ollama' && (
+            <div>
+              <label className="block text-xs uppercase tracking-widest font-bold opacity-70 mb-1">
+                Ollama Base URL
+              </label>
+              <input
+                type="text"
+                value={byokBaseUrl}
+                onChange={(e) => setByokBaseUrl(e.target.value)}
+                placeholder="http://localhost:11434"
+                className="w-full px-4 py-3 rounded-xl elevated-pill text-sm outline-none"
+              />
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void saveCoachConfig()}
+            className="w-full py-3.5 rounded-2xl font-black text-slate-950"
+            style={{ backgroundColor: 'var(--accent-primary)' }}
+          >
+            Save AI Coach Settings
+          </button>
         </div>
       </dialog>
     </div>

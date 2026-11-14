@@ -310,6 +310,23 @@ async def route_mock_arm_positions(req: MockArmPositionsRequest):
     return {"status": "ok", "accessory": motor.active_accessory}
 
 
+@app.get("/api/calibration")
+async def route_get_calibration():
+    if motor is None:
+        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    return motor.get_calibration_status()
+
+
+@app.post("/api/calibration/zero")
+async def route_zero_calibration():
+    if motor is None:
+        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    try:
+        return {"status": "calibrated", **motor.zero_cable_offsets()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 def entry_point() -> None:
     global _cli_mock_override
     parser = argparse.ArgumentParser(description="swonal-ui Hardware Daemon")

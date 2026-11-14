@@ -109,4 +109,49 @@ describe('Phase 2 Nice-to-Have Features', () => {
     expect(statusJson.mqttTopicPrefix).toBe('swonal');
     expect(statusJson.recentEvents.length).toBeGreaterThan(0);
   });
+
+  it('supports progressive overload recommendations, CSV/JSON export, SQLite backup, and BYOK AI Coach', async () => {
+    const exRes = await fetch(`${baseUrl}/api/exercises`);
+    const exercises = (await exRes.json()) as Array<{ id: string }>;
+    const overloadRes = await fetch(
+      `${baseUrl}/api/overload/${DEFAULT_USERS.JERI_ID}/${exercises[0].id}`
+    );
+    expect(overloadRes.status).toBe(200);
+    const overload = (await overloadRes.json()) as { recommendedWeightLb: number };
+    expect(overload.recommendedWeightLb).toBeGreaterThanOrEqual(5);
+
+    const csvRes = await fetch(`${baseUrl}/api/export/sessions.csv?userId=${DEFAULT_USERS.JERI_ID}`);
+    expect(csvRes.status).toBe(200);
+    expect(await csvRes.text()).toContain('SessionId,Routine,StartedAt,Exercise');
+
+    const jsonRes = await fetch(`${baseUrl}/api/export/sessions.json?userId=${DEFAULT_USERS.JERI_ID}`);
+    expect(jsonRes.status).toBe(200);
+    const exported = (await jsonRes.json()) as { activityType: string; sessions: unknown[] };
+    expect(exported.activityType).toBe('TraditionalStrengthTraining');
+
+    const backupRes = await fetch(`${baseUrl}/api/admin/backup/db`);
+    expect(backupRes.status).toBe(200);
+    const buf = Buffer.from(await backupRes.arrayBuffer());
+    expect(buf.subarray(0, 15).toString('utf8')).toBe('SQLite format 3');
+
+    const cfgRes = await fetch(`${baseUrl}/api/coach/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'local', model: 'swonal-local-coach-v1' }),
+    });
+    expect(cfgRes.status).toBe(200);
+
+    const askRes = await fetch(`${baseUrl}/api/coach/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: DEFAULT_USERS.JERI_ID, prompt: 'Add 5 pounds' }),
+    });
+    expect(askRes.status).toBe(200);
+    const coach = (await askRes.json()) as {
+      reply: string;
+      suggestedAction?: { type: string; deltaLb?: number };
+    };
+    expect(coach.suggestedAction?.type).toBe('set_weight_delta');
+    expect(coach.suggestedAction?.deltaLb).toBe(5);
+  });
 });

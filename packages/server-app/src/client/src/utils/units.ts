@@ -43,3 +43,30 @@ export function hexToRgba(hex: string, alpha: number): string {
   const b = num & 255;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+
+/**
+ * Returns crisp #FFFFFF or #07090E text color based on WCAG relative luminance
+ * of the active accent color so buttons and badges (e.g. #FF007A vs #CCFF00)
+ * always maintain high contrast.
+ */
+export function getContrastTextColor(hex: string): string {
+  const clean = hex.replace('#', '');
+  const full =
+    clean.length === 3
+      ? clean
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : clean;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return '#07090E';
+  const toLinear = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const lum =
+    0.2126 * toLinear((num >> 16) & 255) +
+    0.7152 * toLinear((num >> 8) & 255) +
+    0.0722 * toLinear(num & 255);
+  return lum > 0.42 ? '#07090E' : '#FFFFFF';
+}

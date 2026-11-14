@@ -7,12 +7,15 @@ import {
   MusicPlaybackState,
   MusicPlaylist,
   MusicProviderMeta,
+  OverloadSuggestion,
   PersonalRecord,
   RoutineStep,
   SafetyEvent,
   SharedSessionState,
+  SymmetryMetrics,
   TelemetryFrame,
   UserProfile,
+  VbtMetrics,
   WorkoutBlock,
   WorkoutSession,
   WorkoutTemplate,
@@ -115,6 +118,17 @@ export function useSwonalState() {
   const [safetyEvent, setSafetyEvent] = useState<SafetyEvent | null>(null);
   const [lastPrBanner, setLastPrBanner] = useState<string | null>(null);
   const [soundMuted, setSoundMuted] = useState(false);
+  const [overloadSuggestion, setOverloadSuggestion] = useState<OverloadSuggestion | null>(null);
+  const [vbtMetrics, setVbtMetrics] = useState<VbtMetrics>({
+    currentVelocity: 0,
+    peakSetVelocity: 0,
+    lastRepPeakVelocity: 0,
+    velocityDropPct: 0,
+    fatigueAlert: false,
+  });
+  const currentRepPeakVelRef = useRef<number>(0);
+  const firstRepPeakVelRef = useRef<number>(0);
+  const lastRepPeakVelRef = useRef<number>(0);
 
   // Active routine & exercise state
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>('');
@@ -165,6 +179,73 @@ export function useSwonalState() {
     if (!activeExercise) return null;
     return personalRecords.find((pr) => pr.exerciseId === activeExercise.id) ?? null;
   }, [personalRecords, activeExercise]);
+
+  const symmetryMetrics: SymmetryMetrics = useMemo(() => {
+    const leftPos = telemetry.left_cable.position ?? 0;
+    const rightPos = telemetry.right_cable.position ?? 0;
+    const positionDelta = Math.abs(leftPos - rightPos);
+    const signedBalance = rightPos - leftPos;
+    const leftLoad = telemetry.left_cable.load_lb ?? 0;
+    const rightLoad = telemetry.right_cable.load_lb ?? 0;
+    const totalLoad = leftLoad + rightLoad;
+    const leftLoadPct = totalLoad > 0 ? Math.round((leftLoad / totalLoad) * 100) : 50;
+    const rightLoadPct = totalLoad > 0 ? 100 - leftLoadPct : 50;
+    const status =
+      positionDelta > 28 ? 'critical' : positionDelta > 12 ? 'drift' : 'balanced';
+    return { positionDelta, signedBalance, leftLoadPct, rightLoadPct, status };
+  }, [telemetry.left_cable, telemetry.right_cable]);
+
+  useEffect(() => {
+    if (!activeUser?.id || !activeExercise?.id) {
+      setOverloadSuggestion(null);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/overload/${activeUser.id}/${activeExercise.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setOverloadSuggestion(data as OverloadSuggestion);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUser?.id, activeExercise?.id, personalRecords.length, sessions.length]);
+
+  useEffect(() => {
+    const avgVel =
+      (Math.abs(telemetry.left_cable.velocity ?? 0) +
+        Math.abs(telemetry.right_cable.velocity ?? 0)) /
+      2;
+
+    if (!telemetry.weight_enabled || telemetry.rep_count === 0) {
+      if (!telemetry.weight_enabled) {
+        currentRepPeakVelRef.current = 0;
+        firstRepPeakVelRef.current = 0;
+        lastRepPeakVelRef.current = 0;
+      }
+      if (avgVel > currentRepPeakVelRef.current) {
+        currentRepPeakVelRef.current = avgVel;
+      }
+      setVbtMetrics((prev) => ({
+        ...prev,
+        currentVelocity: avgVel,
+        peakSetVelocity: Math.max(telemetry.weight_enabled ? prev.peakSetVelocity : 0, avgVel),
+        velocityDropPct: telemetry.weight_enabled ? prev.velocityDropPct : 0,
+        fatigueAlert: telemetry.weight_enabled ? prev.fatigueAlert : false,
+      }));
+      return;
+    }
+
+    if (avgVel > currentRepPeakVelRef.current) {
+      currentRepPeakVelRef.current = avgVel;
+    }
+    setVbtMetrics((prev) => ({
+      ...prev,
+      currentVelocity: avgVel,
+      peakSetVelocity: Math.max(prev.peakSetVelocity, avgVel),
+    }));
+  }, [telemetry.weight_enabled, telemetry.rep_count, telemetry.left_cable.velocity, telemetry.right_cable.velocity]);
 
   // Apply adaptive theme + per-user dynamic accent CSS variables
   useEffect(() => {
@@ -317,6 +398,30 @@ export function useSwonalState() {
             }
             if (frame.rep_count > prevRepCountRef.current) {
               soundEngine.playRepComplete();
+              const repPeak = Math.max(
+                currentRepPeakVelRef.current,
+                (Math.abs(frame.left_cable.velocity ?? 0) +
+                  Math.abs(frame.right_cable.velocity ?? 0)) /
+                  2
+              );
+              if (firstRepPeakVelRef.current === 0 && repPeak > 0.1) {
+                firstRepPeakVelRef.current = repPeak;
+              }
+              lastRepPeakVelRef.current = repPeak;
+              currentRepPeakVelRef.current = 0;
+              const dropPct =
+                firstRepPeakVelRef.current > 0
+                  ? Math.max(
+                      0,
+                      ((firstRepPeakVelRef.current - repPeak) / firstRepPeakVelRef.current) * 100
+                    )
+                  : 0;
+              setVbtMetrics((prev) => ({
+                ...prev,
+                lastRepPeakVelocity: repPeak,
+                velocityDropPct: dropPct,
+                fatigueAlert: dropPct >= 25 && frame.rep_count >= 2,
+              }));
             }
             prevWeightEnabledRef.current = frame.weight_enabled;
             prevRepCountRef.current = frame.rep_count;
@@ -778,6 +883,9 @@ export function useSwonalState() {
     toggleSoundMuted,
     activeExercise,
     activeExercisePr,
+    overloadSuggestion,
+    vbtMetrics,
+    symmetryMetrics,
     activeTemplateName,
     routineSteps,
     currentStep,

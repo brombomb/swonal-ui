@@ -1088,9 +1088,31 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             </section>
 
             <section className="surface-card rounded-3xl p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <History size={20} style={{ color: 'var(--accent-primary)' }} />
-                <h2 className="text-lg font-black">Recent Sessions</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <History size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h2 className="text-lg font-black">Recent Sessions</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`/api/export/sessions.csv?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+                    className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold"
+                  >
+                    Export CSV
+                  </a>
+                  <a
+                    href={`/api/export/sessions.json?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+                    className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold"
+                  >
+                    Export JSON
+                  </a>
+                  <a
+                    href="/api/admin/backup/db"
+                    className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold"
+                  >
+                    Backup DB
+                  </a>
+                </div>
               </div>
               <div className="space-y-2.5">
                 {sessions.map((s) => (

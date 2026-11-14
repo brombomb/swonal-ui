@@ -78,6 +78,8 @@ class MotorBridge:
         self.modifier_pct = 0
         self.rep_count = 0
         self.active_accessory = "HANDLES"
+        self.cable_zero_offsets = {"left": 0.0, "right": 0.0}
+        self.last_calibrated_at: Optional[float] = None
 
         self.last_heartbeat = time.time()
         self.last_interaction = time.time()
@@ -240,6 +242,29 @@ class MotorBridge:
         """Reset current set rep counter to zero."""
         self.rep_count = 0
         self._mock_sim.reset_cycle()
+
+    def get_calibration_status(self) -> dict:
+        """Return cable zero-offset and hardware board calibration diagnostics."""
+        return {
+            "state": self.state,
+            "mock_mode": self.mock_mode,
+            "port": self.port,
+            "expected_board": self.config.get("serial", {}).get("expected_board", "501-0100_rev004"),
+            "expected_firmware": self.config.get("serial", {}).get("expected_firmware", "5.2.18.0"),
+            "zero_offsets": dict(self.cable_zero_offsets),
+            "last_calibrated_at": self.last_calibrated_at,
+            "bar_tilt_threshold_delta": self.bar_tilt_threshold,
+            "bar_tilt_dwell_ms": self.bar_tilt_dwell_ms,
+        }
+
+    def zero_cable_offsets(self) -> dict:
+        """Zero left/right cable encoder offsets (must be weight-off)."""
+        if self.weight_enabled:
+            raise RuntimeError("Cannot zero cable calibration while weight is engaged")
+        self.cable_zero_offsets = {"left": 0.0, "right": 0.0}
+        self.last_calibrated_at = time.time()
+        self._mock_sim.reset_cycle()
+        return self.get_calibration_status()
 
     def trigger_bar_tilt(self, delta: float = 45.0, duration_sec: float = 0.6) -> None:
         """Inject simulated bar tilt offset in mock mode."""

@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../db';
 import {
@@ -9,8 +12,15 @@ import {
   WorkoutBlockSchema,
 } from '../mcp/mcpServer';
 import { sessionCoordinator } from '../services/sessionState';
+import { aiCoachService } from '../services/aiCoach';
 import { homeAssistantBus } from '../integrations/homeAssistantBus';
-import { estimateOneRepMaxLb, MAX_WEIGHT_LB, MIN_WEIGHT_LB } from '../utils/units';
+import {
+  estimateOneRepMaxLb,
+  formatWeight,
+  MAX_WEIGHT_LB,
+  MIN_WEIGHT_LB,
+  WeightUnit,
+} from '../utils/units';
 
 export interface DaemonCommandSender {
   sendToDaemon: (msg: Record<string, unknown>) => boolean;
@@ -463,6 +473,206 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         note: typeof req.body?.note === 'string' ? req.body.note : 'Manual Home Assistant test trigger',
       });
       res.json({ status: 'published', event: record, bus: homeAssistantBus.getStatus() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Smart Progressive Overload Recommendation
+  router.get('/overload/:userId/:exerciseId', async (req, res, next) => {
+    try {
+      const { userId, exerciseId } = req.params;
+      const recentSets = await prisma.setLog.findMany({
+        where: {
+          exerciseId,
+          session: { userId },
+        },
+        orderBy: { timestamp: 'desc' },
+        take: 4,
+      });
+      const pr = await prisma.personalRecord.findUnique({
+        where: { userId_exerciseId: { userId, exerciseId } },
+      });
+      const latest = recentSets[0];
+      const twoStrongSets =
+        recentSets.length >= 2 &&
+        recentSets[0].repsCompleted >= 8 &&
+        recentSets[1].repsCompleted >= 8 &&
+        recentSets[0].weightLb >= recentSets[1].weightLb;
+      const highRepLatest = Boolean(latest && latest.repsCompleted >= 10);
+      const ready = Boolean(latest && (twoStrongSets || highRepLatest) && latest.weightLb < MAX_WEIGHT_LB);
+      const recommendedWeightLb = latest
+        ? Math.min(MAX_WEIGHT_LB, latest.weightLb + (ready ? 5 : 0))
+        : pr
+          ? Math.min(MAX_WEIGHT_LB, Math.max(MIN_WEIGHT_LB, Math.round((pr.maxWeightLb * 0.85) / 5) * 5))
+          : 45;
+
+      res.json({
+        ready,
+        recommendedBumpLb: ready ? 5 : 0,
+        recommendedWeightLb,
+        lastWeightLb: latest?.weightLb ?? null,
+        lastReps: latest?.repsCompleted ?? null,
+        reason: ready
+          ? 'Strong rep consistency detected — ready for +5 lb progressive overload'
+          : 'Log 8+ reps across 2 sets (or 10+ reps) to unlock +5 lb overload suggestion',
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Workout History Export (CSV & Apple Health / Strava-compatible JSON)
+  router.get('/export/sessions.csv', async (req, res, next) => {
+    try {
+      const userId = typeof req.query.userId === 'string' ? req.query.userId : sessionCoordinator.getState().activeUserId;
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const unit: WeightUnit = user?.weightUnit === 'KG' ? 'KG' : 'LB';
+      const sessions = await prisma.workoutSession.findMany({
+        where: { userId },
+        orderBy: { startedAt: 'desc' },
+        include: {
+          template: { select: { name: true } },
+          setLogs: {
+            include: { exercise: { select: { name: true, muscleGroup: true, accessory: true } } },
+            orderBy: { timestamp: 'asc' },
+          },
+        },
+      });
+
+      const header = ['SessionId', 'Routine', 'StartedAt', 'Exercise', 'MuscleGroup', 'Set', 'Mode', `Weight(${unit})`, 'Reps', `Volume(${unit})`, 'Timestamp'];
+      const rows = [header.join(',')];
+      for (const s of sessions) {
+        const routineName = (s.template?.name ?? 'Free Lift').replace(/"/g, '""');
+        for (const log of s.setLogs) {
+          rows.push([
+            s.id,
+            `"${routineName}"`,
+            s.startedAt.toISOString(),
+            `"${log.exercise.name.replace(/"/g, '""')}"`,
+            `"${log.exercise.muscleGroup}"`,
+            String(log.setNumber),
+            log.mode,
+            String(formatWeight(log.weightLb, unit)),
+            String(log.repsCompleted),
+            String(formatWeight(log.volumeLb, unit)),
+            log.timestamp.toISOString(),
+          ].join(','));
+        }
+      }
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="swonal-workouts-${new Date().toISOString().slice(0, 10)}.csv"`);
+      res.send(rows.join('\n'));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/export/sessions.json', async (req, res, next) => {
+    try {
+      const userId = typeof req.query.userId === 'string' ? req.query.userId : sessionCoordinator.getState().activeUserId;
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const unit: WeightUnit = user?.weightUnit === 'KG' ? 'KG' : 'LB';
+      const sessions = await prisma.workoutSession.findMany({
+        where: { userId },
+        orderBy: { startedAt: 'desc' },
+        include: {
+          template: { select: { name: true } },
+          setLogs: {
+            include: { exercise: { select: { name: true, muscleGroup: true, accessory: true } } },
+            orderBy: { timestamp: 'asc' },
+          },
+        },
+      });
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="swonal-workouts-${new Date().toISOString().slice(0, 10)}.json"`);
+      res.json({
+        exportedAt: new Date().toISOString(),
+        source: 'swonal-ui',
+        activityType: 'TraditionalStrengthTraining',
+        athlete: user?.name ?? 'Athlete',
+        unit,
+        sessions: sessions.map((s) => ({
+          id: s.id,
+          routine: s.template?.name ?? 'Free Lift',
+          startedAt: s.startedAt,
+          completedAt: s.completedAt,
+          totalVolume: formatWeight(s.totalVolume, unit),
+          unit,
+          sets: s.setLogs.map((l) => ({
+            exercise: l.exercise.name,
+            muscleGroup: l.exercise.muscleGroup,
+            accessory: l.exercise.accessory,
+            setNumber: l.setNumber,
+            mode: l.mode,
+            weight: formatWeight(l.weightLb, unit),
+            reps: l.repsCompleted,
+            volume: formatWeight(l.volumeLb, unit),
+            timestamp: l.timestamp,
+          })),
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // SQLite Database Snapshot Backup
+  router.get('/admin/backup/db', async (_req, res, next) => {
+    const tmpPath = path.join(os.tmpdir(), `swonal-backup-${Date.now()}.db`);
+    try {
+      await prisma.$executeRawUnsafe(`VACUUM INTO '${tmpPath.replace(/'/g, "''")}'`);
+      const buf = fs.readFileSync(tmpPath);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="swonal-backup-${new Date().toISOString().slice(0, 10)}.db"`);
+      res.send(buf);
+    } catch (err) {
+      next(err);
+    } finally {
+      if (fs.existsSync(tmpPath)) {
+        fs.unlinkSync(tmpPath);
+      }
+    }
+  });
+
+  // BYOK AI Voice Coach
+  router.get('/coach/config', (_req, res) => {
+    res.json(aiCoachService.getPublicConfig());
+  });
+
+  router.post('/coach/config', (req, res, next) => {
+    try {
+      const schema = z.object({
+        provider: z.enum(['local', 'openai', 'anthropic', 'gemini', 'ollama']).optional(),
+        model: z.string().max(120).optional(),
+        apiKey: z.string().max(300).optional(),
+        baseUrl: z.string().max(300).optional(),
+      });
+      const parsed = schema.parse(req.body);
+      aiCoachService.setConfig(parsed);
+      res.json(aiCoachService.getPublicConfig());
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/coach/ask', async (req, res, next) => {
+    try {
+      const schema = z.object({
+        userId: z.string().min(1).optional(),
+        prompt: z.string().min(1).max(600),
+        exerciseName: z.string().optional(),
+        currentWeightLb: z.number().optional(),
+        repCount: z.number().optional(),
+        meanVelocity: z.number().optional(),
+        velocityDropPct: z.number().optional(),
+      });
+      const parsed = schema.parse(req.body);
+      const userId = parsed.userId ?? sessionCoordinator.getState().activeUserId;
+      const result = await aiCoachService.ask({ ...parsed, userId });
+      res.json(result);
     } catch (err) {
       next(err);
     }

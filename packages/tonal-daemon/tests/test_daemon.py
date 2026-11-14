@@ -292,3 +292,11 @@ def test_fastapi_rest_and_websocket_integration(monkeypatch):
         custom_resp = client.post("/api/mode/custom")
         assert custom_resp.status_code == 200
         assert custom_resp.json()["mode"] == "CUSTOM"
+
+        cal_resp = client.get("/api/calibration")
+        assert cal_resp.status_code == 200
+        assert cal_resp.json()["zero_offsets"] == {"left": 0.0, "right": 0.0}
+
+        zero_resp = client.post("/api/calibration/zero")
+        assert zero_resp.status_code == 200
+        assert zero_resp.json()["status"] == "calibrated"

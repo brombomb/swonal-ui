@@ -213,3 +213,37 @@ export interface HomeAssistantBusStatus {
   webhookConfigured: boolean;
   recentEvents: HomeAssistantEventRecord[];
 }
+
+export interface OverloadSuggestion {
+  ready: boolean;
+  recommendedBumpLb: number;
+  recommendedWeightLb: number;
+  lastWeightLb: number | null;
+  lastReps: number | null;
+  reason: string;
+}
+
+export interface VbtMetrics {
+  currentVelocity: number;
+  peakSetVelocity: number;
+  lastRepPeakVelocity: number;
+  velocityDropPct: number;
+  fatigueAlert: boolean;
+}
+
+export interface SymmetryMetrics {
+  positionDelta: number;
+  signedBalance: number;
+  leftLoadPct: number;
+  rightLoadPct: number;
+  status: 'balanced' | 'drift' | 'critical';
+}
+
+export interface AiCoachPublicConfig {
+  provider: 'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama';
+  model: string;
+  hasApiKey: boolean;
+  keyHint: string | null;
+  baseUrl: string | null;
+  supportedProviders: Array<{ id: string; label: string }>;
+}
