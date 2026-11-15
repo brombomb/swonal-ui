@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CompanionView } from './components/CompanionView';
 import { KioskView } from './components/KioskView';
+import { SettingsView } from './components/SettingsView';
 import { useSwonalState } from './hooks/useSwonalState';
 
 export function App() {
@@ -11,9 +12,10 @@ export function App() {
   const [scale, setScale] = useState(1);
 
   const isCompanion = pathname.startsWith('/companion');
+  const isSettings = pathname.startsWith('/settings');
 
   useEffect(() => {
-    if (isCompanion) return;
+    if (isCompanion || isSettings) return;
     const updateScale = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -24,7 +26,11 @@ export function App() {
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [isCompanion]);
+  }, [isCompanion, isSettings]);
+
+  if (isSettings) {
+    return <SettingsView swonal={swonal} />;
+  }
 
   if (isCompanion) {
     return <CompanionView swonal={swonal} />;

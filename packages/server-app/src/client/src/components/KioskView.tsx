@@ -251,7 +251,47 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     }
   };
 
-  const startVoiceListening = () => {
+  const voiceMicActiveRef = useRef(false);
+  const voicePauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voicePendingRef = useRef('');
+  const voiceLastSubmittedIdxRef = useRef(0);
+  const voiceRecognitionRef = useRef<{
+    stop: () => void;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      voiceMicActiveRef.current = false;
+      if (voicePauseTimerRef.current) clearTimeout(voicePauseTimerRef.current);
+      try {
+        voiceRecognitionRef.current?.stop();
+      } catch {
+        // Ignore cleanup stop errors
+      }
+    };
+  }, []);
+
+  const stopVoiceListening = () => {
+    voiceMicActiveRef.current = false;
+    if (voicePauseTimerRef.current) {
+      clearTimeout(voicePauseTimerRef.current);
+      voicePauseTimerRef.current = null;
+    }
+    try {
+      voiceRecognitionRef.current?.stop();
+    } catch {
+      // Ignore stop errors
+    }
+    voiceRecognitionRef.current = null;
+    setIsListening(false);
+  };
+
+  const toggleVoiceListening = () => {
+    if (isListening || voiceMicActiveRef.current) {
+      stopVoiceListening();
+      return;
+    }
+
     const SpeechRec =
       (window as unknown as Record<string, unknown>).SpeechRecognition ||
       (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
@@ -259,29 +299,80 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       setCoachReply('Browser voice recognition unavailable here — type your question below.');
       return;
     }
-    const recognition = new (SpeechRec as new () => {
+
+    type SpeechRecInstance = {
       lang: string;
+      continuous: boolean;
       interimResults: boolean;
       maxAlternatives: number;
-      onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
-      onerror: () => void;
+      onresult: (e: {
+        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }>;
+      }) => void;
+      onerror: (e?: { error?: string }) => void;
       onend: () => void;
       start: () => void;
-    })();
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListening(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript;
-      if (transcript) {
-        setCoachPrompt(transcript);
-        void askCoach(transcript);
-      }
+      stop: () => void;
     };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    recognition.start();
+
+    const launchRecognition = () => {
+      if (!voiceMicActiveRef.current) return;
+      const recognition = new (SpeechRec as new () => SpeechRecInstance)();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      voiceLastSubmittedIdxRef.current = 0;
+      voicePendingRef.current = '';
+      voiceRecognitionRef.current = recognition;
+
+      recognition.onresult = (event) => {
+        let segment = '';
+        for (let i = voiceLastSubmittedIdxRef.current; i < event.results.length; i += 1) {
+          segment += event.results[i]?.[0]?.transcript ?? '';
+        }
+        const trimmed = segment.trim();
+        if (trimmed) {
+          voicePendingRef.current = trimmed;
+          setCoachPrompt(trimmed);
+        }
+
+        if (voicePauseTimerRef.current) {
+          clearTimeout(voicePauseTimerRef.current);
+        }
+        // Send query after a 1.4s pause in speech, while keeping the mic open
+        voicePauseTimerRef.current = setTimeout(() => {
+          const query = voicePendingRef.current.trim();
+          if (query) {
+            voiceLastSubmittedIdxRef.current = event.results.length;
+            voicePendingRef.current = '';
+            setCoachPrompt('');
+            void askCoach(query);
+          }
+        }, 1400);
+      };
+
+      recognition.onerror = (err) => {
+        if (err?.error === 'not-allowed' || err?.error === 'service-not-allowed') {
+          stopVoiceListening();
+          setCoachReply('Microphone permission denied — allow mic access or type below.');
+        }
+      };
+
+      recognition.onend = () => {
+        // Keep mic open across browser silence timeouts until user toggles off
+        if (voiceMicActiveRef.current) {
+          setTimeout(launchRecognition, 150);
+        } else {
+          setIsListening(false);
+        }
+      };
+
+      recognition.start();
+    };
+
+    voiceMicActiveRef.current = true;
+    setIsListening(true);
+    launchRecognition();
   };
 
   const saveCoachConfig = async () => {
@@ -665,61 +756,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <span>Accent Color &amp; Profiles</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowQuickSettings(false);
-                    aiDialogRef.current?.showModal();
+                <a
+                  href="/settings"
+                  className="w-full py-3 px-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition hover:opacity-95"
+                  style={{
+                    backgroundColor: 'var(--accent-primary)',
+                    color: accentTextColor,
                   }}
-                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
                 >
-                  <Key size={17} style={{ color: 'var(--accent-primary)' }} />
-                  <span>AI Voice Coach (BYOK)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowQuickSettings(false);
-                    void refreshCalibration();
-                    diagnosticsDialogRef.current?.showModal();
-                  }}
-                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-                >
-                  <Database size={17} style={{ color: 'var(--accent-primary)' }} />
-                  <span>Session Export &amp; Diagnostics</span>
-                </button>
-
-                {musicState.isConnected && activeProviderId === 'spotify' ? (
-                  <div className="w-full rounded-xl py-2.5 px-3 bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 font-bold text-sm flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2">
-                      <Music size={16} />
-                      <span>Spotify Connected</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowQuickSettings(false);
-                        musicDialogRef.current?.showModal();
-                      }}
-                      className="text-xs underline opacity-90 hover:opacity-100"
-                    >
-                      Playlists
-                    </button>
-                  </div>
-                ) : (
-                  <a
-                    href={
-                      activeUser
-                        ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
-                        : '/api/spotify/login'
-                    }
-                    className="w-full py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
-                  >
-                    <Music size={17} />
-                    <span>Connect Spotify</span>
-                  </a>
-                )}
+                  <Settings size={16} />
+                  <span>Application Settings →</span>
+                </a>
               </div>
             )}
           </div>
@@ -1474,7 +1521,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={startVoiceListening}
+                  onClick={toggleVoiceListening}
+                  aria-pressed={isListening}
                   className={`px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-1.5 shrink-0 ${
                     isListening ? 'bg-red-500 text-white animate-pulse' : ''
                   }`}
@@ -1484,8 +1532,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                       : undefined
                   }
                 >
-                  {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-                  <span>{isListening ? 'Listening' : 'Speak'}</span>
+                  {isListening ? <Mic size={18} /> : <MicOff size={18} />}
+                  <span>{isListening ? 'Mic Open (Pause to Send)' : 'Mic Off'}</span>
                 </button>
                 <input
                   type="text"

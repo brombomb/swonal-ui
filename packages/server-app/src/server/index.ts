@@ -78,6 +78,7 @@ export async function createSwonalServer(
   const connectDaemonWs = options.connectDaemonWs ?? true;
 
   const app = express();
+  app.set('trust proxy', 1);
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
 
@@ -376,7 +377,7 @@ export async function createSwonalServer(
   const clientDistDir = path.resolve(__dirname, '../../dist/client');
   if (fs.existsSync(clientDistDir)) {
     app.use(express.static(clientDistDir));
-    app.get(['/', '/companion', '/companion/*'], (_req, res) => {
+    app.get(['/', '/companion', '/companion/*', '/settings', '/settings/*'], (_req, res) => {
       res.sendFile(path.join(clientDistDir, 'index.html'));
     });
   } else {

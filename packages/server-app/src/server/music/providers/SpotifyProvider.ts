@@ -31,9 +31,9 @@ export class SpotifyProvider implements IMusicProvider {
     return getSpotifyConfig().redirectUri;
   }
 
-  async getAuthUrl(userId: string): Promise<string> {
+  async getAuthUrl(userId: string, redirectOverride?: string): Promise<string> {
     const clientId = this.getClientId();
-    const redirectUri = this.getRedirectUri();
+    const redirectUri = redirectOverride || this.getRedirectUri();
     const scopes = [
       'user-read-playback-state',
       'user-modify-playback-state',
@@ -56,10 +56,10 @@ export class SpotifyProvider implements IMusicProvider {
     return `https://accounts.spotify.com/authorize?${params.toString()}`;
   }
 
-  async handleAuthCallback(userId: string, code: string): Promise<void> {
+  async handleAuthCallback(userId: string, code: string, redirectOverride?: string): Promise<void> {
     const clientId = this.getClientId();
     const clientSecret = this.getClientSecret();
-    const redirectUri = this.getRedirectUri();
+    const redirectUri = redirectOverride || this.getRedirectUri();
 
     if (!clientId || !clientSecret || code === 'mock-spotify-code') {
       await prisma.musicIntegration.upsert({

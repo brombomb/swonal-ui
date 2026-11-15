@@ -17,6 +17,7 @@ import {
   Radio,
   Rewind,
   Send,
+  Settings,
   SkipForward,
   Sliders,
   Sparkles,
@@ -414,6 +415,14 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             >
               {activeUnit}
             </button>
+            <a
+              href="/settings"
+              title="Application Settings"
+              aria-label="Application Settings"
+              className="elevated-pill p-1.5 rounded-xl flex items-center justify-center hover:opacity-90"
+            >
+              <Settings size={15} style={{ color: 'var(--accent-primary)' }} />
+            </a>
             <button
               type="button"
               onClick={() => {

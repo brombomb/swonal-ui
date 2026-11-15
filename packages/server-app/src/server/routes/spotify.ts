@@ -16,6 +16,18 @@ export function createSpotifyRouter(
     return sessionCoordinator.getState().activeUserId;
   };
 
+  const resolveRedirectUri = (req: { protocol: string; get: (name: string) => string | undefined }): string => {
+    const cfg = getSpotifyConfig();
+    if (process.env.SPOTIFY_REDIRECT_URI?.trim() || process.env.PUBLIC_URL?.trim() || process.env.COMPANION_BASE_URL?.trim()) {
+      return cfg.redirectUri;
+    }
+    const host = req.get('host');
+    if (host) {
+      return `${req.protocol}://${host}/api/spotify/callback`;
+    }
+    return cfg.redirectUri;
+  };
+
   /**
    * GET /api/spotify/login?userId=<uuid>
    * Generates the Spotify OAuth 2.0 Authorization Code URL and redirects the user to Spotify.
@@ -23,8 +35,10 @@ export function createSpotifyRouter(
   router.get('/login', async (req, res, next) => {
     try {
       const userId = resolveUserId(req);
-      const spotify = musicRegistry.get('spotify');
-      const authUrl = await spotify.getAuthUrl(userId);
+      const spotify = musicRegistry.get('spotify') as {
+        getAuthUrl: (uid: string, redirectOverride?: string) => Promise<string>;
+      };
+      const authUrl = await spotify.getAuthUrl(userId, resolveRedirectUri(req));
       res.redirect(authUrl);
     } catch (err) {
       next(err);
@@ -53,8 +67,10 @@ export function createSpotifyRouter(
         return;
       }
 
-      const spotify = musicRegistry.get('spotify');
-      await spotify.handleAuthCallback(userId, code);
+      const spotify = musicRegistry.get('spotify') as {
+        handleAuthCallback: (uid: string, code: string, redirectOverride?: string) => Promise<void>;
+      };
+      await spotify.handleAuthCallback(userId, code, resolveRedirectUri(req));
 
       broadcastToClients({
         type: 'music_updated',
@@ -82,7 +98,7 @@ export function createSpotifyRouter(
       });
       res.json({
         configured: cfg.configured,
-        redirectUri: cfg.redirectUri,
+        redirectUri: resolveRedirectUri(req),
         connected: Boolean(integration),
         hasOAuthToken: Boolean(integration?.accessToken),
       });
