@@ -717,10 +717,13 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     const hostHeader = req.get('host') || '';
     const portMatch = hostHeader.match(/:(\d+)$/);
     const port = portMatch ? Number(portMatch[1]) : Number(process.env.PORT || 3000);
-    const overrideBase = (process.env.COMPANION_BASE_URL || process.env.PUBLIC_URL || '').replace(
-      /\/+$/,
+    const overrideBase = (
+      process.env.PUBLIC_URL ||
+      process.env.COMPANION_BASE_URL ||
       ''
-    );
+    )
+      .trim()
+      .replace(/\/+$/, '');
     const companionBaseUrl =
       overrideBase || (primaryIp ? `${req.protocol}://${primaryIp}:${port}` : null);
 
@@ -728,6 +731,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       primaryIp,
       ips,
       port,
+      publicUrl: overrideBase || null,
       companionBaseUrl,
     });
   });

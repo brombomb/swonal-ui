@@ -1,4 +1,5 @@
 import { prisma } from '../../db';
+import { getSpotifyConfig } from '../../config';
 import {
   IMusicProvider,
   NormalizedAudioDevice,
@@ -27,7 +28,7 @@ export class SpotifyProvider implements IMusicProvider {
   }
 
   private getRedirectUri(): string {
-    return process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:3000/api/spotify/callback';
+    return getSpotifyConfig().redirectUri;
   }
 
   async getAuthUrl(userId: string): Promise<string> {

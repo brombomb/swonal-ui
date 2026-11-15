@@ -181,9 +181,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     primaryIp: string | null;
     ips: string[];
     port: number;
+    publicUrl?: string | null;
     companionBaseUrl: string | null;
   } | null>(null);
   const [selectedLanIp, setSelectedLanIp] = useState<string | null>(null);
+  const [baseUrlOverride, setBaseUrlOverride] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('swonal_base_url_override') ?? '';
+  });
+  const [baseUrlDraft, setBaseUrlDraft] = useState<string>(baseUrlOverride);
 
   useEffect(() => {
     void fetch('/api/network-info')
@@ -353,6 +359,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     const sessionParam = sessionState.activeSessionId
       ? `?session=${encodeURIComponent(sessionState.activeSessionId)}`
       : '';
+    const cleanedOverride = baseUrlOverride.trim().replace(/\/+$/, '');
+    if (cleanedOverride) {
+      return `${cleanedOverride}/companion${sessionParam}`;
+    }
+    if (networkInfo?.publicUrl) {
+      return `${networkInfo.publicUrl.replace(/\/+$/, '')}/companion${sessionParam}`;
+    }
     if (typeof window === 'undefined') {
       return `http://127.0.0.1:3000/companion${sessionParam}`;
     }
@@ -369,7 +382,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       }
     }
     return `${baseOrigin}/companion${sessionParam}`;
-  }, [sessionState.activeSessionId, selectedLanIp, networkInfo]);
+  }, [sessionState.activeSessionId, selectedLanIp, networkInfo, baseUrlOverride]);
 
   useEffect(() => {
     void QRCode.toDataURL(companionUrl, {
@@ -1694,7 +1707,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {qrDataUrl && <img src={qrDataUrl} alt="Companion Remote QR Code" className="w-64 h-64" />}
         </div>
         <div className="flex flex-col gap-3">
-          {networkInfo && networkInfo.ips.length > 1 && (
+          {networkInfo && networkInfo.ips.length > 1 && !baseUrlOverride && (
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {networkInfo.ips.map((ip) => (
                 <button
@@ -1713,6 +1726,56 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               ))}
             </div>
           )}
+
+          {/* Custom Base URL Override (e.g. https://swonal.brombomb.com) */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = baseUrlDraft.trim().replace(/\/+$/, '');
+              const normalized =
+                trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
+              setBaseUrlOverride(normalized);
+              setBaseUrlDraft(normalized);
+              if (typeof window !== 'undefined') {
+                if (normalized) {
+                  window.localStorage.setItem('swonal_base_url_override', normalized);
+                } else {
+                  window.localStorage.removeItem('swonal_base_url_override');
+                }
+              }
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              type="text"
+              value={baseUrlDraft}
+              onChange={(e) => setBaseUrlDraft(e.target.value)}
+              placeholder="Base URL override (e.g. https://swonal.brombomb.com)"
+              className="flex-1 elevated-pill px-3 py-2 rounded-xl text-xs font-mono outline-none"
+            />
+            <button
+              type="submit"
+              className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
+            >
+              Set
+            </button>
+            {baseUrlOverride && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBaseUrlOverride('');
+                  setBaseUrlDraft('');
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.removeItem('swonal_base_url_override');
+                  }
+                }}
+                className="elevated-pill px-2.5 py-2 rounded-xl text-xs font-bold opacity-75 hover:opacity-100"
+              >
+                Reset
+              </button>
+            )}
+          </form>
+
           <a
             href={companionUrl}
             className="w-full py-3 rounded-2xl font-extrabold text-center text-slate-950"

@@ -1,9 +1,14 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import cors from 'cors';
 import express, { NextFunction, Request, Response } from 'express';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+
+// Load package-local .env first, then monorepo root .env for any missing keys (e.g. SPOTIFY_*, PUBLIC_URL)
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 import WebSocket, { WebSocketServer } from 'ws';
 import { ZodError } from 'zod';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';

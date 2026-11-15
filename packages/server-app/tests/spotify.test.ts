@@ -28,10 +28,14 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     await handle.close();
   });
 
-  it('validates server and Spotify config with /api/spotify/callback default', () => {
+  it('validates server and Spotify config with /api/spotify/callback default and PUBLIC_URL override', () => {
     delete process.env.SPOTIFY_REDIRECT_URI;
-    const serverCfg = getServerConfig();
-    expect(serverCfg.SPOTIFY_REDIRECT_URI).toBe('http://localhost:3000/api/spotify/callback');
+    delete process.env.PUBLIC_URL;
+    expect(getSpotifyConfig().redirectUri).toBe('http://localhost:3000/api/spotify/callback');
+
+    process.env.PUBLIC_URL = 'https://swonal.brombomb.com';
+    expect(getSpotifyConfig().redirectUri).toBe('https://swonal.brombomb.com/api/spotify/callback');
+    delete process.env.PUBLIC_URL;
 
     process.env.SPOTIFY_CLIENT_ID = 'test-client-id';
     process.env.SPOTIFY_CLIENT_SECRET = 'test-client-secret';
