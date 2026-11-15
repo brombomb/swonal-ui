@@ -20,11 +20,11 @@ export class SpotifyProvider implements IMusicProvider {
   private readonly activeDuckTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   private getClientId(): string {
-    return process.env.SPOTIFY_CLIENT_ID || '';
+    return (process.env.SPOTIFY_CLIENT_ID || '').trim();
   }
 
   private getClientSecret(): string {
-    return process.env.SPOTIFY_CLIENT_SECRET || '';
+    return (process.env.SPOTIFY_CLIENT_SECRET || '').trim();
   }
 
   private getRedirectUri(): string {

@@ -10,6 +10,7 @@ import {
   Key,
   Music,
   Radio,
+  Server,
   Smartphone,
   Wrench,
 } from 'lucide-react';
@@ -78,6 +79,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
   } | null>(null);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
   const [diagMsg, setDiagMsg] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -193,6 +195,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
     setCopiedRedirect(true);
     setTimeout(() => setCopiedRedirect(false), 2000);
   };
+
+  const copyText = (key: string, text: string) => {
+    if (typeof navigator === 'undefined') return;
+    void navigator.clipboard?.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const effectiveMcpBaseUrl = (() => {
+    if (baseUrlOverride) return baseUrlOverride.replace(/\/+$/, '');
+    if (networkInfo?.publicUrl) return networkInfo.publicUrl.replace(/\/+$/, '');
+    if (networkInfo?.companionBaseUrl) return networkInfo.companionBaseUrl.replace(/\/+$/, '');
+    if (typeof window !== 'undefined') return window.location.origin;
+    return 'http://localhost:3000';
+  })();
+
+  const mcpSseUrl = `${effectiveMcpBaseUrl}/mcp/sse`;
+  const mcpSseJson = JSON.stringify(
+    {
+      mcpServers: {
+        'swonal-ui': {
+          url: mcpSseUrl,
+        },
+      },
+    },
+    null,
+    2
+  );
+  const mcpStdioJson = JSON.stringify(
+    {
+      mcpServers: {
+        'swonal-ui': {
+          command: 'node',
+          args: ['/home/brombomb/dev/swonal-ui/packages/server-app/dist/server/mcp/stdio.js'],
+        },
+      },
+    },
+    null,
+    2
+  );
 
   return (
     <div
@@ -528,7 +570,109 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
           </form>
         </section>
 
-        {/* 4. Hardware, Calibration & Home Assistant */}
+        {/* 4. Model Context Protocol (MCP) Server */}
+        <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <Server size={22} style={{ color: 'var(--accent-primary)' }} />
+            <div>
+              <h2 className="text-xl font-black">Model Context Protocol (MCP) Server</h2>
+              <p className="text-xs opacity-70">
+                Copy-paste these configs into Claude Desktop, Cursor, or any MCP-compatible AI to read PRs, stats, and build/queue workouts.
+              </p>
+            </div>
+          </div>
+
+          {/* SSE URL */}
+          <div className="elevated-pill rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase opacity-70">HTTP SSE Endpoint</span>
+              <button
+                type="button"
+                onClick={() => copyText('mcp-url', mcpSseUrl)}
+                className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+              >
+                {copiedKey === 'mcp-url' ? <Check size={12} /> : <Copy size={12} />}
+                <span>{copiedKey === 'mcp-url' ? 'Copied' : 'Copy URL'}</span>
+              </button>
+            </div>
+            <p className="font-mono text-xs break-all">{mcpSseUrl}</p>
+          </div>
+
+          {/* Copy-Paste JSON Snippets */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="elevated-pill rounded-2xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase opacity-70">Remote SSE Config (JSON)</span>
+                <button
+                  type="button"
+                  onClick={() => copyText('mcp-sse-json', mcpSseJson)}
+                  className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                >
+                  {copiedKey === 'mcp-sse-json' ? <Check size={12} /> : <Copy size={12} />}
+                  <span>{copiedKey === 'mcp-sse-json' ? 'Copied' : 'Copy JSON'}</span>
+                </button>
+              </div>
+              <pre className="text-[11px] font-mono overflow-x-auto opacity-90 leading-relaxed">
+                {mcpSseJson}
+              </pre>
+            </div>
+
+            <div className="elevated-pill rounded-2xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase opacity-70">Local Stdio Config (JSON)</span>
+                <button
+                  type="button"
+                  onClick={() => copyText('mcp-stdio-json', mcpStdioJson)}
+                  className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                >
+                  {copiedKey === 'mcp-stdio-json' ? <Check size={12} /> : <Copy size={12} />}
+                  <span>{copiedKey === 'mcp-stdio-json' ? 'Copied' : 'Copy JSON'}</span>
+                </button>
+              </div>
+              <pre className="text-[11px] font-mono overflow-x-auto opacity-90 leading-relaxed">
+                {mcpStdioJson}
+              </pre>
+            </div>
+          </div>
+
+          {/* Targeting Individual Users */}
+          <div className="elevated-pill rounded-2xl p-4 space-y-2.5">
+            <p className="text-xs font-bold uppercase opacity-70">
+              Targeting Individual Users (userId for MCP Tools &amp; Resources)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {users.map((u) => (
+                <div
+                  key={u.id}
+                  className="surface-card rounded-xl px-3 py-2 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-black">{u.name}</p>
+                    <p className="font-mono text-[10px] opacity-70 truncate">{u.id}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyText(`uid-${u.id}`, u.id)}
+                    className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0"
+                  >
+                    {copiedKey === `uid-${u.id}` ? <Check size={11} /> : <Copy size={11} />}
+                    <span>{copiedKey === `uid-${u.id}` ? 'Copied' : 'Copy ID'}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] opacity-70 leading-relaxed">
+              Pass <code className="font-mono">userId</code> to{' '}
+              <code className="font-mono">get_user_strength_history</code>,{' '}
+              <code className="font-mono">create_custom_workout</code>, or{' '}
+              <code className="font-mono">queue_workout_for_session</code>, or read{' '}
+              <code className="font-mono">swonal://users/&lt;userId&gt;/profile-and-prs</code> and{' '}
+              <code className="font-mono">swonal://users/&lt;userId&gt;/workouts</code>.
+            </p>
+          </div>
+        </section>
+
+        {/* 5. Hardware, Calibration & Home Assistant */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex items-center gap-2.5">
             <Wrench size={22} style={{ color: 'var(--accent-primary)' }} />
