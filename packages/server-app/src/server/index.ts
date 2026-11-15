@@ -5,10 +5,20 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 
-// Load package-local .env first, then monorepo root .env for any missing keys (e.g. SPOTIFY_*, PUBLIC_URL)
-dotenv.config();
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
+// Load package-local .env first, then monorepo root .env, filling any missing or empty values
+for (const envPath of [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '../../../.env'),
+  path.resolve(__dirname, '../../../../.env'),
+]) {
+  if (!fs.existsSync(envPath)) continue;
+  const parsed = dotenv.parse(fs.readFileSync(envPath));
+  for (const [k, v] of Object.entries(parsed)) {
+    if (!process.env[k]?.trim() && v.trim()) {
+      process.env[k] = v;
+    }
+  }
+}
 import WebSocket, { WebSocketServer } from 'ws';
 import { ZodError } from 'zod';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
