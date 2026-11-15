@@ -1782,6 +1782,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               const trimmed = baseUrlDraft.trim().replace(/\/+$/, '');
               const normalized =
                 trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
+              void fetch('/api/network-info/public-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ publicUrl: normalized || null }),
+              }).then(async (r) => {
+                if (r.ok) {
+                  const updated = (await r.json()) as { publicUrl: string | null };
+                  setNetworkInfo((prev) =>
+                    prev ? { ...prev, publicUrl: updated.publicUrl } : prev
+                  );
+                }
+              });
               setBaseUrlOverride(normalized);
               setBaseUrlDraft(normalized);
               if (typeof window !== 'undefined') {
@@ -1811,6 +1823,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               <button
                 type="button"
                 onClick={() => {
+                  void fetch('/api/network-info/public-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ publicUrl: null }),
+                  }).then(async (r) => {
+                    if (r.ok) {
+                      const updated = (await r.json()) as { publicUrl: string | null };
+                      setNetworkInfo((prev) =>
+                        prev ? { ...prev, publicUrl: updated.publicUrl } : prev
+                      );
+                    }
+                  });
                   setBaseUrlOverride('');
                   setBaseUrlDraft('');
                   if (typeof window !== 'undefined') {

@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { getPublicBaseUrl, getSpotifyConfig } from '../config';
+import { getSpotifyConfig } from '../config';
 import { prisma } from '../db';
 import { musicRegistry } from '../music/Registry';
+import { getEffectivePublicBaseUrl } from '../services/runtimeSettings';
 import { sessionCoordinator } from '../services/sessionState';
 
 function encodeOAuthState(userId: string, redirectUri: string): string {
@@ -51,7 +52,7 @@ export function createSpotifyRouter(
       return `${baseOverride}/api/spotify/callback`;
     }
 
-    const publicBase = getPublicBaseUrl();
+    const publicBase = getEffectivePublicBaseUrl();
     if (publicBase) {
       return `${publicBase}/api/spotify/callback`;
     }

@@ -98,7 +98,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
     void fetch('/api/network-info')
       .then((r) => (r.ok ? r.json() : null))
       .then((info) => {
-        if (info) setNetworkInfo(info);
+        if (info) {
+          setNetworkInfo(info);
+          const serverUrl = info.publicUrlOverride ?? info.publicUrl ?? '';
+          if (serverUrl && !baseUrlOverride) {
+            setBaseUrlOverride(serverUrl);
+            setBaseUrlDraft(serverUrl);
+          }
+        }
       })
       .catch(() => {});
 
@@ -129,22 +136,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
       .catch(() => {});
   }, []);
 
-  const saveBaseUrlOverride = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = baseUrlDraft.trim().replace(/\/+$/, '');
+  const persistPublicUrl = async (rawValue: string | null) => {
+    const trimmed = (rawValue ?? '').trim().replace(/\/+$/, '');
     const normalized =
       trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
-    setBaseUrlOverride(normalized);
-    setBaseUrlDraft(normalized);
-    if (typeof window !== 'undefined') {
-      if (normalized) {
-        window.localStorage.setItem('swonal_base_url_override', normalized);
-      } else {
-        window.localStorage.removeItem('swonal_base_url_override');
+    const res = await fetch('/api/network-info/public-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicUrl: normalized || null }),
+    });
+    if (res.ok) {
+      const updated = (await res.json()) as {
+        publicUrl: string | null;
+        publicUrlOverride: string | null;
+      };
+      const effective = updated.publicUrlOverride ?? updated.publicUrl ?? '';
+      setBaseUrlOverride(effective);
+      setBaseUrlDraft(effective);
+      setNetworkInfo((prev) => (prev ? { ...prev, publicUrl: updated.publicUrl } : prev));
+      if (typeof window !== 'undefined') {
+        if (effective) {
+          window.localStorage.setItem('swonal_base_url_override', effective);
+        } else {
+          window.localStorage.removeItem('swonal_base_url_override');
+        }
       }
+      setBaseUrlSavedMsg(effective ? `Saved override: ${effective}` : 'Reset to LAN IP');
+      setTimeout(() => setBaseUrlSavedMsg(null), 3000);
     }
-    setBaseUrlSavedMsg(normalized ? `Saved override: ${normalized}` : 'Cleared override');
-    setTimeout(() => setBaseUrlSavedMsg(null), 3000);
+  };
+
+  const saveBaseUrlOverride = (e: React.FormEvent) => {
+    e.preventDefault();
+    void persistPublicUrl(baseUrlDraft);
   };
 
   const saveCoachConfig = async (e: React.FormEvent) => {
@@ -452,13 +476,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
             {baseUrlOverride && (
               <button
                 type="button"
-                onClick={() => {
-                  setBaseUrlOverride('');
-                  setBaseUrlDraft('');
-                  window.localStorage.removeItem('swonal_base_url_override');
-                  setBaseUrlSavedMsg('Reset to auto-detected LAN IP');
-                  setTimeout(() => setBaseUrlSavedMsg(null), 3000);
-                }}
+                onClick={() => void persistPublicUrl(null)}
                 className="elevated-pill px-4 py-3 rounded-xl text-xs font-bold"
               >
                 Reset

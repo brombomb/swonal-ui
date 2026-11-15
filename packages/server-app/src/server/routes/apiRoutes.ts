@@ -13,6 +13,11 @@ import {
 } from '../mcp/mcpServer';
 import { sessionCoordinator } from '../services/sessionState';
 import { aiCoachService } from '../services/aiCoach';
+import {
+  getEffectivePublicBaseUrl,
+  getPublicUrlOverride,
+  setPublicUrlOverride,
+} from '../services/runtimeSettings';
 import { homeAssistantBus } from '../integrations/homeAssistantBus';
 import {
   estimateOneRepMaxLb,
@@ -717,13 +722,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     const hostHeader = req.get('host') || '';
     const portMatch = hostHeader.match(/:(\d+)$/);
     const port = portMatch ? Number(portMatch[1]) : Number(process.env.PORT || 3000);
-    const overrideBase = (
-      process.env.PUBLIC_URL ||
-      process.env.COMPANION_BASE_URL ||
-      ''
-    )
-      .trim()
-      .replace(/\/+$/, '');
+    const overrideBase = getEffectivePublicBaseUrl();
     const companionBaseUrl =
       overrideBase || (primaryIp ? `${req.protocol}://${primaryIp}:${port}` : null);
 
@@ -732,8 +731,25 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       ips,
       port,
       publicUrl: overrideBase || null,
+      publicUrlOverride: getPublicUrlOverride(),
       companionBaseUrl,
     });
+  });
+
+  router.post('/network-info/public-url', (req, res, next) => {
+    try {
+      const schema = z.object({
+        publicUrl: z.string().max(300).nullable().optional(),
+      });
+      const parsed = schema.parse(req.body ?? {});
+      const saved = setPublicUrlOverride(parsed.publicUrl ?? null);
+      res.json({
+        publicUrl: getEffectivePublicBaseUrl() || null,
+        publicUrlOverride: saved,
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
   return router;
