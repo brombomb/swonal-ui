@@ -1,8 +1,30 @@
 import { Router } from 'express';
-import { getSpotifyConfig } from '../config';
+import { getPublicBaseUrl, getSpotifyConfig } from '../config';
 import { prisma } from '../db';
 import { musicRegistry } from '../music/Registry';
 import { sessionCoordinator } from '../services/sessionState';
+
+function encodeOAuthState(userId: string, redirectUri: string): string {
+  return Buffer.from(JSON.stringify({ userId, redirectUri }), 'utf8').toString('base64url');
+}
+
+function decodeOAuthState(rawState: string): { userId: string; redirectUri?: string } {
+  if (!rawState) {
+    return { userId: sessionCoordinator.getState().activeUserId };
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8')) as {
+      userId?: string;
+      redirectUri?: string;
+    };
+    if (parsed && typeof parsed.userId === 'string' && parsed.userId) {
+      return { userId: parsed.userId, redirectUri: parsed.redirectUri };
+    }
+  } catch {
+    // Plain userId string (legacy / test state)
+  }
+  return { userId: rawState };
+}
 
 export function createSpotifyRouter(
   broadcastToClients: (msg: Record<string, unknown>) => void
@@ -16,30 +38,62 @@ export function createSpotifyRouter(
     return sessionCoordinator.getState().activeUserId;
   };
 
-  const resolveRedirectUri = (req: { protocol: string; get: (name: string) => string | undefined }): string => {
-    const cfg = getSpotifyConfig();
-    if (process.env.SPOTIFY_REDIRECT_URI?.trim() || process.env.PUBLIC_URL?.trim() || process.env.COMPANION_BASE_URL?.trim()) {
-      return cfg.redirectUri;
+  const resolveRedirectUri = (req: {
+    protocol: string;
+    query: Record<string, unknown>;
+    get: (name: string) => string | undefined;
+  }): string => {
+    const baseOverride =
+      typeof req.query.baseUrl === 'string'
+        ? req.query.baseUrl.trim().replace(/\/+$/, '')
+        : '';
+    if (baseOverride && /^https?:\/\//i.test(baseOverride)) {
+      return `${baseOverride}/api/spotify/callback`;
     }
+
+    const publicBase = getPublicBaseUrl();
+    if (publicBase) {
+      return `${publicBase}/api/spotify/callback`;
+    }
+
     const host = req.get('host');
+    const isLocalHostHeader =
+      !host || /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+
+    const explicitRedirect = process.env.SPOTIFY_REDIRECT_URI?.trim() || '';
+    const isExplicitLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//i.test(
+      explicitRedirect
+    );
+
+    if (explicitRedirect && !(isExplicitLocalhost && !isLocalHostHeader)) {
+      return explicitRedirect;
+    }
+
     if (host) {
       return `${req.protocol}://${host}/api/spotify/callback`;
     }
-    return cfg.redirectUri;
+
+    return getSpotifyConfig().redirectUri;
   };
 
   /**
-   * GET /api/spotify/login?userId=<uuid>
+   * GET /api/spotify/login?userId=<uuid>&baseUrl=<optional_override>
    * Generates the Spotify OAuth 2.0 Authorization Code URL and redirects the user to Spotify.
    */
   router.get('/login', async (req, res, next) => {
     try {
       const userId = resolveUserId(req);
+      const redirectUri = resolveRedirectUri(req);
       const spotify = musicRegistry.get('spotify') as {
         getAuthUrl: (uid: string, redirectOverride?: string) => Promise<string>;
       };
-      const authUrl = await spotify.getAuthUrl(userId, resolveRedirectUri(req));
-      res.redirect(authUrl);
+      const rawAuthUrl = await spotify.getAuthUrl(userId, redirectUri);
+
+      // Preserve redirectUri in OAuth state so /callback uses the exact same redirect_uri
+      const parsedUrl = new URL(rawAuthUrl);
+      parsedUrl.searchParams.set('state', encodeOAuthState(userId, redirectUri));
+
+      res.redirect(parsedUrl.toString());
     } catch (err) {
       next(err);
     }
@@ -58,9 +112,9 @@ export function createSpotifyRouter(
       }
 
       const code = req.query.code ? String(req.query.code) : '';
-      const userId = req.query.state
-        ? String(req.query.state)
-        : sessionCoordinator.getState().activeUserId;
+      const decoded = decodeOAuthState(req.query.state ? String(req.query.state) : '');
+      const userId = decoded.userId;
+      const redirectUri = decoded.redirectUri || resolveRedirectUri(req);
 
       if (!code) {
         res.status(400).json({ error: 'Missing authorization code' });
@@ -70,7 +124,7 @@ export function createSpotifyRouter(
       const spotify = musicRegistry.get('spotify') as {
         handleAuthCallback: (uid: string, code: string, redirectOverride?: string) => Promise<void>;
       };
-      await spotify.handleAuthCallback(userId, code, resolveRedirectUri(req));
+      await spotify.handleAuthCallback(userId, code, redirectUri);
 
       broadcastToClients({
         type: 'music_updated',
@@ -85,7 +139,7 @@ export function createSpotifyRouter(
   });
 
   /**
-   * GET /api/spotify/status?userId=<uuid>
+   * GET /api/spotify/status?userId=<uuid>&baseUrl=<optional_override>
    * Returns whether Spotify env credentials are configured and whether the user has a linked record.
    */
   router.get('/status', async (req, res, next) => {

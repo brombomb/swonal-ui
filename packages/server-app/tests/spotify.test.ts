@@ -56,9 +56,15 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     const location = resp.headers.get('location') || '';
     expect(location).toContain('https://accounts.spotify.com/authorize');
     expect(location).toContain('client_id=demo-spotify-client');
-    expect(location).toContain(`state=${encodeURIComponent(DEFAULT_USERS.ROB_ID)}`);
-
     const url = new URL(location);
+    const rawState = url.searchParams.get('state') || '';
+    const decodedState = JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8')) as {
+      userId: string;
+      redirectUri: string;
+    };
+    expect(decodedState.userId).toBe(DEFAULT_USERS.ROB_ID);
+    expect(decodedState.redirectUri).toBe('http://localhost:3000/api/spotify/callback');
+
     const scope = url.searchParams.get('scope') || '';
     for (const s of [
       'user-read-playback-state',
@@ -93,7 +99,15 @@ describe('Spotify OAuth Routes & Config Validation', () => {
       `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(DEFAULT_USERS.ROB_ID)}`
     );
     expect(statusResp.status).toBe(200);
-    const statusJson = (await statusResp.json()) as { connected: boolean };
+    const statusJson = (await statusResp.json()) as { connected: boolean; redirectUri: string };
     expect(statusJson.connected).toBe(true);
+
+    const overrideStatusResp = await fetch(
+      `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(
+        DEFAULT_USERS.ROB_ID
+      )}&baseUrl=${encodeURIComponent('https://swonal.brombomb.com')}`
+    );
+    const overrideJson = (await overrideStatusResp.json()) as { redirectUri: string };
+    expect(overrideJson.redirectUri).toBe('https://swonal.brombomb.com/api/spotify/callback');
   });
 });

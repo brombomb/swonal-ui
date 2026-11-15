@@ -80,14 +80,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
   const [diagMsg, setDiagMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const uid = activeUser?.id ? `?userId=${encodeURIComponent(activeUser.id)}` : '';
-    void fetch(`/api/spotify/status${uid}`)
+    const params = new URLSearchParams();
+    if (activeUser?.id) params.set('userId', activeUser.id);
+    if (baseUrlOverride) params.set('baseUrl', baseUrlOverride);
+    const qs = params.toString();
+    void fetch(`/api/spotify/status${qs ? `?${qs}` : ''}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (s) setSpotifyStatus(s);
       })
       .catch(() => {});
-  }, [activeUser?.id, musicState.isConnected]);
+  }, [activeUser?.id, musicState.isConnected, baseUrlOverride]);
 
   useEffect(() => {
     void fetch('/api/network-info')
@@ -314,11 +317,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
                     <div className="flex items-center gap-2">
                       {isSpotify && (
                         <a
-                          href={
-                            activeUser
-                              ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
-                              : '/api/spotify/login'
-                          }
+                          href={(() => {
+                            const p = new URLSearchParams();
+                            if (activeUser?.id) p.set('userId', activeUser.id);
+                            if (baseUrlOverride) p.set('baseUrl', baseUrlOverride);
+                            const qs = p.toString();
+                            return `/api/spotify/login${qs ? `?${qs}` : ''}`;
+                          })()}
                           className="px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
                         >
                           <Music size={14} />
