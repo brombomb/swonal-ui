@@ -63,7 +63,7 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
     );
 
     const spotify = musicRegistry.get('spotify');
-    const userId = DEFAULT_USERS.JERI_ID;
+    const userId = 'test-disconnected-music-user';
 
     const disconnectedState = await spotify.getPlaybackState(userId);
     expect(disconnectedState.isConnected).toBe(false);

@@ -16,14 +16,33 @@ function resolveSettingsFilePath(): string {
   return path.join(baseDir, 'swonal-settings.json');
 }
 
+let cachedFilePath: string | null = null;
+let cachedSettings: RuntimeSettingsData | null = null;
+
+export function invalidateRuntimeSettingsCache(): void {
+  cachedFilePath = null;
+  cachedSettings = null;
+}
+
 function readSettingsFile(): RuntimeSettingsData {
   const filePath = resolveSettingsFilePath();
+  if (cachedSettings !== null && cachedFilePath === filePath) {
+    return cachedSettings;
+  }
   try {
-    if (!fs.existsSync(filePath)) return {};
+    if (!fs.existsSync(filePath)) {
+      cachedFilePath = filePath;
+      cachedSettings = {};
+      return cachedSettings;
+    }
     const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw) as RuntimeSettingsData;
+    cachedFilePath = filePath;
+    cachedSettings = JSON.parse(raw) as RuntimeSettingsData;
+    return cachedSettings;
   } catch {
-    return {};
+    cachedFilePath = filePath;
+    cachedSettings = {};
+    return cachedSettings;
   }
 }
 
@@ -34,6 +53,8 @@ function writeSettingsFile(data: RuntimeSettingsData): void {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  cachedFilePath = filePath;
+  cachedSettings = data;
 }
 
 export function getPublicUrlOverride(): string | null {

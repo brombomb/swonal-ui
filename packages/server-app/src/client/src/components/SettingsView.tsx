@@ -53,6 +53,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
     port: number;
     publicUrl?: string | null;
     companionBaseUrl: string | null;
+    mcpStdioPath?: string;
   } | null>(null);
   const [baseUrlOverride, setBaseUrlOverride] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -252,7 +253,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
       mcpServers: {
         'swonal-ui': {
           command: 'node',
-          args: ['/home/brombomb/dev/swonal-ui/packages/server-app/dist/server/mcp/stdio.js'],
+          args: [
+            networkInfo?.mcpStdioPath ||
+              'packages/server-app/dist/server/mcp/stdio.js',
+          ],
         },
       },
     },

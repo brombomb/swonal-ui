@@ -31,6 +31,7 @@ import { createDaemonRouter } from './routes/daemonRoutes';
 import { createMusicRouter } from './routes/musicRoutes';
 import { createSpotifyRouter } from './routes/spotify';
 import { getServerConfig } from './config';
+import { getEffectivePublicBaseUrl } from './services/runtimeSettings';
 import { sessionCoordinator } from './services/sessionState';
 import { homeAssistantBus } from './integrations/homeAssistantBus';
 
@@ -79,7 +80,46 @@ export async function createSwonalServer(
 
   const app = express();
   app.set('trust proxy', 1);
-  app.use(cors());
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        try {
+          const parsed = new URL(origin);
+          const host = parsed.hostname.toLowerCase();
+          const isLocalOrLan =
+            host === 'localhost' ||
+            host === '127.0.0.1' ||
+            host === '::1' ||
+            host.endsWith('.local') ||
+            /^10\.\d+\.\d+\.\d+$/.test(host) ||
+            /^192\.168\.\d+\.\d+$/.test(host) ||
+            /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host);
+
+          const publicBase = getEffectivePublicBaseUrl();
+          let isPublicOrigin = false;
+          if (publicBase) {
+            try {
+              isPublicOrigin = new URL(publicBase).origin === parsed.origin;
+            } catch {
+              isPublicOrigin = false;
+            }
+          }
+
+          if (isLocalOrLan || isPublicOrigin) {
+            callback(null, true);
+            return;
+          }
+        } catch {
+          // Invalid Origin URL
+        }
+        callback(new Error('CORS origin not allowed'));
+      },
+    })
+  );
   app.use(express.json({ limit: '2mb' }));
 
   homeAssistantBus.init();

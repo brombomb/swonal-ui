@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import { musicRegistry } from '../music/Registry';
 import { sessionCoordinator } from '../services/sessionState';
 
@@ -142,6 +142,21 @@ export function createMusicRouter(broadcastToClients: (msg: Record<string, unkno
     }
   });
 
+  router.get('/:provider/playlists/:playlistId/tracks', async (req, res, next) => {
+    try {
+      const provider = musicRegistry.get(req.params.provider);
+      const userId = resolveUserId(req);
+      if (typeof provider.getPlaylistTracks !== 'function') {
+        res.json([]);
+        return;
+      }
+      const tracks = await provider.getPlaylistTracks(userId, req.params.playlistId);
+      res.json(tracks);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get('/:provider/devices', async (req, res, next) => {
     try {
       const provider = musicRegistry.get(req.params.provider);
@@ -169,6 +184,27 @@ export function createMusicRouter(broadcastToClients: (msg: Record<string, unkno
     } catch (err) {
       next(err);
     }
+  });
+
+  router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('must be connected')) {
+      res.status(401).json({ error: message });
+      return;
+    }
+    if (message.includes('NO_ACTIVE_DEVICE') || message.includes('(404)')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('PREMIUM_REQUIRED') || message.includes('(403)')) {
+      res.status(403).json({ error: message });
+      return;
+    }
+    if (message.includes('Spotify API error')) {
+      res.status(502).json({ error: message });
+      return;
+    }
+    next(err);
   });
 
   return router;

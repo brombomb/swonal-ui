@@ -20,6 +20,16 @@ export interface NormalizedPlaylist {
   trackCount: number;
 }
 
+export interface NormalizedTrack {
+  id: string;
+  name: string;
+  uri: string;
+  artistName: string;
+  albumName: string;
+  durationMs: number;
+  artworkUrl?: string;
+}
+
 export interface NormalizedPlaybackState {
   isPlaying: boolean;
   trackName: string;
@@ -50,6 +60,7 @@ export interface IMusicProvider {
   previousTrack(userId: string): Promise<void>;
   setVolume(userId: string, volumePct: number): Promise<void>;
   getPlaylists(userId: string): Promise<NormalizedPlaylist[]>;
+  getPlaylistTracks?(userId: string, playlistId: string): Promise<NormalizedTrack[]>;
   getDevices(userId: string): Promise<NormalizedAudioDevice[]>;
   transferPlayback(userId: string, deviceId: string): Promise<void>;
   duckVolume(userId: string, targetPct: number, durationMs: number): Promise<void>;

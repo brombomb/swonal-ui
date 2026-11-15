@@ -1,8 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AddressInfo } from 'net';
 import { createSwonalServer, SwonalServerHandle } from '../src/server/index';
 import { prisma } from '../src/server/db';
-import { getServerConfig, getSpotifyConfig } from '../src/server/config';
+import { getSpotifyConfig } from '../src/server/config';
+import { encodeOAuthState } from '../src/server/routes/spotify';
+import { SpotifyProvider } from '../src/server/music/providers/SpotifyProvider';
 import { DEFAULT_USERS } from '../prisma/seed';
 
 describe('Spotify OAuth Routes & Config Validation', () => {
@@ -58,7 +60,10 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     expect(location).toContain('client_id=demo-spotify-client');
     const url = new URL(location);
     const rawState = url.searchParams.get('state') || '';
-    const decodedState = JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8')) as {
+    const [payloadB64, sig] = rawState.split('.');
+    expect(payloadB64).toBeTruthy();
+    expect(sig).toBeTruthy();
+    const decodedState = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
       userId: string;
       redirectUri: string;
     };
@@ -77,10 +82,22 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     }
   });
 
-  it('GET /api/spotify/callback upserts MusicIntegration and redirects with music_connected=1', async () => {
-    const resp = await fetch(
+  it('GET /api/spotify/callback rejects tampered state and accepts valid HMAC-signed state', async () => {
+    const tamperedResp = await fetch(
       `${baseUrl}/api/spotify/callback?code=mock-spotify-code&state=${encodeURIComponent(
         DEFAULT_USERS.ROB_ID
+      )}`,
+      { redirect: 'manual' }
+    );
+    expect(tamperedResp.status).toBe(400);
+
+    const signedState = encodeOAuthState(
+      DEFAULT_USERS.ROB_ID,
+      'http://localhost:3000/api/spotify/callback'
+    );
+    const resp = await fetch(
+      `${baseUrl}/api/spotify/callback?code=mock-spotify-code&state=${encodeURIComponent(
+        signedState
       )}`,
       { redirect: 'manual' }
     );
@@ -102,6 +119,17 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     const statusJson = (await statusResp.json()) as { connected: boolean; redirectUri: string };
     expect(statusJson.connected).toBe(true);
 
+    // Rejects untrusted third-party baseUrl override
+    const evilResp = await fetch(
+      `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(
+        DEFAULT_USERS.ROB_ID
+      )}&baseUrl=${encodeURIComponent('https://evil.example.com')}`
+    );
+    const evilJson = (await evilResp.json()) as { redirectUri: string };
+    expect(evilJson.redirectUri).not.toContain('evil.example.com');
+
+    // Accepts configured PUBLIC_URL override
+    process.env.PUBLIC_URL = 'https://swonal.brombomb.com';
     const overrideStatusResp = await fetch(
       `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(
         DEFAULT_USERS.ROB_ID
@@ -109,5 +137,78 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     );
     const overrideJson = (await overrideStatusResp.json()) as { redirectUri: string };
     expect(overrideJson.redirectUri).toBe('https://swonal.brombomb.com/api/spotify/callback');
+    delete process.env.PUBLIC_URL;
+  });
+
+  it('SpotifyProvider.play defaults to librespot ("Tonal Gym") when no device is active and loads playlist tracks', async () => {
+    await prisma.musicIntegration.upsert({
+      where: { userId_provider: { userId: DEFAULT_USERS.ROB_ID, provider: 'spotify' } },
+      update: {
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        tokenExpiry: Math.floor(Date.now() / 1000) + 3600,
+      },
+      create: {
+        userId: DEFAULT_USERS.ROB_ID,
+        provider: 'spotify',
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        tokenExpiry: Math.floor(Date.now() / 1000) + 3600,
+      },
+    });
+
+    const playCalls: string[] = [];
+    const origFetch = globalThis.fetch;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/me/player/devices')) {
+        return new Response(
+          JSON.stringify({
+            devices: [
+              { id: 'web-1', name: 'Swonal Web Player', type: 'Computer', is_active: false, volume_percent: 70 },
+              { id: 'librespot-1', name: 'Tonal Gym', type: 'Speaker', is_active: false, volume_percent: 80 },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('/me/player/play')) {
+        playCalls.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes('/playlists/pl-1/tracks')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                track: {
+                  id: 'tr-1',
+                  name: 'Heavy Iron',
+                  uri: 'spotify:track:tr1',
+                  duration_ms: 195000,
+                  artists: [{ name: 'Swonal Beats' }],
+                  album: { name: 'PR Anthems', images: [{ url: 'https://img.test/a.jpg' }] },
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return origFetch(input, init);
+    });
+
+    try {
+      const provider = new SpotifyProvider();
+      await provider.play(DEFAULT_USERS.ROB_ID, 'spotify:playlist:pl-1');
+      expect(playCalls[0]).toContain('device_id=librespot-1');
+
+      const tracks = await provider.getPlaylistTracks(DEFAULT_USERS.ROB_ID, 'pl-1');
+      expect(tracks).toHaveLength(1);
+      expect(tracks[0].name).toBe('Heavy Iron');
+      expect(tracks[0].artistName).toBe('Swonal Beats');
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

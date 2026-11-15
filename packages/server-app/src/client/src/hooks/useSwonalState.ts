@@ -7,6 +7,7 @@ import {
   MusicPlaybackState,
   MusicPlaylist,
   MusicProviderMeta,
+  MusicTrack,
   OverloadSuggestion,
   PersonalRecord,
   RoutineStep,
@@ -24,6 +25,25 @@ import {
 } from '../types';
 import { soundEngine } from '../utils/soundEngine';
 import { hexToRgba, WeightUnit } from '../utils/units';
+
+interface SpotifySdkPlayer {
+  connect: () => Promise<boolean>;
+  disconnect: () => void;
+  addListener: (event: string, cb: (payload: unknown) => void) => void;
+}
+
+declare global {
+  interface Window {
+    Spotify?: {
+      Player: new (options: {
+        name: string;
+        getOAuthToken: (cb: (token: string) => void) => void;
+        volume?: number;
+      }) => SpotifySdkPlayer;
+    };
+    onSpotifyWebPlaybackSDKReady?: () => void;
+  }
+}
 
 const DEFAULT_TELEMETRY: TelemetryFrame = {
   type: 'telemetry',
@@ -209,6 +229,9 @@ export function useSwonalState() {
   });
   const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
   const [devices, setDevices] = useState<MusicDevice[]>([]);
+  const [musicError, setMusicError] = useState<string | null>(null);
+  const [webPlayerReady, setWebPlayerReady] = useState(false);
+  const [webPlayerDeviceId, setWebPlayerDeviceId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const prevRepCountRef = useRef<number>(0);
@@ -856,6 +879,23 @@ export function useSwonalState() {
   }, [sessionState.activeSessionId, activeUser, sendWs, refreshUserHistory]);
 
   // Music Controls
+  const handleMusicResponse = useCallback(async (resp: Response): Promise<boolean> => {
+    if (resp.ok) {
+      setMusicError(null);
+      setMusicState(await resp.json());
+      return true;
+    }
+    let message = `Music playback failed (${resp.status})`;
+    try {
+      const errJson = (await resp.json()) as { error?: string };
+      if (errJson?.error) message = errJson.error;
+    } catch {
+      // ignore non-JSON error
+    }
+    setMusicError(message);
+    return false;
+  }, []);
+
   const toggleMusicPlay = useCallback(async () => {
     if (!activeUser) return;
     const action = musicState.isPlaying ? 'pause' : 'play';
@@ -867,8 +907,8 @@ export function useSwonalState() {
         body: JSON.stringify({ userId: activeUser.id }),
       }
     );
-    if (resp.ok) setMusicState(await resp.json());
-  }, [activeUser, activeProviderId, musicState.isPlaying]);
+    await handleMusicResponse(resp);
+  }, [activeUser, activeProviderId, musicState.isPlaying, handleMusicResponse]);
 
   const nextTrack = useCallback(async () => {
     if (!activeUser) return;
@@ -877,8 +917,8 @@ export function useSwonalState() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: activeUser.id }),
     });
-    if (resp.ok) setMusicState(await resp.json());
-  }, [activeUser, activeProviderId]);
+    await handleMusicResponse(resp);
+  }, [activeUser, activeProviderId, handleMusicResponse]);
 
   const previousTrack = useCallback(async () => {
     if (!activeUser) return;
@@ -890,8 +930,8 @@ export function useSwonalState() {
         body: JSON.stringify({ userId: activeUser.id }),
       }
     );
-    if (resp.ok) setMusicState(await resp.json());
-  }, [activeUser, activeProviderId]);
+    await handleMusicResponse(resp);
+  }, [activeUser, activeProviderId, handleMusicResponse]);
 
   const setMusicVolume = useCallback(
     async (volumePct: number) => {
@@ -904,9 +944,9 @@ export function useSwonalState() {
           body: JSON.stringify({ userId: activeUser.id, volumePct }),
         }
       );
-      if (resp.ok) setMusicState(await resp.json());
+      await handleMusicResponse(resp);
     },
-    [activeUser, activeProviderId]
+    [activeUser, activeProviderId, handleMusicResponse]
   );
 
   const playPlaylist = useCallback(
@@ -920,7 +960,31 @@ export function useSwonalState() {
           body: JSON.stringify({ userId: activeUser.id, contextUri }),
         }
       );
-      if (resp.ok) setMusicState(await resp.json());
+      await handleMusicResponse(resp);
+    },
+    [activeUser, activeProviderId, handleMusicResponse]
+  );
+
+  const fetchPlaylistTracks = useCallback(
+    async (playlistId: string): Promise<MusicTrack[]> => {
+      if (!activeUser) return [];
+      const resp = await fetch(
+        `/api/music/${encodeURIComponent(activeProviderId)}/playlists/${encodeURIComponent(
+          playlistId
+        )}/tracks?userId=${encodeURIComponent(activeUser.id)}`
+      );
+      if (!resp.ok) {
+        let message = `Unable to load playlist tracks (${resp.status})`;
+        try {
+          const errJson = (await resp.json()) as { error?: string };
+          if (errJson?.error) message = errJson.error;
+        } catch {
+          // ignore
+        }
+        setMusicError(message);
+        return [];
+      }
+      return (await resp.json()) as MusicTrack[];
     },
     [activeUser, activeProviderId]
   );
@@ -936,12 +1000,11 @@ export function useSwonalState() {
           body: JSON.stringify({ userId: activeUser.id, deviceId }),
         }
       );
-      if (resp.ok) {
-        setMusicState(await resp.json());
+      if (await handleMusicResponse(resp)) {
         await refreshMusic(activeUser.id, activeProviderId);
       }
     },
-    [activeUser, activeProviderId, refreshMusic]
+    [activeUser, activeProviderId, refreshMusic, handleMusicResponse]
   );
 
   const stepRoutine = useCallback(
@@ -998,6 +1061,114 @@ export function useSwonalState() {
     };
   }, [activeTemplateName, currentStep, logCompletedSet]);
 
+  // Spotify Web Playback SDK — registers this browser as "Swonal Web Player" fallback
+  // (server prefers librespot "Tonal Gym" whenever it is online).
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      activeProviderId !== 'spotify' ||
+      !musicState.isConnected ||
+      !activeUser?.id
+    ) {
+      setWebPlayerReady(false);
+      setWebPlayerDeviceId(null);
+      return;
+    }
+
+    let cancelled = false;
+    let player: SpotifySdkPlayer | null = null;
+    const userId = activeUser.id;
+
+    const initPlayer = () => {
+      if (cancelled || !window.Spotify) return;
+      player = new window.Spotify.Player({
+        name: 'Swonal Web Player',
+        getOAuthToken: (cb) => {
+          void fetch(`/api/spotify/token?userId=${encodeURIComponent(userId)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data: { accessToken?: string } | null) => {
+              if (data?.accessToken) cb(data.accessToken);
+            })
+            .catch(() => {});
+        },
+        volume: 0.72,
+      });
+
+      player.addListener('ready', (payload) => {
+        if (cancelled) return;
+        const { device_id } = (payload as { device_id?: string }) ?? {};
+        setWebPlayerReady(true);
+        if (device_id) setWebPlayerDeviceId(device_id);
+        void refreshMusic(userId, 'spotify');
+      });
+
+      player.addListener('not_ready', () => {
+        if (!cancelled) setWebPlayerReady(false);
+      });
+
+      player.addListener('player_state_changed', (payload) => {
+        if (cancelled || !payload) return;
+        const state = payload as {
+          paused?: boolean;
+          position?: number;
+          duration?: number;
+          track_window?: {
+            current_track?: {
+              name?: string;
+              artists?: Array<{ name: string }>;
+              album?: { name?: string; images?: Array<{ url: string }> };
+            };
+          };
+        };
+        const track = state.track_window?.current_track;
+        if (!track?.name) return;
+        setMusicState((prev) => ({
+          ...prev,
+          isConnected: true,
+          isPlaying: !state.paused,
+          trackName: track.name || prev.trackName,
+          artistName: (track.artists ?? []).map((a) => a.name).join(', ') || prev.artistName,
+          albumName: track.album?.name ?? prev.albumName,
+          artworkUrl: track.album?.images?.[0]?.url ?? prev.artworkUrl,
+          progressMs: state.position ?? prev.progressMs,
+          durationMs: state.duration ?? prev.durationMs,
+        }));
+      });
+
+      const handleSdkError = (payload: unknown) => {
+        if (cancelled) return;
+        const msg = (payload as { message?: string })?.message;
+        if (msg) setMusicError(`Web Player: ${msg}`);
+      };
+      player.addListener('initialization_error', handleSdkError);
+      player.addListener('authentication_error', handleSdkError);
+      player.addListener('account_error', handleSdkError);
+      player.addListener('playback_error', handleSdkError);
+
+      void player.connect();
+    };
+
+    if (window.Spotify) {
+      initPlayer();
+    } else {
+      window.onSpotifyWebPlaybackSDKReady = initPlayer;
+      if (!document.getElementById('spotify-web-playback-sdk')) {
+        const script = document.createElement('script');
+        script.id = 'spotify-web-playback-sdk';
+        script.src = 'https://sdk.scdn.co/spotify-player.js';
+        script.async = true;
+        document.body.appendChild(script);
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      if (player) {
+        player.disconnect();
+      }
+    };
+  }, [activeProviderId, musicState.isConnected, activeUser?.id, refreshMusic]);
+
   return {
     users,
     activeUser,
@@ -1030,6 +1201,10 @@ export function useSwonalState() {
     musicConfigured:
       musicProviders.some((p) => p.configured) || Boolean(musicState.isConnected),
     musicState,
+    musicError,
+    clearMusicError: () => setMusicError(null),
+    webPlayerReady,
+    webPlayerDeviceId,
     playlists,
     devices,
     sendWs,
@@ -1056,6 +1231,7 @@ export function useSwonalState() {
     previousTrack,
     setMusicVolume,
     playPlaylist,
+    fetchPlaylistTracks,
     transferMusicDevice,
     switchMusicProvider,
     refreshBootstrap,

@@ -62,6 +62,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     restSecondsRemaining,
     musicConfigured,
     musicState,
+    musicError,
+    clearMusicError,
     playlists,
     setWeight,
     toggleWeight,
@@ -766,6 +768,14 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             {/* Remote Music Controls (only shown when a music provider is configured) */}
             {musicConfigured && (
             <section className="surface-card rounded-3xl p-5 space-y-4">
+              {musicError && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs font-semibold">
+                  <span>{musicError}</span>
+                  <button type="button" onClick={clearMusicError} className="underline shrink-0">
+                    Dismiss
+                  </button>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <div

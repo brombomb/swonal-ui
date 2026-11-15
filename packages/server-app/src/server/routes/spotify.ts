@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { getSpotifyConfig } from '../config';
 import { prisma } from '../db';
@@ -5,26 +6,100 @@ import { musicRegistry } from '../music/Registry';
 import { getEffectivePublicBaseUrl } from '../services/runtimeSettings';
 import { sessionCoordinator } from '../services/sessionState';
 
-function encodeOAuthState(userId: string, redirectUri: string): string {
-  return Buffer.from(JSON.stringify({ userId, redirectUri }), 'utf8').toString('base64url');
+const EPHEMERAL_STATE_SECRET = crypto.randomBytes(32).toString('hex');
+const OAUTH_STATE_TTL_MS = 15 * 60 * 1000;
+
+function getOAuthStateSecret(): string {
+  return process.env.SPOTIFY_CLIENT_SECRET?.trim() || EPHEMERAL_STATE_SECRET;
 }
 
-function decodeOAuthState(rawState: string): { userId: string; redirectUri?: string } {
-  if (!rawState) {
-    return { userId: sessionCoordinator.getState().activeUserId };
+function signStatePayload(payloadB64: string): string {
+  return crypto
+    .createHmac('sha256', getOAuthStateSecret())
+    .update(payloadB64)
+    .digest('base64url');
+}
+
+export function encodeOAuthState(userId: string, redirectUri: string): string {
+  const payload = {
+    userId,
+    redirectUri,
+    nonce: crypto.randomBytes(12).toString('base64url'),
+    iat: Date.now(),
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const sig = signStatePayload(payloadB64);
+  return `${payloadB64}.${sig}`;
+}
+
+export function decodeOAuthState(
+  rawState: string
+): { userId: string; redirectUri?: string } | null {
+  if (!rawState) return null;
+  const dotIdx = rawState.indexOf('.');
+  if (dotIdx <= 0) return null;
+
+  const payloadB64 = rawState.slice(0, dotIdx);
+  const sig = rawState.slice(dotIdx + 1);
+  const expectedSig = signStatePayload(payloadB64);
+
+  const sigBuf = Buffer.from(sig, 'utf8');
+  const expectedBuf = Buffer.from(expectedSig, 'utf8');
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+    return null;
   }
+
   try {
-    const parsed = JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8')) as {
+    const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
       userId?: string;
       redirectUri?: string;
+      iat?: number;
     };
-    if (parsed && typeof parsed.userId === 'string' && parsed.userId) {
-      return { userId: parsed.userId, redirectUri: parsed.redirectUri };
+    if (
+      !parsed ||
+      typeof parsed.userId !== 'string' ||
+      !parsed.userId ||
+      typeof parsed.iat !== 'number' ||
+      Date.now() - parsed.iat > OAUTH_STATE_TTL_MS
+    ) {
+      return null;
     }
+    return { userId: parsed.userId, redirectUri: parsed.redirectUri };
   } catch {
-    // Plain userId string (legacy / test state)
+    return null;
   }
-  return { userId: rawState };
+}
+
+function isTrustedBaseUrl(candidate: string, reqHost?: string): boolean {
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (reqHost && parsed.host.toLowerCase() === reqHost.toLowerCase()) {
+      return true;
+    }
+    const publicBase = getEffectivePublicBaseUrl();
+    if (publicBase) {
+      try {
+        if (new URL(publicBase).origin === parsed.origin) return true;
+      } catch {
+        // ignore invalid configured publicBase
+      }
+    }
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host.endsWith('.local') ||
+      /^10\.\d+\.\d+\.\d+$/.test(host) ||
+      /^192\.168\.\d+\.\d+$/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host)
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function createSpotifyRouter(
@@ -48,7 +123,7 @@ export function createSpotifyRouter(
       typeof req.query.baseUrl === 'string'
         ? req.query.baseUrl.trim().replace(/\/+$/, '')
         : '';
-    if (baseOverride && /^https?:\/\//i.test(baseOverride)) {
+    if (baseOverride && isTrustedBaseUrl(baseOverride, req.get('host'))) {
       return `${baseOverride}/api/spotify/callback`;
     }
 
@@ -113,7 +188,12 @@ export function createSpotifyRouter(
       }
 
       const code = req.query.code ? String(req.query.code) : '';
-      const decoded = decodeOAuthState(req.query.state ? String(req.query.state) : '');
+      const rawState = req.query.state ? String(req.query.state) : '';
+      const decoded = decodeOAuthState(rawState);
+      if (!decoded) {
+        res.status(400).json({ error: 'Invalid or expired OAuth state' });
+        return;
+      }
       const userId = decoded.userId;
       const redirectUri = decoded.redirectUri || resolveRedirectUri(req);
 
@@ -158,6 +238,32 @@ export function createSpotifyRouter(
         hasOAuthToken: Boolean(integration?.accessToken),
       });
     } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * GET /api/spotify/token?userId=<uuid>
+   * Returns a valid (refreshed if needed) Spotify access token for the Web Playback SDK.
+   */
+  router.get('/token', async (req, res, next) => {
+    try {
+      const userId = resolveUserId(req);
+      const spotify = musicRegistry.get('spotify') as {
+        getAccessToken?: (uid: string) => Promise<string>;
+      };
+      if (typeof spotify.getAccessToken !== 'function') {
+        res.status(501).json({ error: 'Token provider unavailable' });
+        return;
+      }
+      const accessToken = await spotify.getAccessToken(userId);
+      res.json({ accessToken });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to retrieve Spotify token';
+      if (message.includes('must be connected')) {
+        res.status(401).json({ error: message });
+        return;
+      }
       next(err);
     }
   });

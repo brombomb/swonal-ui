@@ -104,6 +104,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     musicProviders,
     musicConfigured,
     musicState,
+    musicError,
+    clearMusicError,
+    webPlayerReady,
     playlists,
     devices,
     sendWs,
@@ -128,6 +131,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     previousTrack,
     setMusicVolume,
     playPlaylist,
+    fetchPlaylistTracks,
     transferMusicDevice,
   } = swonal;
 
@@ -153,6 +157,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [showDemoPip, setShowDemoPip] = useState(true);
+  const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
+  const [playlistTracks, setPlaylistTracks] = useState<
+    Array<{ id: string; name: string; uri: string; artistName: string; durationMs: number }>
+  >([]);
+  const [loadingTracks, setLoadingTracks] = useState(false);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
@@ -1580,7 +1589,19 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
       {/* PERSISTENT BOTTOM MUSIC DOCK (Shown only when a music provider is configured) */}
       {musicConfigured && (
-        <footer className="surface-card rounded-3xl px-6 py-5 mt-3">
+        <footer className="surface-card rounded-3xl px-6 py-5 mt-3 space-y-2">
+          {musicError && (
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs font-semibold">
+              <span>{musicError}</span>
+              <button
+                type="button"
+                onClick={clearMusicError}
+                className="underline shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         <div className="flex items-center justify-between gap-6">
           {/* Track Metadata */}
           <div className="flex items-center gap-4 min-w-0 flex-1">
@@ -1607,6 +1628,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 {musicState.isConnected && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35 shrink-0">
                     Spotify Connected
+                  </span>
+                )}
+                {webPlayerReady && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/35 shrink-0">
+                    Web Player Ready
                   </span>
                 )}
                 {musicState.isDucked && (
@@ -2334,6 +2360,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         </div>
 
         <div className="space-y-6">
+          {musicError && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs font-semibold">
+              <span>{musicError}</span>
+              <button type="button" onClick={clearMusicError} className="underline shrink-0">
+                Dismiss
+              </button>
+            </div>
+          )}
           {/* Provider Switcher */}
           <div>
             <p className="text-xs uppercase tracking-widest font-bold opacity-70 mb-2">
@@ -2424,23 +2458,73 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </p>
             ) : (
             <div className="space-y-2">
-              {playlists.map((pl) => (
-                <button
-                  key={pl.id}
-                  type="button"
-                  onClick={() => {
-                    void playPlaylist(pl.uri);
-                    musicDialogRef.current?.close();
-                  }}
-                  className="w-full elevated-pill p-4 rounded-2xl flex items-center justify-between hover:opacity-90"
-                >
-                  <div className="text-left">
-                    <p className="font-bold">{pl.name}</p>
-                    <p className="text-xs opacity-65">{pl.trackCount} tracks</p>
+              {playlists.map((pl) => {
+                const isExpanded = expandedPlaylistId === pl.id;
+                return (
+                  <div key={pl.id} className="elevated-pill rounded-2xl overflow-hidden">
+                    <div className="p-4 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (isExpanded) {
+                            setExpandedPlaylistId(null);
+                            return;
+                          }
+                          setExpandedPlaylistId(pl.id);
+                          setLoadingTracks(true);
+                          const tracks = await fetchPlaylistTracks(pl.id);
+                          setPlaylistTracks(tracks);
+                          setLoadingTracks(false);
+                        }}
+                        className="text-left flex-1 min-w-0 hover:opacity-90"
+                      >
+                        <p className="font-bold truncate">{pl.name}</p>
+                        <p className="text-xs opacity-65">
+                          {pl.trackCount} tracks · {isExpanded ? 'Hide tracks' : 'View tracks'}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void playPlaylist(pl.uri);
+                          musicDialogRef.current?.close();
+                        }}
+                        aria-label={`Play ${pl.name}`}
+                        className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 shrink-0"
+                      >
+                        <Play size={18} style={{ color: 'var(--accent-primary)' }} />
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="border-t border-white/10 px-4 py-2 space-y-1 max-h-56 overflow-y-auto">
+                        {loadingTracks ? (
+                          <p className="text-xs opacity-65 py-2">Loading tracks...</p>
+                        ) : playlistTracks.length === 0 ? (
+                          <p className="text-xs opacity-65 py-2">No playable tracks found.</p>
+                        ) : (
+                          playlistTracks.map((tr) => (
+                            <button
+                              key={tr.id}
+                              type="button"
+                              onClick={() => {
+                                void playPlaylist(tr.uri);
+                                musicDialogRef.current?.close();
+                              }}
+                              className="w-full py-2 px-2 rounded-xl hover:bg-white/5 flex items-center justify-between gap-2 text-left"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold truncate">{tr.name}</p>
+                                <p className="text-[11px] opacity-60 truncate">{tr.artistName}</p>
+                              </div>
+                              <Play size={14} className="shrink-0 opacity-70" />
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <Play size={18} style={{ color: 'var(--accent-primary)' }} />
-                </button>
-              ))}
+                );
+              })}
             </div>
             )}
           </div>

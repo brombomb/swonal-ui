@@ -149,7 +149,9 @@ docker compose up -d --no-deps --build server-app
 
 ### Spotify, `librespot`, & Community Music Providers
 - Five adapters are registered out of the box (`spotify`, `youtube_music`, `apple_music`, `amazon_music`, `plexamp`) and selectable per profile in **Playlists & Devices**.
-- Configure `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REDIRECT_URI` in `.env`, then authorize via `GET /api/music/spotify/auth`.
+- Configure `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REDIRECT_URI` (or `PUBLIC_URL` / Settings **Public Server URL Override**) in `.env`, then authorize via **Settings** or `GET /api/spotify/login` (`GET /api/spotify/callback`, `GET /api/spotify/status`, `GET /api/spotify/token`).
+- Playback automatically prefers `librespot` (`"Tonal Gym"`) whenever it is online, falling back to the built-in **Spotify Web Playback SDK** (`"Swonal Web Player"`) in the browser or your preferred Connect device.
+- Expand any playlist in **Playlists & Devices** to browse and play individual tracks (`GET /api/music/:provider/playlists/:playlistId/tracks`).
 - Without Spotify credentials, `SpotifyProvider` operates in an interactive local simulation mode with `"Tonal Gym (librespot)"` device selection and automatic volume ducking (`duckVolume`) during set/PR audio cues.
 - Set `PLEXAMP_URL` (e.g. `http://192.168.1.50:32500`) to forward transport controls to a headless Plexamp instance.
 

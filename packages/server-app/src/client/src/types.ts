@@ -175,6 +175,16 @@ export interface MusicPlaylist {
   trackCount: number;
 }
 
+export interface MusicTrack {
+  id: string;
+  name: string;
+  uri: string;
+  artistName: string;
+  albumName: string;
+  durationMs: number;
+  artworkUrl?: string;
+}
+
 export interface MusicDevice {
   id: string;
   name: string;

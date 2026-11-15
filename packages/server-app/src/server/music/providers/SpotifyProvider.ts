@@ -5,6 +5,7 @@ import {
   NormalizedAudioDevice,
   NormalizedPlaybackState,
   NormalizedPlaylist,
+  NormalizedTrack,
   ProviderCapabilities,
 } from '../MusicProvider';
 
@@ -191,9 +192,26 @@ export class SpotifyProvider implements IMusicProvider {
       },
     });
     if (!resp.ok && resp.status !== 204) {
-      throw new Error(`Spotify API error (${resp.status}) on ${path}`);
+      let detail = '';
+      try {
+        const errBody = (await resp.json()) as {
+          error?: { message?: string; reason?: string };
+        };
+        const reason = errBody?.error?.reason;
+        const msg = errBody?.error?.message;
+        if (reason || msg) {
+          detail = `: ${[reason, msg].filter(Boolean).join(' - ')}`;
+        }
+      } catch {
+        // ignore non-JSON error body
+      }
+      throw new Error(`Spotify API error (${resp.status}) on ${path}${detail}`);
     }
     return resp;
+  }
+
+  async getAccessToken(userId: string): Promise<string> {
+    return this.requireToken(userId);
   }
 
   private async requireToken(userId: string): Promise<string> {
@@ -260,12 +278,64 @@ export class SpotifyProvider implements IMusicProvider {
     };
   }
 
+  private async resolveTargetDeviceId(
+    userId: string,
+    requestedDeviceId?: string
+  ): Promise<string | undefined> {
+    if (requestedDeviceId) {
+      return requestedDeviceId;
+    }
+
+    const devices = await this.getDevices(userId);
+    const active = devices.find((d) => d.isActive);
+    if (active) {
+      return undefined;
+    }
+
+    // Prefer librespot ("Tonal Gym") as the default target when online
+    const librespot = devices.find((d) => /tonal\s*gym|librespot/i.test(d.name));
+    if (librespot) {
+      return librespot.id;
+    }
+
+    const integration = await prisma.musicIntegration.findUnique({
+      where: { userId_provider: { userId, provider: this.id } },
+      select: { preferredDeviceId: true },
+    });
+    if (integration?.preferredDeviceId) {
+      const preferred = devices.find((d) => d.id === integration.preferredDeviceId);
+      if (preferred) {
+        return preferred.id;
+      }
+    }
+
+    const webPlayer = devices.find((d) => /swonal/i.test(d.name));
+    if (webPlayer) {
+      return webPlayer.id;
+    }
+
+    if (devices[0]) {
+      return devices[0].id;
+    }
+
+    throw new Error(
+      'No active Spotify device found (NO_ACTIVE_DEVICE). Open the Swonal Web Player or start Tonal Gym (librespot).'
+    );
+  }
+
   async play(userId: string, contextUri?: string, deviceId?: string): Promise<void> {
     await this.requireToken(userId);
-    const qs = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    const targetDeviceId = await this.resolveTargetDeviceId(userId, deviceId);
+    const qs = targetDeviceId ? `?device_id=${encodeURIComponent(targetDeviceId)}` : '';
+    let body: string | undefined;
+    if (contextUri) {
+      body = contextUri.startsWith('spotify:track:')
+        ? JSON.stringify({ uris: [contextUri] })
+        : JSON.stringify({ context_uri: contextUri });
+    }
     await this.callSpotifyApi(userId, `/me/player/play${qs}`, {
       method: 'PUT',
-      body: contextUri ? JSON.stringify({ context_uri: contextUri }) : undefined,
+      body,
     });
   }
 
@@ -304,6 +374,7 @@ export class SpotifyProvider implements IMusicProvider {
           uri: string;
           images?: Array<{ url: string }>;
           tracks?: { total: number };
+          items?: { total: number };
         }>;
       };
       return (json.items ?? []).map((item) => ({
@@ -311,11 +382,48 @@ export class SpotifyProvider implements IMusicProvider {
         name: item.name,
         uri: item.uri,
         artworkUrl: item.images?.[0]?.url,
-        trackCount: item.tracks?.total ?? 0,
+        trackCount: item.tracks?.total ?? item.items?.total ?? 0,
       }));
     }
 
     return [];
+  }
+
+  async getPlaylistTracks(userId: string, playlistId: string): Promise<NormalizedTrack[]> {
+    const resp = await this.callSpotifyApi(
+      userId,
+      `/playlists/${encodeURIComponent(playlistId)}/tracks?limit=50`
+    );
+    if (!resp || resp.status !== 200) {
+      return [];
+    }
+    const json = (await resp.json()) as {
+      items?: Array<{
+        track?: {
+          id?: string | null;
+          name?: string;
+          uri?: string;
+          duration_ms?: number;
+          artists?: Array<{ name: string }>;
+          album?: { name?: string; images?: Array<{ url: string }> };
+        } | null;
+      }>;
+    };
+    const tracks: NormalizedTrack[] = [];
+    for (const entry of json.items ?? []) {
+      const t = entry.track;
+      if (!t || !t.id || !t.uri || !t.name) continue;
+      tracks.push({
+        id: t.id,
+        name: t.name,
+        uri: t.uri,
+        artistName: (t.artists ?? []).map((a) => a.name).join(', ') || 'Unknown Artist',
+        albumName: t.album?.name ?? '',
+        durationMs: t.duration_ms ?? 0,
+        artworkUrl: t.album?.images?.[0]?.url,
+      });
+    }
+    return tracks;
   }
 
   async getDevices(userId: string): Promise<NormalizedAudioDevice[]> {

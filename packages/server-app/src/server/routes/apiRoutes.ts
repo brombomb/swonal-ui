@@ -554,23 +554,29 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         },
       });
 
+      const escapeCsvCell = (value: string | number): string => {
+        const str = String(value);
+        const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+        return `"${safe.replace(/"/g, '""')}"`;
+      };
+
       const header = ['SessionId', 'Routine', 'StartedAt', 'Exercise', 'MuscleGroup', 'Set', 'Mode', `Weight(${unit})`, 'Reps', `Volume(${unit})`, 'Timestamp'];
       const rows = [header.join(',')];
       for (const s of sessions) {
-        const routineName = (s.template?.name ?? 'Free Lift').replace(/"/g, '""');
+        const routineName = s.template?.name ?? 'Free Lift';
         for (const log of s.setLogs) {
           rows.push([
-            s.id,
-            `"${routineName}"`,
-            s.startedAt.toISOString(),
-            `"${log.exercise.name.replace(/"/g, '""')}"`,
-            `"${log.exercise.muscleGroup}"`,
+            escapeCsvCell(s.id),
+            escapeCsvCell(routineName),
+            escapeCsvCell(s.startedAt.toISOString()),
+            escapeCsvCell(log.exercise.name),
+            escapeCsvCell(log.exercise.muscleGroup),
             String(log.setNumber),
-            log.mode,
+            escapeCsvCell(log.mode),
             String(formatWeight(log.weightLb, unit)),
             String(log.repsCompleted),
             String(formatWeight(log.volumeLb, unit)),
-            log.timestamp.toISOString(),
+            escapeCsvCell(log.timestamp.toISOString()),
           ].join(','));
         }
       }
@@ -636,18 +642,27 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   // SQLite Database Snapshot Backup
   router.get('/admin/backup/db', async (_req, res, next) => {
     const tmpPath = path.join(os.tmpdir(), `swonal-backup-${Date.now()}.db`);
+    const cleanup = () => {
+      fs.promises.unlink(tmpPath).catch(() => {});
+    };
     try {
       await prisma.$executeRawUnsafe(`VACUUM INTO '${tmpPath.replace(/'/g, "''")}'`);
-      const buf = fs.readFileSync(tmpPath);
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="swonal-backup-${new Date().toISOString().slice(0, 10)}.db"`);
-      res.send(buf);
+      const stream = fs.createReadStream(tmpPath);
+      res.on('close', cleanup);
+      stream.on('error', (streamErr) => {
+        cleanup();
+        if (!res.headersSent) {
+          next(streamErr);
+        } else {
+          res.destroy(streamErr);
+        }
+      });
+      stream.pipe(res);
     } catch (err) {
+      cleanup();
       next(err);
-    } finally {
-      if (fs.existsSync(tmpPath)) {
-        fs.unlinkSync(tmpPath);
-      }
     }
   });
 
@@ -726,6 +741,11 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     const companionBaseUrl =
       overrideBase || (primaryIp ? `${req.protocol}://${primaryIp}:${port}` : null);
 
+    const distSibling = path.resolve(__dirname, 'mcp/stdio.js');
+    const mcpStdioPath = fs.existsSync(distSibling)
+      ? distSibling
+      : path.resolve(__dirname, '../../../dist/server/mcp/stdio.js');
+
     res.json({
       primaryIp,
       ips,
@@ -733,6 +753,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       publicUrl: overrideBase || null,
       publicUrlOverride: getPublicUrlOverride(),
       companionBaseUrl,
+      mcpStdioPath,
     });
   });
 
