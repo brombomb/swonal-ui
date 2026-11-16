@@ -93,6 +93,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     lastPrBanner,
     soundMuted,
     toggleSoundMuted,
+    showDemoPip,
+    setShowDemoPip,
     activeExercise,
     activeExercisePr,
     overloadSuggestion,
@@ -165,7 +167,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [newProfileAccent, setNewProfileAccent] = useState('#CCFF00');
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
-  const [showDemoPip, setShowDemoPip] = useState(true);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
@@ -1056,7 +1057,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               {activeExercise?.mediaUrl && (
                 <button
                   type="button"
-                  onClick={() => setShowDemoPip((v) => !v)}
+                  onClick={() => setShowDemoPip(!showDemoPip)}
                   className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
                 >
                   <Video size={20} style={{ color: 'var(--accent-primary)' }} />

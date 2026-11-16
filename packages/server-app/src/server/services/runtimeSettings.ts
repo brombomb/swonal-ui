@@ -8,6 +8,7 @@ interface RuntimeSettingsData {
   authTrustLocalhost?: boolean;
   apiToken?: string | null;
   favoritePlaylistsByUser?: Record<string, string[]>;
+  demoPipByUser?: Record<string, boolean>;
 }
 
 function resolveSettingsFilePath(): string {
@@ -111,4 +112,16 @@ export function toggleFavoritePlaylistId(userId: string, playlistId: string): st
   map[userId] = updated;
   writeSettingsFile({ ...data, favoritePlaylistsByUser: map });
   return updated;
+}
+
+export function getDemoPipEnabled(userId: string): boolean {
+  const data = readSettingsFile();
+  return data.demoPipByUser?.[userId] ?? true;
+}
+
+export function setDemoPipEnabled(userId: string, enabled: boolean): boolean {
+  const data = readSettingsFile();
+  const map = { ...(data.demoPipByUser ?? {}), [userId]: enabled };
+  writeSettingsFile({ ...data, demoPipByUser: map });
+  return enabled;
 }

@@ -194,6 +194,7 @@ export function useSwonalState() {
   const [safetyEvent, setSafetyEvent] = useState<SafetyEvent | null>(null);
   const [lastPrBanner, setLastPrBanner] = useState<string | null>(null);
   const [soundMuted, setSoundMuted] = useState(false);
+  const [demoPipMap, setDemoPipMap] = useState<Record<string, boolean>>({});
   const [overloadSuggestion, setOverloadSuggestion] = useState<OverloadSuggestion | null>(null);
   const [vbtMetrics, setVbtMetrics] = useState<VbtMetrics>({
     currentVelocity: 0,
@@ -266,6 +267,7 @@ export function useSwonalState() {
 
   const activeUnit: WeightUnit = activeUser?.weightUnit === 'KG' ? 'KG' : 'LB';
   const activeProviderId = activeUser?.preferredMusicProvider || 'spotify';
+  const showDemoPip = activeUser ? (demoPipMap[activeUser.id] ?? true) : true;
 
   const currentStep: RoutineStep | null = useMemo(() => {
     if (routineSteps.length === 0) return null;
@@ -472,6 +474,15 @@ export function useSwonalState() {
     if (activeUser?.id) {
       void refreshUserHistory(activeUser.id);
       void refreshMusic(activeUser.id, activeProviderId);
+      const uid = activeUser.id;
+      void fetch(`/api/users/${encodeURIComponent(uid)}/demo-pip`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { enabled?: boolean } | null) => {
+          if (typeof data?.enabled === 'boolean') {
+            setDemoPipMap((prev) => ({ ...prev, [uid]: data.enabled! }));
+          }
+        })
+        .catch(() => {});
     }
   }, [activeUser?.id, activeProviderId, refreshUserHistory, refreshMusic]);
 
@@ -639,6 +650,11 @@ export function useSwonalState() {
             if (activeUserIdRef.current) {
               void refreshMusicRef.current(activeUserIdRef.current, activeProviderIdRef.current);
             }
+          } else if (msg.type === 'demo_pip_updated' && typeof msg.userId === 'string') {
+            setDemoPipMap((prev) => ({
+              ...prev,
+              [msg.userId as string]: Boolean(msg.enabled),
+            }));
           } else if (msg.type === 'set_logged' || msg.type === 'partner_rotated') {
             if (activeUserIdRef.current) {
               void refreshUserHistoryRef.current(activeUserIdRef.current);
@@ -1157,6 +1173,20 @@ export function useSwonalState() {
     setSoundMuted(next);
   }, [soundMuted]);
 
+  const setShowDemoPip = useCallback(
+    (enabled: boolean) => {
+      if (!activeUser?.id) return;
+      const uid = activeUser.id;
+      setDemoPipMap((prev) => ({ ...prev, [uid]: enabled }));
+      void fetch(`/api/users/${encodeURIComponent(uid)}/demo-pip`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }).catch(() => {});
+    },
+    [activeUser?.id]
+  );
+
   const deleteUser = useCallback(
     async (userId: string): Promise<{ ok: boolean; error?: string }> => {
       const resp = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
@@ -1335,6 +1365,8 @@ export function useSwonalState() {
     lastPrBanner,
     soundMuted,
     toggleSoundMuted,
+    showDemoPip,
+    setShowDemoPip,
     activeExercise,
     activeExercisePr,
     overloadSuggestion,

@@ -14,8 +14,10 @@ import {
 import { sessionCoordinator } from '../services/sessionState';
 import { aiCoachService } from '../services/aiCoach';
 import {
+  getDemoPipEnabled,
   getEffectivePublicBaseUrl,
   getPublicUrlOverride,
+  setDemoPipEnabled,
   setPublicUrlOverride,
 } from '../services/runtimeSettings';
 import { homeAssistantBus } from '../integrations/homeAssistantBus';
@@ -158,6 +160,26 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       }
       bridge.broadcastToClients({ type: 'users_updated' });
       res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/users/:id/demo-pip', (req, res) => {
+    res.json({ enabled: getDemoPipEnabled(req.params.id) });
+  });
+
+  router.patch('/users/:id/demo-pip', (req, res, next) => {
+    try {
+      const schema = z.object({ enabled: z.boolean() });
+      const { enabled } = schema.parse(req.body ?? {});
+      const saved = setDemoPipEnabled(req.params.id, enabled);
+      bridge.broadcastToClients({
+        type: 'demo_pip_updated',
+        userId: req.params.id,
+        enabled: saved,
+      });
+      res.json({ enabled: saved });
     } catch (err) {
       next(err);
     }
