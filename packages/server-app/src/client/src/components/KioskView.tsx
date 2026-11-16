@@ -959,7 +959,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               setStockError(null);
               stockDialogRef.current?.showModal();
             }}
-            className="bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-400 font-bold px-4 py-2.5 rounded-2xl transition flex items-center gap-2 text-sm"
+            className={`border font-bold px-4 py-2.5 rounded-2xl transition flex items-center gap-2 text-sm ${
+              isLightTheme
+                ? 'bg-red-500/15 hover:bg-red-500/25 border-red-600/50 text-red-800'
+                : 'bg-red-500/15 hover:bg-red-500/25 border-red-500/40 text-red-400'
+            }`}
           >
             <ShieldAlert size={18} />
             <span>Original Tonal</span>
