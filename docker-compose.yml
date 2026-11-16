@@ -39,6 +39,9 @@ services:
       - MQTT_PASSWORD=${MQTT_PASSWORD:-}
       - HA_WEBHOOK_URL=${HA_WEBHOOK_URL:-}
       - HA_WEBHOOK_TOKEN=${HA_WEBHOOK_TOKEN:-}
+      - SWONAL_AUTH_PASSCODE=${SWONAL_AUTH_PASSCODE:-}
+      - SWONAL_API_TOKEN=${SWONAL_API_TOKEN:-}
+      - SWONAL_SESSION_SECRET=${SWONAL_SESSION_SECRET:-}
     volumes:
       - swonal-db-data:/data
 

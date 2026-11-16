@@ -166,3 +166,6 @@ docker compose up -d --no-deps --build server-app
 ### Security & Internet Access Lock
 - Configure an app passcode in **Settings → Security & Internet Access Lock** (or set `SWONAL_AUTH_PASSCODE` in `.env`) to require login (`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `GET /api/auth/token`, `POST /api/auth/configure`) for all remote/proxied requests and WebSocket `/ws` connections.
 - Direct unproxied `localhost` kiosk requests can optionally bypass login while Cloudflare/LAN connections remain protected, and MCP SSE endpoints accept `?token=<apiToken>` or `Authorization: Bearer <apiToken>`.
+
+### All-in-One Tonal Device Installer (`librespot`, APKs & Via Browser)
+- Run `./scripts/install-device.sh --server-url https://swonal.brombomb.com` (add `--target <tonal-ip>:5555` for ADB over Wi-Fi) from your host machine to download and sideload **Magisk v27.0**, **Termux (Android 5/6)**, and **Via Browser**, install `librespot` (`"Tonal Gym"` boot service), deploy `tonal-daemon`, and launch Via Browser to your Swonal URL.
