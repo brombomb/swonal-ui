@@ -879,20 +879,6 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                 </span>
               </div>
 
-              {!musicState.isConnected && (
-                <a
-                  href={
-                    activeUser
-                      ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
-                      : '/api/spotify/login'
-                  }
-                  className="w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
-                >
-                  <Music size={15} />
-                  <span>Connect Spotify</span>
-                </a>
-              )}
-
               <button
                 type="button"
                 onClick={() => {

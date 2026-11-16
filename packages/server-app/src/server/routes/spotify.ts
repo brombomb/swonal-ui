@@ -227,10 +227,18 @@ export function createSpotifyRouter(
     try {
       const userId = resolveUserId(req);
       const cfg = getSpotifyConfig();
-      const integration = await prisma.musicIntegration.findUnique({
+      const own = await prisma.musicIntegration.findUnique({
         where: { userId_provider: { userId, provider: 'spotify' } },
         select: { id: true, accessToken: true, preferredDeviceId: true },
       });
+      const integration =
+        own?.accessToken
+          ? own
+          : await prisma.musicIntegration.findFirst({
+              where: { provider: 'spotify', accessToken: { not: null } },
+              orderBy: { updatedAt: 'desc' },
+              select: { id: true, accessToken: true, preferredDeviceId: true },
+            });
       res.json({
         configured: cfg.configured,
         redirectUri: resolveRedirectUri(req),

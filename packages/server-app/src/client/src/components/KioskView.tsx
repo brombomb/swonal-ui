@@ -1153,53 +1153,20 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
         </section>
 
-        {/* Quick-Access Routine / Movement Stepper Bar */}
+        {/* Quick-Access Routine / Movement Stepper Bar + Docked Form Demo */}
         <div className="flex items-center justify-between gap-4 px-2">
           <button
             type="button"
             onClick={() => stepRoutine(-1)}
-            className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90"
+            className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90 shrink-0"
           >
             <ChevronLeft size={18} style={{ color: 'var(--accent-primary)' }} />
             <span>{activeTemplateName ? 'Prev Step' : 'Prev Exercise'}</span>
           </button>
 
-          <div className="text-xs font-mono font-bold uppercase tracking-widest opacity-70">
-            {activeTemplateName && routineSteps.length > 0
-              ? `${activeTemplateName} • Step ${currentStepIdx + 1} / ${routineSteps.length}`
-              : 'Quick Movement Switcher'}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => stepRoutine(1)}
-            className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90"
-          >
-            <span>{activeTemplateName ? 'Next Step' : 'Next Exercise'}</span>
-            <ChevronRight size={18} style={{ color: 'var(--accent-primary)' }} />
-          </button>
-        </div>
-
-        {/* Central ~520px Weight Dial flanked closely by Left/Right Cable ROM Bars + Direct Steppers */}
-        <section className="relative flex flex-col items-center justify-center my-auto py-2 gap-4">
-          {/* Self-Hosted Exercise Demo Picture-in-Picture (PiP) Loop Card */}
-          {activeExercise?.mediaUrl && showDemoPip && (
-            <div
-              className="absolute right-0 top-0 w-44 rounded-2xl overflow-hidden bg-slate-950/95 border-2 shadow-2xl z-20"
-              style={{ borderColor: 'var(--accent-primary)' }}
-            >
-              <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-mono font-bold bg-black/40 border-b border-white/10">
-                <span className="truncate">{activeExercise.name}</span>
-                <button
-                  type="button"
-                  onClick={() => setShowDemoPip(false)}
-                  aria-label="Close Form Demo"
-                  className="opacity-70 hover:opacity-100 p-0.5"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-              <div className="p-1.5 bg-slate-950">
+          {activeExercise?.mediaUrl && showDemoPip ? (
+            <div className="surface-card rounded-2xl px-3 py-2 flex items-center gap-3 max-w-md">
+              <div className="w-24 h-14 rounded-xl overflow-hidden bg-slate-950 shrink-0 flex items-center justify-center">
                 {/\.(mp4|webm)(\?|$)/i.test(activeExercise.mediaUrl) ? (
                   <video
                     src={activeExercise.mediaUrl}
@@ -1207,18 +1174,51 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     loop
                     muted
                     playsInline
-                    className="block w-full h-24 object-contain rounded-xl bg-slate-950"
+                    className="w-full h-full object-contain"
                   />
                 ) : (
                   <img
                     src={activeExercise.mediaUrl}
                     alt={`${activeExercise.name} form demo`}
-                    className="block w-full h-24 object-contain rounded-xl bg-slate-950"
+                    className="w-full h-full object-contain"
                   />
                 )}
               </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-mono font-bold uppercase tracking-wider opacity-60">
+                  Form Demo
+                </p>
+                <p className="text-xs font-extrabold truncate">{activeExercise.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDemoPip(false)}
+                aria-label="Close Form Demo"
+                className="opacity-60 hover:opacity-100 p-1 shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <div className="text-xs font-mono font-bold uppercase tracking-widest opacity-70 text-center">
+              {activeTemplateName && routineSteps.length > 0
+                ? `${activeTemplateName} • Step ${currentStepIdx + 1} / ${routineSteps.length}`
+                : 'Quick Movement Switcher'}
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => stepRoutine(1)}
+            className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90 shrink-0"
+          >
+            <span>{activeTemplateName ? 'Next Step' : 'Next Exercise'}</span>
+            <ChevronRight size={18} style={{ color: 'var(--accent-primary)' }} />
+          </button>
+        </div>
+
+        {/* Central ~620px Weight Dial flanked closely by Left/Right Cable ROM Bars + Direct Steppers */}
+        <section className="relative flex flex-col items-center justify-center my-auto py-2 gap-4">
 
           {/* Flanking ROM Bars + 620px Dial Row */}
           <div className="flex items-center justify-center gap-8">
@@ -1511,23 +1511,29 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
         </section>
 
-        {/* Conditional Live Symmetry & VBT Telemetry (Above Completed Reps) */}
+        {/* Conditional Live Symmetry & VBT Telemetry (Recessed, Lightweight Strip) */}
         {telemetryDisplayMode !== 'off' &&
           (telemetryDisplayMode === 'always' ||
             telemetry.weight_enabled ||
             telemetry.rep_count > 0) && (
-          <section className="grid grid-cols-2 gap-4 mb-4">
+          <section
+            className="rounded-3xl px-6 py-4 mb-4 border grid grid-cols-2 gap-6 divide-x"
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.025)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
             {/* 1. Form Symmetry & Balance Meter */}
-            <div className="surface-card rounded-3xl p-5 space-y-3">
+            <div className="space-y-2.5 pr-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Scale size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <h3 className="font-black text-base uppercase tracking-wider">
+                  <Scale size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-sm uppercase tracking-wider">
                     Form Symmetry &amp; Balance
                   </h3>
                 </div>
                 <span
-                  className={`px-3 py-1 rounded-full text-xs font-mono font-black ${
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-black ${
                     symmetryMetrics.status === 'critical'
                       ? 'bg-red-500/20 text-red-400'
                       : symmetryMetrics.status === 'drift'
@@ -1546,22 +1552,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   {symmetryMetrics.status.toUpperCase()} • Δ {symmetryMetrics.positionDelta.toFixed(1)}
                 </span>
               </div>
-              <div className="relative h-4 rounded-full elevated-pill overflow-hidden">
-                <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/40 z-10" />
-                <div
-                  className="absolute top-0.5 bottom-0.5 w-6 rounded-full transition-all duration-75"
-                  style={{
-                    left: `calc(${Math.max(4, Math.min(92, 50 + symmetryMetrics.signedBalance * 1.1))}% - 12px)`,
-                    backgroundColor:
-                      symmetryMetrics.status === 'critical'
-                        ? '#EF4444'
-                        : symmetryMetrics.status === 'drift'
-                          ? '#F59E0B'
-                          : 'var(--accent-primary)',
-                  }}
-                />
+              <div className="relative h-5 flex items-center">
+                {/* Center notch tick */}
+                <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-0.5 bg-white/70 z-20 rounded-full" />
+                <div className="relative w-full h-3.5 rounded-full elevated-pill overflow-hidden">
+                  <div
+                    className="absolute top-0.5 bottom-0.5 w-6 rounded-full transition-all duration-75 z-10"
+                    style={{
+                      left: `calc(${Math.max(4, Math.min(92, 50 + symmetryMetrics.signedBalance * 1.1))}% - 12px)`,
+                      backgroundColor:
+                        symmetryMetrics.status === 'critical'
+                          ? '#EF4444'
+                          : symmetryMetrics.status === 'drift'
+                            ? '#F59E0B'
+                            : 'var(--accent-primary)',
+                    }}
+                  />
+                </div>
               </div>
-              <div className="flex items-center justify-between text-sm font-mono tabular-nums font-bold opacity-80">
+              <div className="flex items-center justify-between text-xs font-mono tabular-nums font-bold opacity-75">
                 <span>L {symmetryMetrics.leftLoadPct}%</span>
                 <span>Centered Bar Target</span>
                 <span>R {symmetryMetrics.rightLoadPct}%</span>
@@ -1569,11 +1578,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
 
             {/* 2. Velocity-Based Training (VBT) & Auto-Regulation */}
-            <div className="surface-card rounded-3xl p-5 space-y-3">
+            <div className="space-y-2.5 pl-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Gauge size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <h3 className="font-black text-base uppercase tracking-wider">
+                  <Gauge size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-sm uppercase tracking-wider">
                     Velocity &amp; Fatigue (VBT)
                   </h3>
                 </div>
@@ -1593,12 +1602,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
               <div className="flex items-baseline justify-between font-mono tabular-nums">
-                <span className="text-3xl font-black">
+                <span className="text-2xl font-black">
                   {vbtMetrics.currentVelocity.toFixed(1)}{' '}
-                  <span className="text-sm font-bold opacity-70">cm/s</span>
+                  <span className="text-xs font-bold opacity-70">cm/s</span>
                 </span>
                 <span
-                  className={`text-lg font-black ${
+                  className={`text-base font-black ${
                     vbtMetrics.velocityDropPct >= 25 ? 'text-amber-400' : ''
                   }`}
                   style={
@@ -1610,23 +1619,31 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   -{vbtMetrics.velocityDropPct.toFixed(0)}% Velocity Drop
                 </span>
               </div>
-              <div className="h-3 rounded-full elevated-pill overflow-hidden">
+              <div className="relative h-3.5 rounded-full elevated-pill overflow-hidden">
                 <div
-                  className="h-full"
+                  className="h-full rounded-full"
                   style={{
                     width: `${Math.min(100, vbtMetrics.velocityDropPct * 2)}%`,
-                    backgroundColor:
-                      vbtMetrics.velocityDropPct >= 25 ? '#F59E0B' : 'var(--accent-primary)',
+                    background:
+                      'linear-gradient(90deg, var(--accent-primary) 0%, #F59E0B 60%, #EF4444 100%)',
                   }}
                 />
+                {/* 5-segment gauge dividers */}
+                <div className="absolute inset-0 grid grid-cols-5 pointer-events-none">
+                  <div className="border-r border-black/35" />
+                  <div className="border-r border-black/35" />
+                  <div className="border-r border-black/35" />
+                  <div className="border-r border-black/35" />
+                  <div />
+                </div>
               </div>
             </div>
           </section>
         )}
 
-        {/* Consolidated Rep Callout (0 / 12), Complete Set, Up Next Preview, & Dynamic Modes */}
-        <section className="space-y-4">
-          <div className="surface-card rounded-3xl px-8 py-5 flex items-center justify-between gap-4">
+        {/* Unified Set Control Deck (Completed Reps, Up Next, & Dynamic Modes) */}
+        <section className="surface-card rounded-3xl px-8 py-5 space-y-4">
+          <div className="flex items-center justify-between gap-4">
             {/* Completed / Target Reps Callout */}
             <div className="flex items-center gap-6">
               <div>
@@ -1685,8 +1702,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
           </div>
 
-          {/* Dynamic Mode Selector Pills (Full Width) */}
-          <div className="surface-card rounded-3xl px-7 py-4 flex items-center justify-between gap-3">
+          {/* Dynamic Mode Selector Pills (Unified inside Set Control Deck) */}
+          <div
+            className="border-t pt-4 flex items-center justify-between gap-3"
+            style={{ borderColor: 'var(--border-subtle)' }}
+          >
             {DYNAMIC_MODES.map((m) => {
               const active = telemetry.profile_mode === m.id;
               return (
@@ -1945,20 +1965,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             >
               {soundMuted ? <VolumeX size={18} /> : <Activity size={18} />}
             </button>
-
-            {!musicState.isConnected && (
-              <a
-                href={
-                  activeUser
-                    ? `/api/spotify/login?userId=${encodeURIComponent(activeUser.id)}`
-                    : '/api/spotify/login'
-                }
-                className="px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
-              >
-                <Music size={17} />
-                <span>Connect Spotify</span>
-              </a>
-            )}
 
             <button
               type="button"

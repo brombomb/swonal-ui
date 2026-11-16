@@ -121,10 +121,28 @@ export class SpotifyProvider implements IMusicProvider {
     });
   }
 
-  async refreshAuthIfNeeded(userId: string): Promise<string> {
-    const integration = await prisma.musicIntegration.findUnique({
+  private async findIntegration(userId: string) {
+    const own = await prisma.musicIntegration.findUnique({
       where: { userId_provider: { userId, provider: this.id } },
     });
+    if (own?.accessToken) {
+      return own;
+    }
+    const userExists = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!userExists) {
+      return own;
+    }
+    return prisma.musicIntegration.findFirst({
+      where: { provider: this.id, accessToken: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  async refreshAuthIfNeeded(userId: string): Promise<string> {
+    const integration = await this.findIntegration(userId);
     if (!integration?.accessToken) {
       return '';
     }
@@ -301,10 +319,7 @@ export class SpotifyProvider implements IMusicProvider {
       return librespot.id;
     }
 
-    const integration = await prisma.musicIntegration.findUnique({
-      where: { userId_provider: { userId, provider: this.id } },
-      select: { preferredDeviceId: true },
-    });
+    const integration = await this.findIntegration(userId);
     if (integration?.preferredDeviceId) {
       const preferred = devices.find((d) => d.id === integration.preferredDeviceId);
       if (preferred) {
