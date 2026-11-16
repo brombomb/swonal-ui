@@ -200,6 +200,66 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     }
   });
 
+  const ExerciseSchema = z.object({
+    name: z.string().min(1).max(80),
+    muscleGroup: z.string().min(1).max(40),
+    accessory: z.enum(['HANDLES', 'BAR', 'ROPE']).default('HANDLES'),
+    isUnilateral: z.boolean().default(false),
+    recommendedHeight: z.number().int().min(1).max(6).default(4),
+    recommendedRotation: z.number().int().min(1).max(3).default(2),
+    recommendedAngle: z.number().int().min(1).max(2).default(1),
+    mediaUrl: z.string().max(500).nullable().optional(),
+  });
+
+  router.post('/exercises', async (req, res, next) => {
+    try {
+      const parsed = ExerciseSchema.parse(req.body);
+      const created = await prisma.exercise.create({
+        data: {
+          ...parsed,
+          mediaUrl: parsed.mediaUrl || null,
+        },
+      });
+      bridge.broadcastToClients({ type: 'exercises_updated' });
+      res.status(201).json(created);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/exercises/:id', async (req, res, next) => {
+    try {
+      const parsed = ExerciseSchema.partial().parse(req.body);
+      const updated = await prisma.exercise.update({
+        where: { id: req.params.id },
+        data: parsed,
+      });
+      bridge.broadcastToClients({ type: 'exercises_updated' });
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/exercises/:id', async (req, res, next) => {
+    try {
+      const usageCount = await prisma.setLog.count({
+        where: { exerciseId: req.params.id },
+      });
+      if (usageCount > 0) {
+        res.status(400).json({
+          error: `Cannot delete exercise with ${usageCount} logged sets.`,
+        });
+        return;
+      }
+      await prisma.exercise.delete({ where: { id: req.params.id } });
+      bridge.broadcastToClients({ type: 'exercises_updated' });
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Templates
   router.get('/templates', async (req, res, next) => {
     try {

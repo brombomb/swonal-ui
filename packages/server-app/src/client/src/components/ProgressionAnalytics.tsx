@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BarChart3, TrendingUp } from 'lucide-react';
+import { BarChart3, CalendarDays, Flame, TrendingUp } from 'lucide-react';
 import { PersonalRecord, WorkoutSession } from '../types';
 import { formatDisplayWeight, WeightUnit } from '../utils/units';
 
@@ -36,6 +36,88 @@ export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = React.m
   personalRecords,
   unit,
 }) => {
+  // 0. Workout Streaks & 12-Week (84-day) Consistency Heatmap
+  const consistency = useMemo(() => {
+    const toLocalDayKey = (d: Date): string => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const dayMap = new Map<string, { count: number; volumeLb: number }>();
+    for (const s of sessions) {
+      const key = toLocalDayKey(new Date(s.startedAt));
+      const existing = dayMap.get(key) ?? { count: 0, volumeLb: 0 };
+      existing.count += 1;
+      existing.volumeLb += s.totalVolume ?? 0;
+      dayMap.set(key, existing);
+    }
+
+    const sortedDays = Array.from(dayMap.keys()).sort();
+    let bestStreak = 0;
+    let run = 0;
+    let prevDayMs: number | null = null;
+    for (const key of sortedDays) {
+      const [y, m, d] = key.split('-').map(Number);
+      const dayMs = new Date(y, m - 1, d).getTime();
+      if (prevDayMs !== null && Math.round((dayMs - prevDayMs) / 86400000) === 1) {
+        run += 1;
+      } else {
+        run = 1;
+      }
+      if (run > bestStreak) bestStreak = run;
+      prevDayMs = dayMs;
+    }
+
+    // Current streak: consecutive days ending today or yesterday
+    let currentStreak = 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cursor = new Date(today);
+    if (!dayMap.has(toLocalDayKey(cursor))) {
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    while (dayMap.has(toLocalDayKey(cursor))) {
+      currentStreak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+
+    // Build 12 weeks (84 days) ending today
+    const cells: Array<{
+      key: string;
+      label: string;
+      count: number;
+      volumeLb: number;
+    }> = [];
+    const start = new Date(today);
+    start.setDate(start.getDate() - 83);
+    for (let i = 0; i < 84; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const key = toLocalDayKey(d);
+      const stats = dayMap.get(key);
+      cells.push({
+        key,
+        label: `${d.getMonth() + 1}/${d.getDate()}`,
+        count: stats?.count ?? 0,
+        volumeLb: Math.round(stats?.volumeLb ?? 0),
+      });
+    }
+
+    const weeks: typeof cells[] = [];
+    for (let w = 0; w < 12; w++) {
+      weeks.push(cells.slice(w * 7, w * 7 + 7));
+    }
+
+    return {
+      currentStreak,
+      bestStreak,
+      totalActiveDays: sortedDays.length,
+      weeks,
+    };
+  }, [sessions]);
+
   // 1. Weekly Volume (Last 8 Weeks)
   const weeklyBuckets = useMemo(() => {
     const now = new Date();
@@ -244,6 +326,63 @@ export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = React.m
 
   return (
     <div className="space-y-4">
+      {/* Workout Consistency & Streaks (12-Week Calendar Heatmap) */}
+      <section className="surface-card rounded-3xl p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={20} style={{ color: 'var(--accent-primary)' }} />
+            <h2 className="text-lg font-black">Consistency &amp; Workout Streaks</h2>
+          </div>
+          <div className="flex items-center gap-3 text-xs font-mono">
+            <span className="elevated-pill px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">
+              <Flame size={13} style={{ color: 'var(--accent-primary)' }} />
+              <span>{consistency.currentStreak}d Streak</span>
+            </span>
+            <span className="elevated-pill px-2.5 py-1 rounded-lg font-bold">
+              Best {consistency.bestStreak}d
+            </span>
+            <span className="elevated-pill px-2.5 py-1 rounded-lg font-bold">
+              {consistency.totalActiveDays} Active Days
+            </span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="grid grid-cols-12 gap-1.5 min-w-[280px]">
+            {consistency.weeks.map((week, wIdx) => (
+              <div key={wIdx} className="grid grid-rows-7 gap-1.5">
+                {week.map((cell) => {
+                  const opacity =
+                    cell.count === 0
+                      ? 0.08
+                      : cell.volumeLb > 12000 || cell.count > 1
+                        ? 1
+                        : cell.volumeLb > 4000
+                          ? 0.65
+                          : 0.38;
+                  return (
+                    <div
+                      key={cell.key}
+                      title={`${cell.label}: ${cell.count} workout${cell.count === 1 ? '' : 's'} (${formatDisplayWeight(cell.volumeLb, unit)} ${unit})`}
+                      className="h-3.5 rounded-[4px] transition-opacity"
+                      style={{
+                        backgroundColor:
+                          cell.count > 0 ? 'var(--accent-primary)' : 'currentColor',
+                        opacity,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between text-[11px] opacity-65">
+          <span>12 weeks ago</span>
+          <span>Today</span>
+        </div>
+      </section>
+
       {/* Per-Exercise Estimated 1RM Trend */}
       <section className="surface-card rounded-3xl p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

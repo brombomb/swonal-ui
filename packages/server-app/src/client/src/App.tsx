@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react';
 import { CompanionView } from './components/CompanionView';
 import { KioskView } from './components/KioskView';
 import { SettingsView } from './components/SettingsView';
+import { AdminView } from './components/AdminView';
 import { useSwonalState } from './hooks/useSwonalState';
 
 function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
@@ -14,9 +15,10 @@ function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
 
   const isCompanion = pathname.startsWith('/companion');
   const isSettings = pathname.startsWith('/settings');
+  const isAdmin = pathname.startsWith('/admin');
 
   useEffect(() => {
-    if (isCompanion || isSettings) return;
+    if (isCompanion || isSettings || isAdmin) return;
     const updateScale = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -27,7 +29,11 @@ function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [isCompanion, isSettings]);
+  }, [isCompanion, isSettings, isAdmin]);
+
+  if (isAdmin) {
+    return <AdminView swonal={swonal} />;
+  }
 
   if (isSettings) {
     return <SettingsView swonal={swonal} onAuthLock={onAuthLock} />;

@@ -347,6 +347,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               <Smartphone size={15} />
               <span>Companion</span>
             </a>
+            <a
+              href="/admin"
+              className="elevated-pill px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:opacity-90"
+            >
+              <Wrench size={15} style={{ color: 'var(--accent-primary)' }} />
+              <span>Admin</span>
+            </a>
             <h1 className="text-lg font-black ml-1">Application Settings</h1>
           </div>
 
