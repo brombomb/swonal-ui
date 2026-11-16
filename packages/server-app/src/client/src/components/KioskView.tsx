@@ -44,7 +44,6 @@ import {
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
 import { PostWorkoutSummaryModal } from './PostWorkoutSummaryModal';
-import { ProgressionAnalytics } from './ProgressionAnalytics';
 import { MusicPickerDialog } from './MusicPickerDialog';
 import {
   AccessoryType,
@@ -148,7 +147,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const profileDialogRef = useRef<HTMLDialogElement>(null);
   const mockDialogRef = useRef<HTMLDialogElement>(null);
   const musicDialogRef = useRef<HTMLDialogElement>(null);
-  const progressionDialogRef = useRef<HTMLDialogElement>(null);
   const aiDialogRef = useRef<HTMLDialogElement>(null);
   const diagnosticsDialogRef = useRef<HTMLDialogElement>(null);
 
@@ -637,16 +635,16 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         aria-hidden="true"
         className="swonal-dot-grid absolute inset-0 opacity-[0.03] pointer-events-none z-0"
       />
-      {/* Dynamic Ambient Profile Bloom */}
+      {/* Dynamic Ambient Profile Bloom (zero-blur radial gradient for smooth FPS) */}
       <div
         aria-hidden="true"
-        className="absolute -top-32 -right-32 w-[680px] h-[680px] rounded-full blur-[140px] opacity-80 pointer-events-none z-0 transition-colors duration-500"
-        style={{ backgroundColor: 'var(--accent-muted)' }}
+        className="absolute -top-32 -right-32 w-[680px] h-[680px] rounded-full opacity-80 pointer-events-none z-0"
+        style={{ background: 'radial-gradient(circle, var(--accent-muted) 0%, transparent 70%)' }}
       />
       <div
         aria-hidden="true"
-        className="absolute -bottom-44 -left-44 w-[520px] h-[520px] rounded-full blur-[140px] opacity-40 pointer-events-none z-0 transition-colors duration-500"
-        style={{ backgroundColor: 'var(--accent-muted)' }}
+        className="absolute -bottom-44 -left-44 w-[520px] h-[520px] rounded-full opacity-40 pointer-events-none z-0"
+        style={{ background: 'radial-gradient(circle, var(--accent-muted) 0%, transparent 70%)' }}
       />
 
       {/* TOP STATUS BAR */}
@@ -728,8 +726,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               title="Customize Theme, Units, & Accent Color"
               className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
             >
-              <Settings size={19} style={{ color: 'var(--accent-primary)' }} />
-              <span className="font-mono">{activeUnit}</span>
+              <Settings size={20} style={{ color: 'var(--accent-primary)' }} />
             </button>
 
             {showQuickSettings && (
@@ -1062,14 +1059,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <span>{showDemoPip ? 'Hide Demo' : 'Form Demo'}</span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => progressionDialogRef.current?.showModal()}
-                className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
+              <a
+                href="/history"
+                className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90"
               >
                 <TrendingUp size={20} style={{ color: 'var(--accent-primary)' }} />
                 <span>Progress &amp; PRs</span>
-              </button>
+              </a>
               <button
                 type="button"
                 onClick={() => {
@@ -2652,36 +2648,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </a>
           </div>
         </div>
-      </dialog>
-
-      {/* DIALOG 9: STRENGTH PROGRESSION & ANALYTICS */}
-      <dialog
-        ref={progressionDialogRef}
-        closedby="any"
-        aria-labelledby="progression-dialog-title"
-        className="rounded-3xl p-8 max-w-3xl w-full max-h-[85vh] overflow-y-auto"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2.5">
-            <TrendingUp size={24} style={{ color: 'var(--accent-primary)' }} />
-            <h2 id="progression-dialog-title" className="text-2xl font-black">
-              {activeUser?.name}&apos;s Strength Progression &amp; PRs
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={() => progressionDialogRef.current?.close()}
-            className="elevated-pill p-2 rounded-xl"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <ProgressionAnalytics
-          sessions={sessions}
-          personalRecords={personalRecords}
-          unit={activeUnit}
-        />
       </dialog>
 
       {/* POST-WORKOUT SUMMARY MODAL */}

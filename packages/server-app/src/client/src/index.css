@@ -61,8 +61,6 @@ body {
 
 .surface-card {
   background-color: var(--bg-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--border-subtle);
   border-top-color: var(--border-top-highlight);
   box-shadow: var(--surface-shadow);

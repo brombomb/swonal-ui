@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { CompanionView } from './components/CompanionView';
+import { HistoryView } from './components/HistoryView';
 import { KioskView } from './components/KioskView';
 import { SettingsView } from './components/SettingsView';
 import { AdminView } from './components/AdminView';
@@ -16,9 +17,10 @@ function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
   const isCompanion = pathname.startsWith('/companion');
   const isSettings = pathname.startsWith('/settings');
   const isAdmin = pathname.startsWith('/admin');
+  const isHistory = pathname.startsWith('/history');
 
   useEffect(() => {
-    if (isCompanion || isSettings || isAdmin) return;
+    if (isCompanion || isSettings || isAdmin || isHistory) return;
     const updateScale = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -29,7 +31,11 @@ function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [isCompanion, isSettings, isAdmin]);
+  }, [isCompanion, isSettings, isAdmin, isHistory]);
+
+  if (isHistory) {
+    return <HistoryView swonal={swonal} />;
+  }
 
   if (isAdmin) {
     return <AdminView swonal={swonal} />;

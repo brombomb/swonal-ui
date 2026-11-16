@@ -1281,6 +1281,7 @@ export function useSwonalState() {
       player.addListener('authentication_error', (payload) => {
         if (cancelled) return;
         setWebPlayerReady(false);
+        setWebPlayerEnabled(false);
         const msg = (payload as { message?: string })?.message || 'Authentication failed';
         setMusicError(
           `Web Player: ${msg} — please reconnect Spotify in Settings to grant Web Playback permissions.`

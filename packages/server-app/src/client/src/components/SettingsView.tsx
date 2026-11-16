@@ -322,8 +322,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
       />
       <div
         aria-hidden="true"
-        className="fixed -top-24 -right-24 w-[480px] h-[480px] rounded-full blur-[140px] opacity-80 pointer-events-none z-0 transition-colors duration-500"
-        style={{ backgroundColor: 'var(--accent-muted)' }}
+        className="fixed -top-24 -right-24 w-[480px] h-[480px] rounded-full opacity-80 pointer-events-none z-0"
+        style={{ background: 'radial-gradient(circle, var(--accent-muted) 0%, transparent 70%)' }}
       />
 
       {/* Sticky Header */}
@@ -355,33 +355,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               <span>Admin</span>
             </a>
             <h1 className="text-lg font-black ml-1">Application Settings</h1>
-          </div>
-
-          {/* Active Profile Switcher */}
-          <div className="flex items-center gap-2">
-            {users.map((u) => {
-              const active = u.id === activeUser?.id;
-              return (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => void switchUser(u.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition ${
-                    active ? '' : 'elevated-pill opacity-75'
-                  }`}
-                  style={
-                    active
-                      ? {
-                          backgroundColor: u.accentColor,
-                          color: getContrastTextColor(u.accentColor),
-                        }
-                      : undefined
-                  }
-                >
-                  <span>{u.name}</span>
-                </button>
-              );
-            })}
           </div>
         </div>
       </header>
@@ -766,61 +739,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           </div>
         </section>
 
-        {/* 5. Hardware, Calibration & Home Assistant */}
+        {/* 5. Home Assistant Event Bus */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <Wrench size={22} style={{ color: 'var(--accent-primary)' }} />
-            <div>
-              <h2 className="text-xl font-black">Hardware, Calibration &amp; Home Assistant</h2>
-              <p className="text-xs opacity-70">
-                Daemon status, cable zero offsets, and MQTT/Webhook automation diagnostics.
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Radio size={22} style={{ color: 'var(--accent-primary)' }} />
+              <div>
+                <h2 className="text-xl font-black">Home Assistant Event Bus</h2>
+                <p className="text-xs opacity-70">
+                  MQTT &amp; Webhook automation diagnostics (hardware calibration lives in Admin).
+                </p>
+              </div>
             </div>
+            <a
+              href="/admin"
+              className="elevated-pill px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:opacity-90"
+            >
+              <Wrench size={14} style={{ color: 'var(--accent-primary)' }} />
+              <span>Hardware Calibration →</span>
+            </a>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="elevated-pill rounded-2xl p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase font-bold opacity-65">Daemon &amp; WS</p>
-                <p className="font-black text-sm">
-                  {daemonConnected && wsConnected ? 'Connected (30Hz)' : 'Disconnected / Waiting'}
-                </p>
-                <p className="text-xs opacity-70 font-mono mt-1">
-                  Zero: L {calibrationStatus?.zero_offsets?.left ?? 0} / R{' '}
-                  {calibrationStatus?.zero_offsets?.right ?? 0}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void zeroCalibration()}
-                className="surface-card px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-90"
-              >
-                Zero Offsets
-              </button>
+          <div className="elevated-pill rounded-2xl p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase font-bold opacity-65">MQTT / Webhook Status</p>
+              <p className="font-black text-sm">
+                {haStatus?.mqttConfigured || haStatus?.webhookConfigured
+                  ? 'Configured'
+                  : 'Not Configured'}
+              </p>
+              <p className="text-xs opacity-70 mt-1">
+                Topic: {haStatus?.mqttTopicPrefix ?? 'swonal'}
+              </p>
             </div>
-
-            <div className="elevated-pill rounded-2xl p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase font-bold opacity-65 flex items-center gap-1">
-                  <Radio size={12} /> Home Assistant Bus
-                </p>
-                <p className="font-black text-sm">
-                  {haStatus?.mqttConfigured || haStatus?.webhookConfigured
-                    ? 'Configured'
-                    : 'Not Configured'}
-                </p>
-                <p className="text-xs opacity-70 mt-1">
-                  Topic: {haStatus?.mqttTopicPrefix ?? 'swonal'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void triggerHaTest()}
-                className="surface-card px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-90"
-              >
-                Test Event
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => void triggerHaTest()}
+              className="surface-card px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-90"
+            >
+              Test Event
+            </button>
           </div>
           {diagMsg && <p className="text-xs font-bold text-emerald-400">{diagMsg}</p>}
         </section>

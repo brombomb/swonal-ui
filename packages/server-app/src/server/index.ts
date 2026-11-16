@@ -447,7 +447,17 @@ export async function createSwonalServer(
   if (fs.existsSync(clientDistDir)) {
     app.use(express.static(clientDistDir));
     app.get(
-      ['/', '/companion', '/companion/*', '/settings', '/settings/*', '/admin', '/admin/*'],
+      [
+        '/',
+        '/companion',
+        '/companion/*',
+        '/settings',
+        '/settings/*',
+        '/admin',
+        '/admin/*',
+        '/history',
+        '/history/*',
+      ],
       (_req, res) => {
         res.sendFile(path.join(clientDistDir, 'index.html'));
       }
