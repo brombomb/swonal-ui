@@ -31,7 +31,7 @@ function estimate1RmLb(weightLb: number, reps: number): number {
   return Math.round(weightLb * (1 + reps / 30) * 10) / 10;
 }
 
-export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = ({
+export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = React.memo(({
   sessions,
   personalRecords,
   unit,
@@ -486,4 +486,4 @@ export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = ({
       </section>
     </div>
   );
-};
+});

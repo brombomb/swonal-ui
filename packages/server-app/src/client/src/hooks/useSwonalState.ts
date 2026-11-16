@@ -240,6 +240,8 @@ export function useSwonalState() {
   const prevWeightEnabledRef = useRef<boolean>(false);
   const prevCountdownTickRef = useRef<number>(0);
   const autoLogCallbackRef = useRef<(reps: number) => void>(() => {});
+  const telemetryRef = useRef<TelemetryFrame>(DEFAULT_TELEMETRY);
+  const lastTelemetryCommitMsRef = useRef<number>(0);
 
   const activeUser = useMemo(
     () => users.find((u) => u.id === sessionState.activeUserId) ?? users[0] ?? null,
@@ -311,24 +313,43 @@ export function useSwonalState() {
       if (avgVel > currentRepPeakVelRef.current) {
         currentRepPeakVelRef.current = avgVel;
       }
-      setVbtMetrics((prev) => ({
-        ...prev,
-        currentVelocity: avgVel,
-        peakSetVelocity: Math.max(telemetry.weight_enabled ? prev.peakSetVelocity : 0, avgVel),
-        velocityDropPct: telemetry.weight_enabled ? prev.velocityDropPct : 0,
-        fatigueAlert: telemetry.weight_enabled ? prev.fatigueAlert : false,
-      }));
+      setVbtMetrics((prev) => {
+        const nextPeak = Math.max(telemetry.weight_enabled ? prev.peakSetVelocity : 0, avgVel);
+        const nextDrop = telemetry.weight_enabled ? prev.velocityDropPct : 0;
+        const nextAlert = telemetry.weight_enabled ? prev.fatigueAlert : false;
+        if (
+          prev.currentVelocity === avgVel &&
+          prev.peakSetVelocity === nextPeak &&
+          prev.velocityDropPct === nextDrop &&
+          prev.fatigueAlert === nextAlert
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          currentVelocity: avgVel,
+          peakSetVelocity: nextPeak,
+          velocityDropPct: nextDrop,
+          fatigueAlert: nextAlert,
+        };
+      });
       return;
     }
 
     if (avgVel > currentRepPeakVelRef.current) {
       currentRepPeakVelRef.current = avgVel;
     }
-    setVbtMetrics((prev) => ({
-      ...prev,
-      currentVelocity: avgVel,
-      peakSetVelocity: Math.max(prev.peakSetVelocity, avgVel),
-    }));
+    setVbtMetrics((prev) => {
+      const nextPeak = Math.max(prev.peakSetVelocity, avgVel);
+      if (prev.currentVelocity === avgVel && prev.peakSetVelocity === nextPeak) {
+        return prev;
+      }
+      return {
+        ...prev,
+        currentVelocity: avgVel,
+        peakSetVelocity: nextPeak,
+      };
+    });
   }, [telemetry.weight_enabled, telemetry.rep_count, telemetry.left_cable.velocity, telemetry.right_cable.velocity]);
 
   // Apply adaptive theme + per-user dynamic accent CSS variables
@@ -509,7 +530,37 @@ export function useSwonalState() {
             }
             prevWeightEnabledRef.current = frame.weight_enabled;
             prevRepCountRef.current = frame.rep_count;
-            setTelemetry(frame);
+
+            const prev = telemetryRef.current;
+            const discreteChanged =
+              prev.weight_enabled !== frame.weight_enabled ||
+              prev.target_weight_lb !== frame.target_weight_lb ||
+              prev.applied_resistance_lb !== frame.applied_resistance_lb ||
+              prev.profile_mode !== frame.profile_mode ||
+              prev.modifier_pct !== frame.modifier_pct ||
+              prev.rep_count !== frame.rep_count ||
+              prev.accessory !== frame.accessory ||
+              prev.arm_positions.height.left !== frame.arm_positions.height.left ||
+              prev.arm_positions.height.right !== frame.arm_positions.height.right ||
+              prev.arm_positions.rotation.left !== frame.arm_positions.rotation.left ||
+              prev.arm_positions.rotation.right !== frame.arm_positions.rotation.right ||
+              prev.arm_positions.angle.left !== frame.arm_positions.angle.left ||
+              prev.arm_positions.angle.right !== frame.arm_positions.angle.right;
+
+            const cableChanged =
+              Math.abs(prev.left_cable.position - frame.left_cable.position) >= 0.5 ||
+              Math.abs(prev.right_cable.position - frame.right_cable.position) >= 0.5 ||
+              Math.abs(prev.left_cable.load_lb - frame.left_cable.load_lb) >= 0.5 ||
+              Math.abs(prev.right_cable.load_lb - frame.right_cable.load_lb) >= 0.5 ||
+              Math.abs(prev.left_cable.velocity - frame.left_cable.velocity) >= 0.2 ||
+              Math.abs(prev.right_cable.velocity - frame.right_cable.velocity) >= 0.2;
+
+            const now = Date.now();
+            if (discreteChanged || (cableChanged && now - lastTelemetryCommitMsRef.current >= 80)) {
+              telemetryRef.current = frame;
+              lastTelemetryCommitMsRef.current = now;
+              setTelemetry(frame);
+            }
           } else if (msg.type === 'daemon_status') {
             setDaemonConnected(Boolean(msg.connected));
           } else if (msg.type === 'session_state') {
