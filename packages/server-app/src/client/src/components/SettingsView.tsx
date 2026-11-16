@@ -395,6 +395,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5">
                       <span className="font-black text-base">{prov.displayName}</span>
+                      {!isSpotify && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                          Not Yet Implemented
+                        </span>
+                      )}
                       {prov.configured ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                           Configured
@@ -546,14 +551,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
         {/* 3. AI Voice Coach (BYOK) */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <Bot size={22} style={{ color: 'var(--accent-primary)' }} />
-            <div>
-              <h2 className="text-xl font-black">AI Voice Coach (BYOK)</h2>
-              <p className="text-xs opacity-70">
-                Bring your own OpenAI, Anthropic, Gemini, or local Ollama key — keys stay in memory only.
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <Bot size={22} style={{ color: 'var(--accent-primary)' }} />
+              <div>
+                <h2 className="text-xl font-black">AI Voice Coach (BYOK)</h2>
+                <p className="text-xs opacity-70">
+                  Bring your own OpenAI, Anthropic, Gemini, or local Ollama key — keys stay in memory only.
+                </p>
+              </div>
             </div>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0">
+              Not Yet Implemented
+            </span>
           </div>
 
           <form onSubmit={saveCoachConfig} className="space-y-3">
@@ -745,7 +755,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             <div className="flex items-center gap-2.5">
               <Radio size={22} style={{ color: 'var(--accent-primary)' }} />
               <div>
-                <h2 className="text-xl font-black">Home Assistant Event Bus</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-black">Home Assistant Event Bus</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                    Not Yet Implemented
+                  </span>
+                </div>
                 <p className="text-xs opacity-70">
                   MQTT &amp; Webhook automation diagnostics (hardware calibration lives in Admin).
                 </p>
