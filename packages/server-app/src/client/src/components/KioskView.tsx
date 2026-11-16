@@ -988,11 +988,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       {/* CENTER WORKOUT STAGE */}
       <main className="flex-1 flex flex-col justify-between py-2">
         {/* Active Exercise & Routine Header Card */}
-        <section className="surface-card rounded-3xl px-8 py-6 flex items-center justify-between gap-4">
+        <section className="surface-card rounded-3xl px-8 py-6 flex items-center justify-between gap-6">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex flex-wrap items-center gap-3 mb-2">
               <span
-                className="px-4 py-1.5 rounded-full text-sm font-extrabold uppercase tracking-wider"
+                className="px-4 py-1.5 rounded-full text-sm font-extrabold uppercase tracking-wider whitespace-nowrap shrink-0"
                 style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
               >
                 {activeTemplateName
@@ -1000,27 +1000,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   : 'Free Lift Mode'}
               </span>
               {activeExercise && (
-                <span className="text-base font-bold opacity-80">
-                  {activeExercise.muscleGroup} • {activeExercise.accessory}
+                <span className="text-base font-bold opacity-80 whitespace-nowrap shrink-0">
+                  {activeExercise.muscleGroup}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3 min-w-0">
-              <h1 className="text-5xl font-black tracking-tight truncate">
-                {activeExercise?.name ?? 'Select Movement'}
-              </h1>
-              <button
-                type="button"
-                onClick={() => {
-                  setLibraryOpen(true);
-                  libraryDialogRef.current?.showModal();
-                }}
-                className="elevated-pill px-4 py-2 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90 shrink-0"
-              >
-                <Dumbbell size={16} style={{ color: 'var(--accent-primary)' }} />
-                <span>Routines &amp; Exercises</span>
-              </button>
-            </div>
+            <h1 className="text-4xl font-black tracking-tight leading-tight">
+              {activeExercise?.name ?? 'Select Movement'}
+            </h1>
             <div className="mt-2 text-lg font-bold opacity-85">
               {currentStep ? (
                 <span>
@@ -1033,7 +1020,19 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-3 shrink-0">
+          <div className="flex flex-col items-end justify-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setLibraryOpen(true);
+                libraryDialogRef.current?.showModal();
+              }}
+              className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 whitespace-nowrap"
+            >
+              <Dumbbell size={17} style={{ color: 'var(--accent-primary)' }} />
+              <span>Routines &amp; Exercises</span>
+            </button>
+
             {/* Arm Position Guide Badge + H/R/A Info Bubble */}
             {activeExercise && (
               <div className="relative flex items-center gap-2.5">
@@ -1048,7 +1047,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     }
                   }}
                   title={armsAligned ? 'Arms aligned — tap to re-verify' : 'Tap to sync arms to recommended position'}
-                  className={`px-5 py-3 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 cursor-pointer hover:opacity-90 ${
+                  className={`px-4 py-2.5 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 cursor-pointer hover:opacity-90 whitespace-nowrap ${
                     armsAligned
                       ? ''
                       : 'bg-amber-500/15 border-amber-500/40 text-amber-400'
@@ -1104,10 +1103,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Self-Hosted Exercise Demo Picture-in-Picture (PiP) Loop Card */}
           {activeExercise?.mediaUrl && showDemoPip && (
             <div
-              className="absolute right-2 top-0 w-56 rounded-2xl overflow-hidden bg-slate-950/95 border-2 shadow-2xl z-20"
+              className="absolute right-0 top-0 w-44 rounded-2xl overflow-hidden bg-slate-950/95 border-2 shadow-2xl z-20"
               style={{ borderColor: 'var(--accent-primary)' }}
             >
-              <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold bg-black/40 border-b border-white/10">
+              <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-mono font-bold bg-black/40 border-b border-white/10">
                 <span className="truncate">{activeExercise.name}</span>
                 <button
                   type="button"
@@ -1115,7 +1114,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   aria-label="Close Form Demo"
                   className="opacity-70 hover:opacity-100 p-0.5"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               </div>
               <div className="p-1.5 bg-slate-950">
@@ -1126,13 +1125,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     loop
                     muted
                     playsInline
-                    className="block w-full h-32 object-contain rounded-xl bg-slate-950"
+                    className="block w-full h-24 object-contain rounded-xl bg-slate-950"
                   />
                 ) : (
                   <img
                     src={activeExercise.mediaUrl}
                     alt={`${activeExercise.name} form demo`}
-                    className="block w-full h-32 object-contain rounded-xl bg-slate-950"
+                    className="block w-full h-24 object-contain rounded-xl bg-slate-950"
                   />
                 )}
               </div>
