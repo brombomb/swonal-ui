@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Download,
   Dumbbell,
@@ -133,6 +135,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     togglePartnerMode,
     selectFreeExercise,
     startWorkoutTemplate,
+    stepRoutine,
     logCompletedSet,
     finishActiveWorkout,
     lastCompletedWorkoutSummary,
@@ -587,7 +590,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   }, [personalRecords]);
 
   // SVG Gauge Math
-  const radius = 232;
+  const radius = 276;
   const circumference = 2 * Math.PI * radius;
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
   const nextStep =
@@ -1119,8 +1122,63 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
             )}
+
+            {/* Consolidated Attachment Selector */}
+            <div className="flex items-center gap-2">
+              {(['HANDLES', 'BAR', 'ROPE'] as AccessoryType[]).map((acc) => {
+                const active = telemetry.accessory === acc;
+                return (
+                  <button
+                    key={acc}
+                    type="button"
+                    onClick={() => setAccessory(acc)}
+                    className={`px-3.5 py-2 rounded-xl font-mono text-xs font-black ${
+                      active ? 'border-2' : 'elevated-pill opacity-75 hover:opacity-100'
+                    }`}
+                    style={
+                      active
+                        ? {
+                            borderColor: 'var(--accent-primary)',
+                            backgroundColor: 'var(--accent-muted)',
+                            color: 'var(--accent-primary)',
+                          }
+                        : undefined
+                    }
+                  >
+                    {acc}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </section>
+
+        {/* Quick-Access Routine / Movement Stepper Bar */}
+        <div className="flex items-center justify-between gap-4 px-2">
+          <button
+            type="button"
+            onClick={() => stepRoutine(-1)}
+            className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90"
+          >
+            <ChevronLeft size={18} style={{ color: 'var(--accent-primary)' }} />
+            <span>{activeTemplateName ? 'Prev Step' : 'Prev Exercise'}</span>
+          </button>
+
+          <div className="text-xs font-mono font-bold uppercase tracking-widest opacity-70">
+            {activeTemplateName && routineSteps.length > 0
+              ? `${activeTemplateName} • Step ${currentStepIdx + 1} / ${routineSteps.length}`
+              : 'Quick Movement Switcher'}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => stepRoutine(1)}
+            className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90"
+          >
+            <span>{activeTemplateName ? 'Next Step' : 'Next Exercise'}</span>
+            <ChevronRight size={18} style={{ color: 'var(--accent-primary)' }} />
+          </button>
+        </div>
 
         {/* Central ~520px Weight Dial flanked closely by Left/Right Cable ROM Bars + Direct Steppers */}
         <section className="relative flex flex-col items-center justify-center my-auto py-2 gap-4">
@@ -1162,14 +1220,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
           )}
 
-          {/* Flanking ROM Bars + 520px Dial Row */}
+          {/* Flanking ROM Bars + 620px Dial Row */}
           <div className="flex items-center justify-center gap-8">
             {/* Left Cable ROM & Velocity Bar */}
-            <div className="flex flex-col items-center gap-2.5">
+            <div className="flex flex-col items-center gap-3">
               <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
                 LEFT
               </span>
-              <div className="w-12 h-[440px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
+              <div className="w-16 h-[500px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
                 <div
                   className="w-full rounded-full transition-all duration-75"
                   style={{
@@ -1180,32 +1238,32 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 />
               </div>
               <div className="text-center font-mono tabular-nums">
-                <p className="text-lg font-black">
+                <p className="text-xl font-black">
                   {formatDisplayWeight(telemetry.left_cable.load_lb, activeUnit, true)} {activeUnit}
                 </p>
-                <p className="text-xs opacity-75">{telemetry.left_cable.velocity.toFixed(1)} cm/s</p>
-                <p className="text-[11px] opacity-55">ROM {telemetry.left_cable.position.toFixed(0)}</p>
+                <p className="text-sm font-bold opacity-80">{telemetry.left_cable.velocity.toFixed(1)} cm/s</p>
+                <p className="text-xs opacity-60">ROM {telemetry.left_cable.position.toFixed(0)}</p>
               </div>
             </div>
 
-            {/* ~520px Interactive SVG Weight Gauge & Tap Target */}
+            {/* ~620px Interactive SVG Weight Gauge & Tap Target */}
             <div className="relative flex items-center justify-center">
-              <svg className="w-[520px] h-[520px] -rotate-90" viewBox="0 0 520 520">
+              <svg className="w-[620px] h-[620px] -rotate-90" viewBox="0 0 620 620">
                 <circle
-                  cx="260"
-                  cy="260"
+                  cx="310"
+                  cy="310"
                   r={radius}
                   stroke="var(--bg-elevated)"
-                  strokeWidth="32"
+                  strokeWidth="36"
                   fill="transparent"
                 />
                 <circle
-                  cx="260"
-                  cy="260"
+                  cx="310"
+                  cy="310"
                   r={radius}
                   stroke={telemetry.weight_enabled ? 'var(--accent-primary)' : 'var(--text-muted)'}
                   strokeOpacity={telemetry.weight_enabled ? 1 : 0.35}
-                  strokeWidth="32"
+                  strokeWidth="36"
                   strokeDasharray={circumference}
                   strokeDashoffset={strokeDashoffset}
                   strokeLinecap="round"
@@ -1218,7 +1276,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 type="button"
                 onClick={toggleWeight}
                 aria-label="Toggle Weight Resistance"
-                className={`absolute w-[400px] h-[400px] rounded-full flex flex-col items-center justify-center transition-all duration-300 border-4 ${
+                className={`absolute w-[476px] h-[476px] rounded-full flex flex-col items-center justify-center transition-all duration-300 border-4 ${
                   telemetry.weight_enabled ? 'accent-glow-ring scale-[1.02]' : 'surface-card'
                 }`}
                 style={{
@@ -1255,7 +1313,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                       weightDialogRef.current?.showModal();
                     }
                   }}
-                  className="font-mono tabular-nums text-[7.5rem] leading-none font-black tracking-tighter hover:opacity-80 cursor-pointer select-none"
+                  className="font-mono tabular-nums text-[9rem] leading-none font-black tracking-tighter hover:opacity-80 cursor-pointer select-none"
                 >
                   {activeUnit === 'KG'
                     ? displayWeight.toFixed(1).replace(/\.0$/, '')
@@ -1265,13 +1323,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   {telemetry.weight_enabled ? `Applied ${activeUnit}` : `Target ${activeUnit}`}
                 </span>
                 <div
-                  className={`mt-5 px-8 py-3 rounded-full font-black text-base tracking-widest uppercase transition ${
+                  className={`mt-6 px-10 py-4 rounded-full font-black text-lg tracking-widest uppercase border-2 shadow-lg transition ${
                     telemetry.weight_enabled ? 'animate-pulse' : 'elevated-pill'
                   }`}
                   style={
                     telemetry.weight_enabled
-                      ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
-                      : undefined
+                      ? {
+                          backgroundColor: 'var(--accent-primary)',
+                          borderColor: 'var(--accent-primary)',
+                          color: accentTextColor,
+                        }
+                      : { borderColor: 'var(--border-top-highlight)' }
                   }
                 >
                   {telemetry.weight_enabled ? 'WEIGHT ON' : 'WEIGHT OFF'}
@@ -1322,11 +1384,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
 
             {/* Right Cable ROM & Velocity Bar */}
-            <div className="flex flex-col items-center gap-2.5">
+            <div className="flex flex-col items-center gap-3">
               <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
                 RIGHT
               </span>
-              <div className="w-12 h-[440px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
+              <div className="w-16 h-[500px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
                 <div
                   className="w-full rounded-full transition-all duration-75"
                   style={{
@@ -1337,11 +1399,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 />
               </div>
               <div className="text-center font-mono tabular-nums">
-                <p className="text-lg font-black">
+                <p className="text-xl font-black">
                   {formatDisplayWeight(telemetry.right_cable.load_lb, activeUnit, true)} {activeUnit}
                 </p>
-                <p className="text-xs opacity-75">{telemetry.right_cable.velocity.toFixed(1)} cm/s</p>
-                <p className="text-[11px] opacity-55">
+                <p className="text-sm font-bold opacity-80">{telemetry.right_cable.velocity.toFixed(1)} cm/s</p>
+                <p className="text-xs opacity-60">
                   ROM {telemetry.right_cable.position.toFixed(0)}
                 </p>
               </div>
@@ -1355,7 +1417,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               onClick={() =>
                 setWeight(stepDisplayWeight(telemetry.target_weight_lb, -stepLarge, activeUnit))
               }
-              className="elevated-pill min-w-[78px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+              className="elevated-pill min-w-[92px] min-h-[72px] px-6 py-4 rounded-2xl font-mono font-black text-3xl hover:opacity-85 transition"
             >
               -{stepLarge}
             </button>
@@ -1364,19 +1426,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               onClick={() =>
                 setWeight(stepDisplayWeight(telemetry.target_weight_lb, -stepSmall, activeUnit))
               }
-              className="elevated-pill min-w-[72px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+              className="elevated-pill min-w-[84px] min-h-[72px] px-6 py-4 rounded-2xl font-mono font-black text-3xl hover:opacity-85 transition"
             >
               -{stepSmall}
             </button>
-            <span className="font-mono tabular-nums text-base font-extrabold uppercase tracking-widest opacity-75 px-3">
-              Target {displayTarget} {activeUnit}
+            <span className="font-mono tabular-nums text-sm font-extrabold uppercase tracking-widest opacity-75 px-3 text-center min-w-[116px]">
+              {activeExercisePr?.oneRepMaxEst
+                ? `${Math.round((telemetry.target_weight_lb / activeExercisePr.oneRepMaxEst) * 100)}% 1RM`
+                : telemetry.modifier_pct > 0
+                  ? `+${telemetry.modifier_pct}% ${telemetry.profile_mode}`
+                  : activeUnit === 'KG'
+                    ? '2.5–90 KG'
+                    : '5–200 LB'}
             </span>
             <button
               type="button"
               onClick={() =>
                 setWeight(stepDisplayWeight(telemetry.target_weight_lb, stepSmall, activeUnit))
               }
-              className="elevated-pill min-w-[72px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+              className="elevated-pill min-w-[84px] min-h-[72px] px-6 py-4 rounded-2xl font-mono font-black text-3xl hover:opacity-85 transition"
             >
               +{stepSmall}
             </button>
@@ -1385,7 +1453,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               onClick={() =>
                 setWeight(stepDisplayWeight(telemetry.target_weight_lb, stepLarge, activeUnit))
               }
-              className="elevated-pill min-w-[78px] min-h-[62px] px-5 py-3.5 rounded-2xl font-mono font-black text-2xl hover:opacity-85 transition"
+              className="elevated-pill min-w-[92px] min-h-[72px] px-6 py-4 rounded-2xl font-mono font-black text-3xl hover:opacity-85 transition"
             >
               +{stepLarge}
             </button>
@@ -1596,7 +1664,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
 
             {/* Up Next Scheduled Movement Preview */}
-            <div className="elevated-pill rounded-2xl px-5 py-3.5 text-right max-w-sm">
+            <div className="elevated-pill rounded-2xl px-5 py-3.5 text-left max-w-sm">
               <p className="text-[11px] uppercase tracking-widest font-extrabold opacity-65">
                 Up Next
               </p>
@@ -1617,61 +1685,33 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
           </div>
 
-          {/* Dynamic Mode Selector Pills + Accessory Selector */}
-          <div className="surface-card rounded-3xl px-7 py-5 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              {DYNAMIC_MODES.map((m) => {
-                const active = telemetry.profile_mode === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setWeight(telemetry.target_weight_lb, m.id, m.defaultPct)}
-                    className={`px-5 py-4 rounded-2xl font-extrabold text-base transition ${
-                      active ? '' : 'elevated-pill opacity-85 hover:opacity-100'
-                    }`}
-                    style={
-                      active
-                        ? {
-                            backgroundColor: 'var(--accent-primary)',
-                            color: accentTextColor,
-                            boxShadow: '0 0 18px var(--accent-glow)',
-                          }
-                        : undefined
-                    }
-                  >
-                    {m.label}
-                    {active && telemetry.modifier_pct > 0 ? ` (+${telemetry.modifier_pct}%)` : ''}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              {(['HANDLES', 'BAR', 'ROPE'] as AccessoryType[]).map((acc) => {
-                const active = telemetry.accessory === acc;
-                return (
-                  <button
-                    key={acc}
-                    type="button"
-                    onClick={() => setAccessory(acc)}
-                    className={`px-4 py-4 rounded-2xl font-mono text-sm font-black transition ${
-                      active ? 'border-2' : 'elevated-pill opacity-75'
-                    }`}
-                    style={
-                      active
-                        ? {
-                            borderColor: 'var(--accent-primary)',
-                            color: 'var(--accent-primary)',
-                          }
-                        : undefined
-                    }
-                  >
-                    {acc}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Dynamic Mode Selector Pills (Full Width) */}
+          <div className="surface-card rounded-3xl px-7 py-4 flex items-center justify-between gap-3">
+            {DYNAMIC_MODES.map((m) => {
+              const active = telemetry.profile_mode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setWeight(telemetry.target_weight_lb, m.id, m.defaultPct)}
+                  className={`flex-1 py-4 px-4 rounded-2xl font-extrabold text-base transition ${
+                    active ? '' : 'elevated-pill opacity-85 hover:opacity-100'
+                  }`}
+                  style={
+                    active
+                      ? {
+                          backgroundColor: 'var(--accent-primary)',
+                          color: accentTextColor,
+                          boxShadow: '0 0 18px var(--accent-glow)',
+                        }
+                      : undefined
+                  }
+                >
+                  {m.label}
+                  {active && telemetry.modifier_pct > 0 ? ` (+${telemetry.modifier_pct}%)` : ''}
+                </button>
+              );
+            })}
           </div>
 
           {/* Voice Coach (Shown only when an AI provider is configured in Settings) */}
