@@ -72,6 +72,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     activeProviderId,
     devices,
     playlists,
+    favoritePlaylistIds,
     setWeight,
     toggleWeight,
     switchUser,
@@ -89,6 +90,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     playPlaylist,
     fetchPlaylistTracks,
     transferMusicDevice,
+    toggleFavoritePlaylist,
+    refreshMusicNow,
     refreshBootstrap,
   } = swonal;
 
@@ -892,7 +895,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
               <button
                 type="button"
-                onClick={() => musicDialogRef.current?.showModal()}
+                onClick={() => {
+                  void refreshMusicNow();
+                  musicDialogRef.current?.showModal();
+                }}
                 className="w-full py-2.5 px-3 rounded-xl elevated-pill text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
               >
                 <Music size={14} style={{ color: 'var(--accent-primary)' }} />
@@ -914,6 +920,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               webPlayerReady={webPlayerReady}
               devices={devices}
               playlists={playlists}
+              favoritePlaylistIds={favoritePlaylistIds}
+              toggleFavoritePlaylist={toggleFavoritePlaylist}
+              onRefreshDevices={refreshMusicNow}
               updateUserPreferences={updateUserPreferences}
               transferMusicDevice={transferMusicDevice}
               playPlaylist={playPlaylist}

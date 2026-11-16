@@ -111,6 +111,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     setWebPlayerEnabled,
     webPlayerReady,
     playlists,
+    favoritePlaylistIds,
     devices,
     sendWs,
     setWeight,
@@ -136,6 +137,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     playPlaylist,
     fetchPlaylistTracks,
     transferMusicDevice,
+    toggleFavoritePlaylist,
+    refreshMusicNow,
   } = swonal;
 
   // Native <dialog> refs
@@ -1765,7 +1768,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
             <button
               type="button"
-              onClick={() => musicDialogRef.current?.showModal()}
+              onClick={() => {
+                void refreshMusicNow();
+                musicDialogRef.current?.showModal();
+              }}
               className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90"
             >
               <ListMusic size={18} style={{ color: 'var(--accent-primary)' }} />
@@ -2441,6 +2447,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         webPlayerReady={webPlayerReady}
         devices={devices}
         playlists={playlists}
+        favoritePlaylistIds={favoritePlaylistIds}
+        toggleFavoritePlaylist={toggleFavoritePlaylist}
+        onRefreshDevices={refreshMusicNow}
         updateUserPreferences={updateUserPreferences}
         transferMusicDevice={transferMusicDevice}
         playPlaylist={playPlaylist}

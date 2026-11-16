@@ -7,6 +7,7 @@ interface RuntimeSettingsData {
   authPasscodeHash?: string | null;
   authTrustLocalhost?: boolean;
   apiToken?: string | null;
+  favoritePlaylistsByUser?: Record<string, string[]>;
 }
 
 function resolveSettingsFilePath(): string {
@@ -90,4 +91,24 @@ export function updateRuntimeSettings(patch: Partial<RuntimeSettingsData>): Runt
   const next = { ...readSettingsFile(), ...patch };
   writeSettingsFile(next);
   return next;
+}
+
+export function getFavoritePlaylistIds(userId: string): string[] {
+  const data = readSettingsFile();
+  return data.favoritePlaylistsByUser?.[userId] ?? [];
+}
+
+export function toggleFavoritePlaylistId(userId: string, playlistId: string): string[] {
+  const data = readSettingsFile();
+  const map = { ...(data.favoritePlaylistsByUser ?? {}) };
+  const current = new Set(map[userId] ?? []);
+  if (current.has(playlistId)) {
+    current.delete(playlistId);
+  } else {
+    current.add(playlistId);
+  }
+  const updated = Array.from(current);
+  map[userId] = updated;
+  writeSettingsFile({ ...data, favoritePlaylistsByUser: map });
+  return updated;
 }

@@ -1,5 +1,9 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { musicRegistry } from '../music/Registry';
+import {
+  getFavoritePlaylistIds,
+  toggleFavoritePlaylistId,
+} from '../services/runtimeSettings';
 import { sessionCoordinator } from '../services/sessionState';
 
 export function createMusicRouter(broadcastToClients: (msg: Record<string, unknown>) => void): Router {
@@ -37,6 +41,22 @@ export function createMusicRouter(broadcastToClients: (msg: Record<string, unkno
     } catch (err) {
       next(err);
     }
+  });
+
+  router.get('/favorites', (req, res) => {
+    const userId = resolveUserId(req);
+    res.json({ playlistIds: getFavoritePlaylistIds(userId) });
+  });
+
+  router.post('/favorites/toggle', (req, res) => {
+    const userId = resolveUserId(req);
+    const playlistId = String(req.body?.playlistId || '').trim();
+    if (!playlistId) {
+      res.status(400).json({ error: 'playlistId is required' });
+      return;
+    }
+    const playlistIds = toggleFavoritePlaylistId(userId, playlistId);
+    res.json({ playlistIds });
   });
 
   router.get('/:provider/state', async (req, res, next) => {

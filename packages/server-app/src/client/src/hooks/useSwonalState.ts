@@ -229,6 +229,7 @@ export function useSwonalState() {
     isConnected: false,
   });
   const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
+  const [favoritePlaylistIds, setFavoritePlaylistIds] = useState<string[]>([]);
   const [devices, setDevices] = useState<MusicDevice[]>([]);
   const [musicError, setMusicError] = useState<string | null>(null);
   const [webPlayerEnabled, setWebPlayerEnabledState] = useState<boolean>(() => {
@@ -425,17 +426,43 @@ export function useSwonalState() {
   const refreshMusic = useCallback(async (userId: string, providerId: string) => {
     if (!userId) return;
     const qs = `userId=${encodeURIComponent(userId)}`;
-    const [provResp, stateResp, plResp, devResp] = await Promise.all([
+    const [provResp, stateResp, plResp, devResp, favResp] = await Promise.all([
       fetch('/api/music/providers'),
       fetch(`/api/music/${encodeURIComponent(providerId)}/state?${qs}`),
       fetch(`/api/music/${encodeURIComponent(providerId)}/playlists?${qs}`),
       fetch(`/api/music/${encodeURIComponent(providerId)}/devices?${qs}`),
+      fetch(`/api/music/favorites?${qs}`),
     ]);
     if (provResp.ok) setMusicProviders(await provResp.json());
     if (stateResp.ok) setMusicState(await stateResp.json());
     if (plResp.ok) setPlaylists(await plResp.json());
     if (devResp.ok) setDevices(await devResp.json());
+    if (favResp.ok) {
+      const favData = (await favResp.json()) as { playlistIds?: string[] };
+      setFavoritePlaylistIds(favData.playlistIds ?? []);
+    }
   }, []);
+
+  const refreshMusicNow = useCallback(async () => {
+    if (!activeUser?.id) return;
+    await refreshMusic(activeUser.id, activeProviderId);
+  }, [activeUser?.id, activeProviderId, refreshMusic]);
+
+  const toggleFavoritePlaylist = useCallback(
+    async (playlistId: string) => {
+      if (!activeUser?.id) return;
+      const resp = await fetch('/api/music/favorites/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: activeUser.id, playlistId }),
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as { playlistIds?: string[] };
+        setFavoritePlaylistIds(data.playlistIds ?? []);
+      }
+    },
+    [activeUser?.id]
+  );
 
   useEffect(() => {
     void refreshBootstrap();
@@ -1328,6 +1355,7 @@ export function useSwonalState() {
     webPlayerReady,
     webPlayerDeviceId,
     playlists,
+    favoritePlaylistIds,
     devices,
     sendWs,
     setWeight,
@@ -1356,6 +1384,8 @@ export function useSwonalState() {
     playPlaylist,
     fetchPlaylistTracks,
     transferMusicDevice,
+    toggleFavoritePlaylist,
+    refreshMusicNow,
     switchMusicProvider,
     refreshBootstrap,
     refreshUserHistory,
