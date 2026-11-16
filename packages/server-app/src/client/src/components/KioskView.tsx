@@ -783,6 +783,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
                 <button
                   type="button"
+                  onClick={() => setShowDemoPip(!showDemoPip)}
+                  className="w-full elevated-pill py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between"
+                >
+                  <span>Form Demo Video</span>
+                  <span style={{ color: 'var(--accent-primary)' }}>
+                    {showDemoPip ? 'Shown' : 'Hidden'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     const next = telemetryDisplayMode === 'auto' ? 'always' : 'auto';
                     setTelemetryDisplayMode(next);
@@ -968,7 +979,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
               >
                 {activeTemplateName
-                  ? `${currentStep?.blockType.replace('_', ' ')} • Step ${currentStepIdx + 1}/${routineSteps.length}`
+                  ? `${activeTemplateName} • ${currentStep?.blockType.replace('_', ' ')} • Step ${currentStepIdx + 1}/${routineSteps.length}`
                   : 'Free Lift Mode'}
               </span>
               {activeExercise && (
@@ -977,9 +988,22 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </span>
               )}
             </div>
-            <h1 className="text-5xl font-black tracking-tight truncate">
-              {activeExercise?.name ?? 'Select Movement'}
-            </h1>
+            <div className="flex items-center gap-3 min-w-0">
+              <h1 className="text-5xl font-black tracking-tight truncate">
+                {activeExercise?.name ?? 'Select Movement'}
+              </h1>
+              <button
+                type="button"
+                onClick={() => {
+                  setLibraryOpen(true);
+                  libraryDialogRef.current?.showModal();
+                }}
+                className="elevated-pill px-4 py-2 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90 shrink-0"
+              >
+                <Dumbbell size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span>Routines &amp; Exercises</span>
+              </button>
+            </div>
             <div className="mt-2 text-lg font-bold opacity-85">
               {currentStep ? (
                 <span>
@@ -992,15 +1016,19 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
             {/* Fixed-height PR & Progressive Overload Slot (below circuit step so UI never shifts) */}
             <div className="min-h-[42px] flex flex-wrap items-center gap-3 mt-2.5">
-              <span
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl elevated-pill font-mono tabular-nums text-sm font-extrabold"
+              <a
+                href="/history"
+                title="View History & Strength Progression"
+                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl elevated-pill font-mono tabular-nums text-sm font-extrabold hover:opacity-90"
                 style={{ color: activeExercisePr ? 'var(--accent-primary)' : undefined }}
               >
                 <Trophy size={16} />
-                {activeExercisePr
-                  ? `PR 1RM: ${formatDisplayWeight(activeExercisePr.oneRepMaxEst, activeUnit)} ${activeUnit} (Max ${formatDisplayWeight(activeExercisePr.maxWeightLb, activeUnit)} ${activeUnit})`
-                  : 'PR 1RM: Baseline Pending'}
-              </span>
+                <span>
+                  {activeExercisePr
+                    ? `PR 1RM: ${formatDisplayWeight(activeExercisePr.oneRepMaxEst, activeUnit)} ${activeUnit} (Max ${formatDisplayWeight(activeExercisePr.maxWeightLb, activeUnit)} ${activeUnit})`
+                    : 'PR 1RM: Baseline Pending'}
+                </span>
+              </a>
               {lastPrBanner && (
                 <span
                   className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-black text-sm"
@@ -1097,37 +1125,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
             )}
-
-            <div className="flex items-center gap-3">
-              {activeExercise?.mediaUrl && (
-                <button
-                  type="button"
-                  onClick={() => setShowDemoPip(!showDemoPip)}
-                  className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
-                >
-                  <Video size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <span>{showDemoPip ? 'Hide Demo' : 'Form Demo'}</span>
-                </button>
-              )}
-              <a
-                href="/history"
-                className="elevated-pill px-5 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90"
-              >
-                <TrendingUp size={20} style={{ color: 'var(--accent-primary)' }} />
-                <span>Progress &amp; PRs</span>
-              </a>
-              <button
-                type="button"
-                onClick={() => {
-                  setLibraryOpen(true);
-                  libraryDialogRef.current?.showModal();
-                }}
-                className="elevated-pill px-6 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
-              >
-                <Dumbbell size={20} style={{ color: 'var(--accent-primary)' }} />
-                <span>Routines &amp; Exercises</span>
-              </button>
-            </div>
           </div>
         </section>
 
