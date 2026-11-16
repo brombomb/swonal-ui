@@ -168,9 +168,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
-  const [telemetryDisplayMode, setTelemetryDisplayMode] = useState<'auto' | 'always'>(() => {
+  const [telemetryDisplayMode, setTelemetryDisplayMode] = useState<'auto' | 'always' | 'off'>(() => {
     if (typeof window === 'undefined') return 'auto';
-    return window.localStorage.getItem('swonal_telemetry_display') === 'always' ? 'always' : 'auto';
+    const saved = window.localStorage.getItem('swonal_telemetry_display');
+    return saved === 'always' || saved === 'off' ? saved : 'auto';
   });
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
@@ -795,7 +796,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 <button
                   type="button"
                   onClick={() => {
-                    const next = telemetryDisplayMode === 'auto' ? 'always' : 'auto';
+                    const next =
+                      telemetryDisplayMode === 'auto'
+                        ? 'always'
+                        : telemetryDisplayMode === 'always'
+                          ? 'off'
+                          : 'auto';
                     setTelemetryDisplayMode(next);
                     if (typeof window !== 'undefined') {
                       window.localStorage.setItem('swonal_telemetry_display', next);
@@ -805,7 +811,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 >
                   <span>VBT &amp; Symmetry Meters</span>
                   <span style={{ color: 'var(--accent-primary)' }}>
-                    {telemetryDisplayMode === 'always' ? 'Always' : 'During Set'}
+                    {telemetryDisplayMode === 'always'
+                      ? 'Always'
+                      : telemetryDisplayMode === 'off'
+                        ? 'Off'
+                        : 'During Set'}
                   </span>
                 </button>
 
@@ -1012,56 +1022,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </span>
               ) : (
                 <span>{activeExercise?.notes || 'Tap weight gauge or use handle click to engage'}</span>
-              )}
-            </div>
-            {/* Fixed-height PR & Progressive Overload Slot (below circuit step so UI never shifts) */}
-            <div className="min-h-[42px] flex flex-wrap items-center gap-3 mt-2.5">
-              <a
-                href="/history"
-                title="View History & Strength Progression"
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl elevated-pill font-mono tabular-nums text-sm font-extrabold hover:opacity-90"
-                style={{ color: activeExercisePr ? 'var(--accent-primary)' : undefined }}
-              >
-                <Trophy size={16} />
-                <span>
-                  {activeExercisePr
-                    ? `PR 1RM: ${formatDisplayWeight(activeExercisePr.oneRepMaxEst, activeUnit)} ${activeUnit} (Max ${formatDisplayWeight(activeExercisePr.maxWeightLb, activeUnit)} ${activeUnit})`
-                    : 'PR 1RM: Baseline Pending'}
-                </span>
-              </a>
-              {lastPrBanner && (
-                <span
-                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-black text-sm"
-                  style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
-                >
-                  <Sparkles size={15} />
-                  <span>{lastPrBanner}</span>
-                </span>
-              )}
-              {overloadSuggestion?.ready && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setWeight(
-                      overloadSuggestion.recommendedWeightLb,
-                      telemetry.profile_mode,
-                      telemetry.modifier_pct
-                    )
-                  }
-                  title={overloadSuggestion.reason}
-                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl border font-extrabold text-sm hover:opacity-90"
-                  style={{
-                    backgroundColor: 'var(--accent-muted)',
-                    borderColor: 'var(--accent-primary)',
-                    color: 'var(--accent-primary)',
-                  }}
-                >
-                  <TrendingUp size={16} />
-                  <span>
-                    +{formatDisplayWeight(overloadSuggestion.recommendedBumpLb, activeUnit, true)}{' '}
-                    {activeUnit} Ready
-                  </span>
-                </button>
               )}
             </div>
           </div>
@@ -1374,11 +1334,65 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               +{stepLarge}
             </button>
           </div>
+
+          {/* PR Link & Progressive Overload Readiness (Main Dial Stage) */}
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+            <a
+              href="/history"
+              title="View History & Strength Progression"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl elevated-pill font-mono tabular-nums text-sm font-extrabold hover:opacity-90"
+              style={{ color: activeExercisePr ? 'var(--accent-primary)' : undefined }}
+            >
+              <Trophy size={16} />
+              <span>
+                {activeExercisePr
+                  ? `PR 1RM: ${formatDisplayWeight(activeExercisePr.oneRepMaxEst, activeUnit)} ${activeUnit} (Max ${formatDisplayWeight(activeExercisePr.maxWeightLb, activeUnit)} ${activeUnit})`
+                  : 'PR 1RM: Baseline Pending'}
+              </span>
+            </a>
+            {lastPrBanner && (
+              <span
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-black text-sm"
+                style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+              >
+                <Sparkles size={15} />
+                <span>{lastPrBanner}</span>
+              </span>
+            )}
+            {overloadSuggestion?.ready && (
+              <button
+                type="button"
+                onClick={() =>
+                  setWeight(
+                    overloadSuggestion.recommendedWeightLb,
+                    telemetry.profile_mode,
+                    telemetry.modifier_pct
+                  )
+                }
+                title={overloadSuggestion.reason}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border font-extrabold text-sm hover:opacity-90"
+                style={{
+                  backgroundColor: 'var(--accent-muted)',
+                  borderColor: 'var(--accent-primary)',
+                  color: 'var(--accent-primary)',
+                }}
+              >
+                <TrendingUp size={16} />
+                <span>
+                  +{formatDisplayWeight(overloadSuggestion.recommendedBumpLb, activeUnit, true)}{' '}
+                  {activeUnit} Ready
+                </span>
+              </button>
+            )}
+          </div>
         </section>
 
         {/* Conditional Live Symmetry & VBT Telemetry (Above Completed Reps) */}
-        {(telemetryDisplayMode === 'always' || telemetry.weight_enabled || telemetry.rep_count > 0) && (
-          <section className="grid grid-cols-2 gap-4">
+        {telemetryDisplayMode !== 'off' &&
+          (telemetryDisplayMode === 'always' ||
+            telemetry.weight_enabled ||
+            telemetry.rep_count > 0) && (
+          <section className="grid grid-cols-2 gap-4 mb-4">
             {/* 1. Form Symmetry & Balance Meter */}
             <div className="surface-card rounded-3xl p-5 space-y-3">
               <div className="flex items-center justify-between">
