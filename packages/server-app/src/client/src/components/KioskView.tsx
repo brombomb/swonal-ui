@@ -686,7 +686,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                       color: getContrastTextColor(u.accentColor),
                     }}
                   >
-                    {u.name.slice(0, 2).toUpperCase()}
+                    {u.name.slice(0, 1).toUpperCase()}
                   </span>
                   <span className="text-base">{u.name}</span>
                 </button>
