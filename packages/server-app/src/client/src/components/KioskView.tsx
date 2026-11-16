@@ -1237,17 +1237,30 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   }}
                 />
               </div>
-              <div className="text-center font-mono tabular-nums">
+              <div className="text-center font-mono tabular-nums space-y-0.5">
                 <p className="text-xl font-black">
                   {formatDisplayWeight(telemetry.left_cable.load_lb, activeUnit, true)} {activeUnit}
                 </p>
-                <p className="text-sm font-bold opacity-80">{telemetry.left_cable.velocity.toFixed(1)} cm/s</p>
-                <p className="text-xs opacity-60">ROM {telemetry.left_cable.position.toFixed(0)}</p>
+                <p className="text-base font-bold opacity-90">
+                  {telemetry.left_cable.velocity.toFixed(1)} cm/s
+                </p>
+                <p className="text-sm font-semibold opacity-75">
+                  ROM {telemetry.left_cable.position.toFixed(0)}
+                </p>
               </div>
             </div>
 
             {/* ~620px Interactive SVG Weight Gauge & Tap Target */}
             <div className="relative flex items-center justify-center">
+              {telemetry.weight_enabled && (
+                <div
+                  aria-hidden="true"
+                  className="absolute w-[740px] h-[740px] rounded-full pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle, var(--accent-glow) 0%, transparent 66%)',
+                  }}
+                />
+              )}
               <svg className="w-[620px] h-[620px] -rotate-90" viewBox="0 0 620 620">
                 <circle
                   cx="310"
@@ -1283,9 +1296,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   borderColor: telemetry.weight_enabled
                     ? 'var(--accent-primary)'
                     : 'var(--border-subtle)',
-                  backgroundColor: telemetry.weight_enabled
+                  background: telemetry.weight_enabled
                     ? 'var(--accent-muted)'
-                    : 'var(--bg-surface)',
+                    : 'var(--bg-surface-solid)',
                 }}
               >
                 <span
@@ -1398,12 +1411,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   }}
                 />
               </div>
-              <div className="text-center font-mono tabular-nums">
+              <div className="text-center font-mono tabular-nums space-y-0.5">
                 <p className="text-xl font-black">
                   {formatDisplayWeight(telemetry.right_cable.load_lb, activeUnit, true)} {activeUnit}
                 </p>
-                <p className="text-sm font-bold opacity-80">{telemetry.right_cable.velocity.toFixed(1)} cm/s</p>
-                <p className="text-xs opacity-60">
+                <p className="text-base font-bold opacity-90">
+                  {telemetry.right_cable.velocity.toFixed(1)} cm/s
+                </p>
+                <p className="text-sm font-semibold opacity-75">
                   ROM {telemetry.right_cable.position.toFixed(0)}
                 </p>
               </div>
@@ -1824,9 +1839,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         </section>
       </main>
 
-      {/* PERSISTENT BOTTOM MUSIC DOCK (Shown only when a music provider is configured) */}
+      {/* PERSISTENT BOTTOM MUSIC DOCK (Tier 2 secondary bar) */}
       {musicConfigured && (
-        <footer className="surface-card rounded-3xl px-6 py-5 mt-3 space-y-2">
+        <footer className="secondary-bar rounded-3xl px-6 py-5 mt-3 space-y-2">
           {musicError && (
             <div className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl bg-red-500/15 border border-red-500/35 text-red-300 text-xs font-semibold">
               <span>{musicError}</span>
