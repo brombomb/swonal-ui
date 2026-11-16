@@ -149,6 +149,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [libraryTab, setLibraryTab] = useState<'routines' | 'exercises'>('routines');
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [routineUserFilter, setRoutineUserFilter] = useState<string>('ACTIVE');
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [muscleFilter, setMuscleFilter] = useState<string>('ALL');
@@ -535,6 +536,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       return true;
     });
   }, [exercises, muscleFilter, accessoryFilter, exerciseSearch]);
+
+  const groupedCatalogExercises = useMemo(() => {
+    const groups = new Map<string, Exercise[]>();
+    for (const ex of filteredExercises) {
+      const group = ex.muscleGroup || 'Other';
+      const list = groups.get(group) ?? [];
+      list.push(ex);
+      groups.set(group, list);
+    }
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredExercises]);
+
+  const prByExerciseId = useMemo(() => {
+    const map = new Map<string, (typeof personalRecords)[number]>();
+    for (const pr of personalRecords) {
+      map.set(pr.exerciseId, pr);
+    }
+    return map;
+  }, [personalRecords]);
 
   // SVG Gauge Math
   const radius = 232;
@@ -1047,7 +1067,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </button>
               <button
                 type="button"
-                onClick={() => libraryDialogRef.current?.showModal()}
+                onClick={() => {
+                  setLibraryOpen(true);
+                  libraryDialogRef.current?.showModal();
+                }}
                 className="elevated-pill px-6 py-3.5 rounded-2xl font-bold text-base flex items-center gap-2 hover:opacity-90 transition"
               >
                 <Dumbbell size={20} style={{ color: 'var(--accent-primary)' }} />
@@ -1927,9 +1950,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       <dialog
         ref={libraryDialogRef}
         closedby="any"
+        onClose={() => setLibraryOpen(false)}
         aria-labelledby="library-dialog-title"
         className="rounded-3xl p-8 max-w-4xl w-full max-h-[82vh] overflow-y-auto"
       >
+        {libraryOpen && (
+          <>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <h2 id="library-dialog-title" className="text-2xl font-black">
@@ -2090,42 +2116,79 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 max-h-[48vh] overflow-y-auto pr-1">
-              {filteredExercises.map((ex: Exercise) => {
-                const pr = personalRecords.find((p) => p.exerciseId === ex.id);
-                return (
-                  <button
-                    key={ex.id}
-                    type="button"
-                    onClick={() => {
-                      selectFreeExercise(ex);
-                      libraryDialogRef.current?.close();
-                    }}
-                    className="surface-card rounded-2xl p-4 text-left hover:border-current transition"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-base">{ex.name}</span>
-                      <span className="elevated-pill px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold">
-                        {ex.accessory}
-                      </span>
-                    </div>
-                    <p className="text-xs opacity-70 mt-1">
-                      {ex.muscleGroup} • H{ex.recommendedHeight} R{ex.recommendedRotation} A
-                      {ex.recommendedAngle}
-                    </p>
-                    {pr && (
-                      <p
-                        className="text-xs font-mono font-bold mt-1.5"
-                        style={{ color: 'var(--accent-primary)' }}
+            <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+              {groupedCatalogExercises.length === 0 ? (
+                <p className="text-sm opacity-70 elevated-pill rounded-2xl p-4">
+                  No matching exercises found.
+                </p>
+              ) : (
+                groupedCatalogExercises.map(([groupName, groupList]) => {
+                  const forceOpen =
+                    Boolean(exerciseSearch.trim()) ||
+                    muscleFilter !== 'ALL' ||
+                    accessoryFilter !== 'ALL';
+                  return (
+                    <details
+                      key={groupName}
+                      open={forceOpen}
+                      className="surface-card rounded-2xl overflow-hidden border"
+                      style={{ borderColor: 'var(--border-subtle)' }}
+                    >
+                      <summary className="px-4 py-3 cursor-pointer select-none flex items-center justify-between font-black text-sm uppercase tracking-wider">
+                        <span>{groupName}</span>
+                        <span className="elevated-pill px-2.5 py-0.5 rounded-lg text-xs font-mono">
+                          {groupList.length}
+                        </span>
+                      </summary>
+                      <div
+                        className="border-t px-3 py-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+                        style={{ borderColor: 'var(--border-subtle)' }}
                       >
-                        1RM: {formatDisplayWeight(pr.oneRepMaxEst, activeUnit)} {activeUnit}
-                      </p>
-                    )}
-                  </button>
-                );
-              })}
+                        {groupList.map((ex: Exercise) => {
+                          const pr = prByExerciseId.get(ex.id);
+                          return (
+                            <button
+                              key={ex.id}
+                              type="button"
+                              onClick={() => {
+                                selectFreeExercise(ex);
+                                libraryDialogRef.current?.close();
+                              }}
+                              className="elevated-pill rounded-2xl p-3.5 text-left hover:opacity-90"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-extrabold text-sm truncate">{ex.name}</span>
+                                <span className="surface-card px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold shrink-0">
+                                  {ex.accessory}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] opacity-75 mt-1">
+                                <span>
+                                  H{ex.recommendedHeight} R{ex.recommendedRotation} A
+                                  {ex.recommendedAngle}
+                                </span>
+                                {pr && (
+                                  <span
+                                    className="font-mono font-bold"
+                                    style={{ color: 'var(--accent-primary)' }}
+                                  >
+                                    1RM {formatDisplayWeight(pr.oneRepMaxEst, activeUnit)}{' '}
+                                    {activeUnit}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  );
+                })
+              )}
             </div>
           </div>
+        )}
+          </>
         )}
       </dialog>
 
