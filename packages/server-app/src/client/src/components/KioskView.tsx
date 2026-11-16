@@ -52,7 +52,12 @@ import {
   Exercise,
   HomeAssistantBusStatus,
 } from '../types';
-import { formatDisplayWeight, getContrastTextColor, stepDisplayWeight } from '../utils/units';
+import {
+  formatDisplayWeight,
+  getContrastTextColor,
+  KG_TO_LB,
+  stepDisplayWeight,
+} from '../utils/units';
 
 const ACCENT_SWATCHES = [
   { name: 'Electric Cyan', hex: '#00F0FF' },
@@ -154,6 +159,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const musicDialogRef = useRef<HTMLDialogElement>(null);
   const aiDialogRef = useRef<HTMLDialogElement>(null);
   const diagnosticsDialogRef = useRef<HTMLDialogElement>(null);
+  const weightDialogRef = useRef<HTMLDialogElement>(null);
+  const [weightInputDraft, setWeightInputDraft] = useState<string>('');
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [libraryTab, setLibraryTab] = useState<'routines' | 'exercises'>('routines');
@@ -1200,7 +1207,33 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     : 'var(--bg-surface)',
                 }}
               >
-                <span className="font-mono tabular-nums text-[7.5rem] leading-none font-black tracking-tighter">
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title="Tap to enter exact weight"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const currentShown =
+                      activeUnit === 'KG'
+                        ? displayWeight.toFixed(1).replace(/\.0$/, '')
+                        : String(Math.round(displayWeight));
+                    setWeightInputDraft(currentShown);
+                    weightDialogRef.current?.showModal();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const currentShown =
+                        activeUnit === 'KG'
+                          ? displayWeight.toFixed(1).replace(/\.0$/, '')
+                          : String(Math.round(displayWeight));
+                      setWeightInputDraft(currentShown);
+                      weightDialogRef.current?.showModal();
+                    }
+                  }}
+                  className="font-mono tabular-nums text-[7.5rem] leading-none font-black tracking-tighter hover:opacity-80 cursor-pointer select-none"
+                >
                   {activeUnit === 'KG'
                     ? displayWeight.toFixed(1).replace(/\.0$/, '')
                     : Math.round(displayWeight)}
@@ -2680,6 +2713,91 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </a>
           </div>
         </div>
+      </dialog>
+
+      {/* WEIGHT KEYPAD MODAL */}
+      <dialog
+        ref={weightDialogRef}
+        closedby="any"
+        aria-labelledby="weight-keypad-title"
+        className="rounded-3xl p-7 max-w-sm w-full"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 id="weight-keypad-title" className="text-xl font-black">
+            Set Target Weight ({activeUnit})
+          </h2>
+          <button
+            type="button"
+            onClick={() => weightDialogRef.current?.close()}
+            className="elevated-pill p-2 rounded-xl"
+            aria-label="Close Weight Keypad"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="elevated-pill rounded-2xl px-5 py-4 text-center mb-4">
+          <span className="font-mono tabular-nums text-5xl font-black">
+            {weightInputDraft || '0'}
+          </span>
+          <span className="ml-2 text-lg font-bold opacity-65">{activeUnit}</span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {(activeUnit === 'KG' ? [10, 20, 30, 45, 60, 80] : [20, 45, 65, 95, 135, 185]).map(
+            (preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => {
+                  setWeight(activeUnit === 'KG' ? preset * KG_TO_LB : preset);
+                  weightDialogRef.current?.close();
+                }}
+                className="elevated-pill py-2 rounded-xl font-mono font-bold text-xs hover:opacity-90"
+              >
+                {preset} {activeUnit}
+              </button>
+            )
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Clear', '0', '⌫'].map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                if (key === 'Clear') {
+                  setWeightInputDraft('');
+                } else if (key === '⌫') {
+                  setWeightInputDraft((prev) => prev.slice(0, -1));
+                } else {
+                  setWeightInputDraft((prev) =>
+                    prev === '0' ? key : prev.length < 4 ? `${prev}${key}` : prev
+                  );
+                }
+              }}
+              className="elevated-pill py-3.5 rounded-2xl font-mono font-black text-xl hover:opacity-85"
+            >
+              {key}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            const val = Number(weightInputDraft);
+            if (!Number.isNaN(val) && val > 0) {
+              setWeight(activeUnit === 'KG' ? val * KG_TO_LB : val);
+            }
+            weightDialogRef.current?.close();
+          }}
+          className="w-full py-3.5 rounded-2xl font-black text-base"
+          style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+        >
+          Set Weight
+        </button>
       </dialog>
 
       {/* POST-WORKOUT SUMMARY MODAL */}
