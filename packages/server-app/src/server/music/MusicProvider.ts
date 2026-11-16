@@ -54,7 +54,12 @@ export interface IMusicProvider {
   refreshAuthIfNeeded(userId: string): Promise<string>;
 
   getPlaybackState(userId: string): Promise<NormalizedPlaybackState>;
-  play(userId: string, contextUri?: string, deviceId?: string): Promise<void>;
+  play(
+    userId: string,
+    contextUri?: string,
+    deviceId?: string,
+    fallbackDeviceId?: string
+  ): Promise<void>;
   pause(userId: string): Promise<void>;
   nextTrack(userId: string): Promise<void>;
   previousTrack(userId: string): Promise<void>;

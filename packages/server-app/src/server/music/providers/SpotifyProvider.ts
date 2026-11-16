@@ -280,7 +280,8 @@ export class SpotifyProvider implements IMusicProvider {
 
   private async resolveTargetDeviceId(
     userId: string,
-    requestedDeviceId?: string
+    requestedDeviceId?: string,
+    fallbackDeviceId?: string
   ): Promise<string | undefined> {
     if (requestedDeviceId) {
       return requestedDeviceId;
@@ -318,14 +319,23 @@ export class SpotifyProvider implements IMusicProvider {
       return devices[0].id;
     }
 
+    if (fallbackDeviceId) {
+      return fallbackDeviceId;
+    }
+
     throw new Error(
       'No active Spotify device found (NO_ACTIVE_DEVICE). Open the Swonal Web Player or start Tonal Gym (librespot).'
     );
   }
 
-  async play(userId: string, contextUri?: string, deviceId?: string): Promise<void> {
+  async play(
+    userId: string,
+    contextUri?: string,
+    deviceId?: string,
+    fallbackDeviceId?: string
+  ): Promise<void> {
     await this.requireToken(userId);
-    const targetDeviceId = await this.resolveTargetDeviceId(userId, deviceId);
+    const targetDeviceId = await this.resolveTargetDeviceId(userId, deviceId, fallbackDeviceId);
     const qs = targetDeviceId ? `?device_id=${encodeURIComponent(targetDeviceId)}` : '';
     let body: string | undefined;
     if (contextUri) {

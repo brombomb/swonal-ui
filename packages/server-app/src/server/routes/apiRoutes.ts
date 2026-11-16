@@ -142,6 +142,27 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     }
   });
 
+  router.delete('/users/:id', async (req, res, next) => {
+    try {
+      const total = await prisma.user.count();
+      if (total <= 1) {
+        res.status(400).json({ error: 'Cannot delete the last user profile' });
+        return;
+      }
+      await prisma.user.delete({ where: { id: req.params.id } });
+      if (sessionCoordinator.getState().activeUserId === req.params.id) {
+        const nextUser = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+        if (nextUser) {
+          sessionCoordinator.setActiveUser(nextUser.id);
+        }
+      }
+      bridge.broadcastToClients({ type: 'users_updated' });
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Exercises
   router.get('/exercises', async (req, res, next) => {
     try {

@@ -8,10 +8,15 @@ import {
   Download,
   Globe,
   Key,
+  Lock,
   Music,
+  Plus,
   Radio,
   Server,
+  ShieldCheck,
   Smartphone,
+  Trash2,
+  Users,
   Wrench,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
@@ -20,9 +25,10 @@ import { getContrastTextColor } from '../utils/units';
 
 interface SettingsViewProps {
   swonal: ReturnType<typeof useSwonalState>;
+  onAuthLock?: () => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }) => {
   const {
     users,
     activeUser,
@@ -33,6 +39,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
     musicState,
     switchUser,
     updateUserPreferences,
+    createUser,
+    deleteUser,
   } = swonal;
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
@@ -45,6 +53,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
     hasOAuthToken: boolean;
   } | null>(null);
   const [copiedRedirect, setCopiedRedirect] = useState(false);
+  const [spotifyExpanded, setSpotifyExpanded] = useState(false);
+
+  // User Management
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserUnit, setNewUserUnit] = useState<'LB' | 'KG'>('LB');
+  const [newUserAccent, setNewUserAccent] = useState('#00F0FF');
+  const [userMgmtMsg, setUserMgmtMsg] = useState<string | null>(null);
+
+  // Security / Passcode Lock
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [trustLocalhost, setTrustLocalhost] = useState(true);
+  const [envLocked, setEnvLocked] = useState(false);
+  const [passcodeDraft, setPasscodeDraft] = useState('');
+  const [apiToken, setApiToken] = useState<string | null>(null);
+  const [authMsg, setAuthMsg] = useState<string | null>(null);
 
   // Network & Base URL Override
   const [networkInfo, setNetworkInfo] = useState<{
@@ -105,8 +128,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
           if (serverUrl && !baseUrlOverride) {
             setBaseUrlOverride(serverUrl);
             setBaseUrlDraft(serverUrl);
+          } else if (!serverUrl && baseUrlOverride) {
+            // Sync any previously saved localStorage override up to the server
+            void persistPublicUrl(baseUrlOverride);
           }
         }
+      })
+      .catch(() => {});
+
+    void fetch('/api/auth/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((st: { enabled?: boolean; trustLocalhost?: boolean; envLocked?: boolean } | null) => {
+        if (st) {
+          setAuthEnabled(Boolean(st.enabled));
+          setTrustLocalhost(st.trustLocalhost ?? true);
+          setEnvLocked(Boolean(st.envLocked));
+        }
+      })
+      .catch(() => {});
+
+    void fetch('/api/auth/token')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((tk: { apiToken?: string } | null) => {
+        if (tk?.apiToken) setApiToken(tk.apiToken);
       })
       .catch(() => {});
 
@@ -236,7 +280,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
     return 'http://localhost:3000';
   })();
 
-  const mcpSseUrl = `${effectiveMcpBaseUrl}/mcp/sse`;
+  const mcpSseUrl =
+    authEnabled && apiToken
+      ? `${effectiveMcpBaseUrl}/mcp/sse?token=${encodeURIComponent(apiToken)}`
+      : `${effectiveMcpBaseUrl}/mcp/sse`;
   const mcpSseJson = JSON.stringify(
     {
       mcpServers: {
@@ -385,7 +432,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {isSpotify && (
+                      {isSpotify && isSpotifyLinked && (
+                        <button
+                          type="button"
+                          onClick={() => setSpotifyExpanded((v) => !v)}
+                          className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
+                        >
+                          {spotifyExpanded ? 'Minimize' : 'Manage'}
+                        </button>
+                      )}
+                      {isSpotify && (!isSpotifyLinked || spotifyExpanded) && (
                         <a
                           href={(() => {
                             const p = new URLSearchParams();
@@ -424,7 +480,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
                     </div>
                   </div>
 
-                  {isSpotify && spotifyStatus && (
+                  {isSpotify && spotifyStatus && (!isSpotifyLinked || spotifyExpanded) && (
                     <div className="surface-card rounded-xl p-3 space-y-1.5 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold opacity-75">
@@ -494,9 +550,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="elevated-pill rounded-2xl p-3.5 space-y-1">
-              <p className="uppercase font-bold opacity-60">Server PUBLIC_URL</p>
-              <p className="font-mono font-bold">
-                {networkInfo?.publicUrl ?? 'Not set (using LAN IP / request host)'}
+              <p className="uppercase font-bold opacity-60">Effective Public URL</p>
+              <p className="font-mono font-bold break-all">
+                {networkInfo?.publicUrl || baseUrlOverride || 'Not set (using LAN IP / request host)'}
               </p>
             </div>
             <div className="elevated-pill rounded-2xl p-3.5 space-y-1">
@@ -663,25 +719,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
               Targeting Individual Users (userId for MCP Tools &amp; Resources)
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {users.map((u) => (
-                <div
-                  key={u.id}
-                  className="surface-card rounded-xl px-3 py-2 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <p className="text-xs font-black">{u.name}</p>
-                    <p className="font-mono text-[10px] opacity-70 truncate">{u.id}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => copyText(`uid-${u.id}`, u.id)}
-                    className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0"
+              {users.map((u) => {
+                const handle = `@${u.name.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'lifter'}`;
+                return (
+                  <div
+                    key={u.id}
+                    className="surface-card rounded-xl px-3 py-2 flex items-center justify-between gap-2"
                   >
-                    {copiedKey === `uid-${u.id}` ? <Check size={11} /> : <Copy size={11} />}
-                    <span>{copiedKey === `uid-${u.id}` ? 'Copied' : 'Copy ID'}</span>
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0 flex items-center gap-2">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: u.accentColor }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-black truncate">{u.name}</p>
+                        <p className="font-mono text-[10px] opacity-65 truncate">{handle}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyText(`uid-${u.id}`, u.id)}
+                      className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0"
+                    >
+                      {copiedKey === `uid-${u.id}` ? <Check size={11} /> : <Copy size={11} />}
+                      <span>{copiedKey === `uid-${u.id}` ? 'Copied' : 'Copy MCP ID'}</span>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
             <p className="text-[11px] opacity-70 leading-relaxed">
               Pass <code className="font-mono">userId</code> to{' '}
@@ -783,6 +848,291 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal }) => {
               <span>Backup SQLite DB</span>
             </a>
           </div>
+        </section>
+
+        {/* 6. Household Lifters & User Management */}
+        <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <Users size={22} style={{ color: 'var(--accent-primary)' }} />
+            <div>
+              <h2 className="text-xl font-black">Household Lifters &amp; Profiles</h2>
+              <p className="text-xs opacity-70">
+                Add new lifters, switch active profile, customize units and accent colors, or remove profiles.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {users.map((u) => {
+              const isCurrent = u.id === activeUser?.id;
+              return (
+                <div
+                  key={u.id}
+                  className="elevated-pill rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border"
+                  style={
+                    isCurrent
+                      ? { borderColor: 'var(--accent-primary)' }
+                      : { borderColor: 'var(--border-subtle)' }
+                  }
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="color"
+                      aria-label={`${u.name} accent color`}
+                      value={u.accentColor}
+                      onChange={(e) =>
+                        void updateUserPreferences(u.id, {
+                          accentColor: e.target.value,
+                          avatarColor: e.target.value,
+                        })
+                      }
+                      className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="font-black text-sm truncate">{u.name}</p>
+                      <p className="text-[11px] opacity-65">
+                        {u.weightUnit} · {u.themeMode}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void updateUserPreferences(u.id, {
+                          weightUnit: u.weightUnit === 'LB' ? 'KG' : 'LB',
+                        })
+                      }
+                      className="surface-card px-3 py-1.5 rounded-xl text-xs font-bold"
+                    >
+                      {u.weightUnit}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchUser(u.id)}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold"
+                      style={
+                        isCurrent
+                          ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                          : undefined
+                      }
+                    >
+                      {isCurrent ? 'Active' : 'Switch'}
+                    </button>
+                    {users.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const res = await deleteUser(u.id);
+                          setUserMgmtMsg(
+                            res.ok ? `Removed ${u.name}` : res.error || 'Unable to remove user'
+                          );
+                          setTimeout(() => setUserMgmtMsg(null), 3000);
+                        }}
+                        aria-label={`Delete ${u.name}`}
+                        className="p-2 rounded-xl bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newUserName.trim()) return;
+              await createUser(newUserName.trim(), newUserAccent, newUserUnit);
+              setUserMgmtMsg(`Added lifter ${newUserName.trim()}`);
+              setNewUserName('');
+              setTimeout(() => setUserMgmtMsg(null), 3000);
+            }}
+            className="flex flex-wrap items-center gap-2 pt-1"
+          >
+            <input
+              type="text"
+              value={newUserName}
+              onChange={(e) => setNewUserName(e.target.value)}
+              placeholder="New lifter name (e.g. Alex)"
+              className="flex-1 min-w-[180px] elevated-pill px-4 py-2.5 rounded-xl text-sm outline-none"
+            />
+            <select
+              value={newUserUnit}
+              onChange={(e) => setNewUserUnit(e.target.value as 'LB' | 'KG')}
+              className="elevated-pill px-3 py-2.5 rounded-xl text-xs font-bold outline-none"
+            >
+              <option value="LB">LB</option>
+              <option value="KG">KG</option>
+            </select>
+            <input
+              type="color"
+              value={newUserAccent}
+              onChange={(e) => setNewUserAccent(e.target.value)}
+              className="w-11 h-10 rounded-xl elevated-pill p-1 cursor-pointer"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5"
+              style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+            >
+              <Plus size={15} />
+              <span>Add Lifter</span>
+            </button>
+          </form>
+          {userMgmtMsg && <p className="text-xs font-bold text-emerald-400">{userMgmtMsg}</p>}
+        </section>
+
+        {/* 7. Security & Internet Access Lock */}
+        <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck size={22} style={{ color: 'var(--accent-primary)' }} />
+              <div>
+                <h2 className="text-xl font-black">Security &amp; Internet Access Lock</h2>
+                <p className="text-xs opacity-70">
+                  Require a passcode when accessing Swonal over the internet or LAN to prevent unauthorized weight changes.
+                </p>
+              </div>
+            </div>
+            <span
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase shrink-0 ${
+                authEnabled
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/35'
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/35'
+              }`}
+            >
+              {authEnabled ? 'Passcode Active' : 'Unlocked'}
+            </span>
+          </div>
+
+          {!envLocked && (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (passcodeDraft.trim().length < 4) {
+                  setAuthMsg('Passcode must be at least 4 characters.');
+                  return;
+                }
+                const resp = await fetch('/api/auth/configure', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    enabled: true,
+                    passcode: passcodeDraft.trim(),
+                    trustLocalhost,
+                  }),
+                });
+                if (resp.ok) {
+                  const data = (await resp.json()) as {
+                    enabled: boolean;
+                    trustLocalhost: boolean;
+                    apiToken?: string;
+                  };
+                  setAuthEnabled(data.enabled);
+                  setTrustLocalhost(data.trustLocalhost);
+                  if (data.apiToken) setApiToken(data.apiToken);
+                  setPasscodeDraft('');
+                  setAuthMsg('Passcode saved! Remote browsers will now require login.');
+                } else {
+                  setAuthMsg('Failed to save passcode.');
+                }
+                setTimeout(() => setAuthMsg(null), 4000);
+              }}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <input
+                type="password"
+                value={passcodeDraft}
+                onChange={(e) => setPasscodeDraft(e.target.value)}
+                placeholder={authEnabled ? 'New passcode (4+ chars)' : 'Set app passcode (4+ chars)'}
+                className="flex-1 min-w-[200px] elevated-pill px-4 py-2.5 rounded-xl text-sm outline-none"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5"
+                style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+              >
+                <Lock size={14} />
+                <span>{authEnabled ? 'Update Passcode' : 'Enable Lock'}</span>
+              </button>
+              {authEnabled && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const resp = await fetch('/api/auth/configure', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ enabled: false }),
+                    });
+                    if (resp.ok) {
+                      setAuthEnabled(false);
+                      setAuthMsg('Passcode lock disabled.');
+                      setTimeout(() => setAuthMsg(null), 3000);
+                    }
+                  }}
+                  className="elevated-pill px-4 py-2.5 rounded-xl text-xs font-bold text-red-400"
+                >
+                  Disable Lock
+                </button>
+              )}
+            </form>
+          )}
+
+          <label className="flex items-center gap-2.5 text-xs font-semibold cursor-pointer">
+            <input
+              type="checkbox"
+              checked={trustLocalhost}
+              onChange={async (e) => {
+                const next = e.target.checked;
+                setTrustLocalhost(next);
+                await fetch('/api/auth/configure', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ trustLocalhost: next }),
+                });
+              }}
+              className="w-4 h-4 accent-current"
+              style={{ color: 'var(--accent-primary)' }}
+            />
+            <span>
+              Allow direct Tonal kiosk touchscreen (localhost without proxy headers) without login
+            </span>
+          </label>
+
+          {authEnabled && apiToken && (
+            <div className="elevated-pill rounded-2xl p-4 space-y-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold uppercase opacity-70">MCP / API Bearer Token</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => copyText('api-token', apiToken)}
+                    className="surface-card px-2.5 py-1 rounded-lg font-bold flex items-center gap-1"
+                  >
+                    {copiedKey === 'api-token' ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{copiedKey === 'api-token' ? 'Copied' : 'Copy Token'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await fetch('/api/auth/logout', { method: 'POST' });
+                      onAuthLock?.();
+                    }}
+                    className="surface-card px-2.5 py-1 rounded-lg font-bold text-amber-300"
+                  >
+                    Lock Now
+                  </button>
+                </div>
+              </div>
+              <p className="font-mono text-[11px] opacity-80 break-all">{apiToken}</p>
+            </div>
+          )}
+
+          {authMsg && <p className="text-xs font-bold text-emerald-400">{authMsg}</p>}
         </section>
       </main>
     </div>

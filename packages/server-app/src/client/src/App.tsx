@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Lock } from 'lucide-react';
 import { CompanionView } from './components/CompanionView';
 import { KioskView } from './components/KioskView';
 import { SettingsView } from './components/SettingsView';
 import { useSwonalState } from './hooks/useSwonalState';
 
-export function App() {
+function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
   const swonal = useSwonalState();
   const [pathname] = useState(() =>
     typeof window !== 'undefined' ? window.location.pathname : '/'
@@ -29,7 +30,7 @@ export function App() {
   }, [isCompanion, isSettings]);
 
   if (isSettings) {
-    return <SettingsView swonal={swonal} />;
+    return <SettingsView swonal={swonal} onAuthLock={onAuthLock} />;
   }
 
   if (isCompanion) {
@@ -53,6 +54,105 @@ export function App() {
       </div>
     </div>
   );
+}
+
+export function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(true);
+  const [passcode, setPasscode] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/auth/status');
+      if (resp.ok) {
+        const data = (await resp.json()) as { enabled?: boolean; authenticated?: boolean };
+        setAuthenticated(!data.enabled || Boolean(data.authenticated));
+      }
+    } catch {
+      // ignore network error during initial boot
+    } finally {
+      setAuthChecked(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkAuth();
+  }, [checkAuth]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passcode.trim()) return;
+    setSubmitting(true);
+    setLoginError(null);
+    try {
+      const resp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: passcode.trim() }),
+      });
+      if (resp.ok) {
+        setPasscode('');
+        setAuthenticated(true);
+      } else {
+        const err = (await resp.json().catch(() => ({}))) as { error?: string };
+        setLoginError(err.error || 'Invalid passcode');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="swonal-canvas min-h-screen flex items-center justify-center text-sm font-bold opacity-70">
+        Loading Swonal...
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="swonal-canvas min-h-screen flex items-center justify-center p-6">
+        <form
+          onSubmit={handleLogin}
+          className="surface-card rounded-3xl p-8 max-w-sm w-full space-y-5 text-center"
+        >
+          <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center elevated-pill">
+            <Lock size={26} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black tracking-tight">Swonal Gym Locked</h1>
+            <p className="text-xs opacity-70 mt-1">
+              Enter your gym passcode to control weights, workouts, and settings.
+            </p>
+          </div>
+          <input
+            type="password"
+            autoFocus
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            placeholder="Enter passcode"
+            className="w-full elevated-pill px-4 py-3 rounded-xl text-center text-base font-bold outline-none"
+          />
+          {loginError && (
+            <p className="text-xs font-bold text-red-400">{loginError}</p>
+          )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-3 rounded-xl font-black text-sm text-slate-950 disabled:opacity-50"
+            style={{ backgroundColor: 'var(--accent-primary)' }}
+          >
+            {submitting ? 'Unlocking...' : 'Unlock Swonal'}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return <AuthenticatedApp onAuthLock={() => setAuthenticated(false)} />;
 }
 
 export default App;

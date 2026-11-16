@@ -29,6 +29,7 @@ import { hexToRgba, WeightUnit } from '../utils/units';
 interface SpotifySdkPlayer {
   connect: () => Promise<boolean>;
   disconnect: () => void;
+  activateElement?: () => Promise<void>;
   addListener: (event: string, cb: (payload: unknown) => void) => void;
 }
 
@@ -232,6 +233,7 @@ export function useSwonalState() {
   const [musicError, setMusicError] = useState<string | null>(null);
   const [webPlayerReady, setWebPlayerReady] = useState(false);
   const [webPlayerDeviceId, setWebPlayerDeviceId] = useState<string | null>(null);
+  const spotifyPlayerRef = useRef<SpotifySdkPlayer | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const prevRepCountRef = useRef<number>(0);
@@ -898,20 +900,27 @@ export function useSwonalState() {
 
   const toggleMusicPlay = useCallback(async () => {
     if (!activeUser) return;
+    void spotifyPlayerRef.current?.activateElement?.().catch(() => {});
     const action = musicState.isPlaying ? 'pause' : 'play';
     const resp = await fetch(
       `/api/music/${encodeURIComponent(activeProviderId)}/${action}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: activeUser.id }),
+        body: JSON.stringify({
+          userId: activeUser.id,
+          ...(action === 'play' && webPlayerDeviceId
+            ? { fallbackDeviceId: webPlayerDeviceId }
+            : {}),
+        }),
       }
     );
     await handleMusicResponse(resp);
-  }, [activeUser, activeProviderId, musicState.isPlaying, handleMusicResponse]);
+  }, [activeUser, activeProviderId, musicState.isPlaying, webPlayerDeviceId, handleMusicResponse]);
 
   const nextTrack = useCallback(async () => {
     if (!activeUser) return;
+    void spotifyPlayerRef.current?.activateElement?.().catch(() => {});
     const resp = await fetch(`/api/music/${encodeURIComponent(activeProviderId)}/next`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -922,6 +931,7 @@ export function useSwonalState() {
 
   const previousTrack = useCallback(async () => {
     if (!activeUser) return;
+    void spotifyPlayerRef.current?.activateElement?.().catch(() => {});
     const resp = await fetch(
       `/api/music/${encodeURIComponent(activeProviderId)}/previous`,
       {
@@ -952,17 +962,22 @@ export function useSwonalState() {
   const playPlaylist = useCallback(
     async (contextUri: string) => {
       if (!activeUser) return;
+      void spotifyPlayerRef.current?.activateElement?.().catch(() => {});
       const resp = await fetch(
         `/api/music/${encodeURIComponent(activeProviderId)}/play`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: activeUser.id, contextUri }),
+          body: JSON.stringify({
+            userId: activeUser.id,
+            contextUri,
+            ...(webPlayerDeviceId ? { fallbackDeviceId: webPlayerDeviceId } : {}),
+          }),
         }
       );
       await handleMusicResponse(resp);
     },
-    [activeUser, activeProviderId, handleMusicResponse]
+    [activeUser, activeProviderId, webPlayerDeviceId, handleMusicResponse]
   );
 
   const fetchPlaylistTracks = useCallback(
@@ -1037,6 +1052,21 @@ export function useSwonalState() {
     setSoundMuted(next);
   }, [soundMuted]);
 
+  const deleteUser = useCallback(
+    async (userId: string): Promise<{ ok: boolean; error?: string }> => {
+      const resp = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+      });
+      if (!resp.ok) {
+        const err = (await resp.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: err.error || 'Failed to delete user' };
+      }
+      await refreshBootstrap();
+      return { ok: true };
+    },
+    [refreshBootstrap]
+  );
+
   const switchMusicProvider = useCallback(
     async (providerId: string) => {
       if (!activeUser) return;
@@ -1093,6 +1123,7 @@ export function useSwonalState() {
         },
         volume: 0.72,
       });
+      spotifyPlayerRef.current = player;
 
       player.addListener('ready', (payload) => {
         if (cancelled) return;
@@ -1166,6 +1197,9 @@ export function useSwonalState() {
       if (player) {
         player.disconnect();
       }
+      if (spotifyPlayerRef.current === player) {
+        spotifyPlayerRef.current = null;
+      }
     };
   }, [activeProviderId, musicState.isConnected, activeUser?.id, refreshMusic]);
 
@@ -1215,6 +1249,7 @@ export function useSwonalState() {
     switchUser,
     updateUserPreferences,
     createUser,
+    deleteUser,
     togglePartnerMode,
     selectFreeExercise,
     startWorkoutTemplate,

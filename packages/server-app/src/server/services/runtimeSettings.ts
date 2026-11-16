@@ -4,6 +4,9 @@ import { getPublicBaseUrl } from '../config';
 
 interface RuntimeSettingsData {
   publicUrlOverride?: string | null;
+  authPasscodeHash?: string | null;
+  authTrustLocalhost?: boolean;
+  apiToken?: string | null;
 }
 
 function resolveSettingsFilePath(): string {
@@ -77,4 +80,14 @@ export function setPublicUrlOverride(url: string | null): string | null {
 
 export function getEffectivePublicBaseUrl(): string {
   return getPublicUrlOverride() || getPublicBaseUrl();
+}
+
+export function getRuntimeSettings(): RuntimeSettingsData {
+  return readSettingsFile();
+}
+
+export function updateRuntimeSettings(patch: Partial<RuntimeSettingsData>): RuntimeSettingsData {
+  const next = { ...readSettingsFile(), ...patch };
+  writeSettingsFile(next);
+  return next;
 }

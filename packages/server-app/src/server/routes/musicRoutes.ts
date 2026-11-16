@@ -54,7 +54,12 @@ export function createMusicRouter(broadcastToClients: (msg: Record<string, unkno
     try {
       const provider = musicRegistry.get(req.params.provider);
       const userId = resolveUserId(req);
-      await provider.play(userId, req.body?.contextUri, req.body?.deviceId);
+      await provider.play(
+        userId,
+        req.body?.contextUri,
+        req.body?.deviceId,
+        req.body?.fallbackDeviceId
+      );
       const state = await provider.getPlaybackState(userId);
       broadcastToClients({ type: 'music_updated', userId, provider: provider.id });
       res.json(state);

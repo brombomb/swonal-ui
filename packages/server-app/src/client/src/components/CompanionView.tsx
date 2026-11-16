@@ -28,6 +28,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
+import { MusicPickerDialog } from './MusicPickerDialog';
 import { ProgressionAnalytics } from './ProgressionAnalytics';
 import { BlockType, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
@@ -64,6 +65,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     musicState,
     musicError,
     clearMusicError,
+    musicProviders,
+    activeProviderId,
+    devices,
     playlists,
     setWeight,
     toggleWeight,
@@ -79,6 +83,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     previousTrack,
     setMusicVolume,
     playPlaylist,
+    fetchPlaylistTracks,
+    transferMusicDevice,
     refreshBootstrap,
   } = swonal;
 
@@ -90,6 +96,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [showRpeInfo, setShowRpeInfo] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const musicDialogRef = useRef<HTMLDialogElement>(null);
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
 
@@ -862,20 +869,32 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                 </a>
               )}
 
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {playlists.map((pl) => (
-                  <button
-                    key={pl.id}
-                    type="button"
-                    onClick={() => void playPlaylist(pl.uri)}
-                    className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold shrink-0"
-                  >
-                    {pl.name}
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => musicDialogRef.current?.showModal()}
+                className="w-full py-2.5 px-3 rounded-xl elevated-pill text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
+              >
+                <Music size={14} style={{ color: 'var(--accent-primary)' }} />
+                <span>Playlists &amp; Devices ({playlists.length})</span>
+              </button>
             </section>
             )}
+
+            <MusicPickerDialog
+              dialogRef={musicDialogRef}
+              activeUser={activeUser}
+              activeProviderId={activeProviderId}
+              musicProviders={musicProviders}
+              musicState={musicState}
+              musicError={musicError}
+              clearMusicError={clearMusicError}
+              devices={devices}
+              playlists={playlists}
+              updateUserPreferences={updateUserPreferences}
+              transferMusicDevice={transferMusicDevice}
+              playPlaylist={playPlaylist}
+              fetchPlaylistTracks={fetchPlaylistTracks}
+            />
 
             {/* Collapsible Mock Hardware Handle Shortcuts (shown only in --mock mode) */}
             {isMockMode && (

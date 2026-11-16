@@ -30,7 +30,9 @@ import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
 import { createMusicRouter } from './routes/musicRoutes';
 import { createSpotifyRouter } from './routes/spotify';
+import { createAuthRouter } from './routes/authRoutes';
 import { getServerConfig } from './config';
+import { isRequestAuthenticated } from './services/authService';
 import { getEffectivePublicBaseUrl } from './services/runtimeSettings';
 import { sessionCoordinator } from './services/sessionState';
 import { homeAssistantBus } from './integrations/homeAssistantBus';
@@ -305,7 +307,11 @@ export async function createSwonalServer(
     }, 2000);
   }
 
-  wss.on('connection', (client) => {
+  wss.on('connection', (client, req) => {
+    if (!isRequestAuthenticated(req)) {
+      client.close(4401, 'Unauthorized');
+      return;
+    }
     browserClients.add(client);
     client.send(JSON.stringify({ type: 'daemon_status', connected: daemonConnected }));
     client.send(
@@ -372,6 +378,21 @@ export async function createSwonalServer(
   });
 
   // REST Routes
+  app.use('/api/auth', createAuthRouter());
+
+  // Protect API endpoints when app passcode is enabled (allows health & OAuth callback)
+  app.use('/api', (req, res, next) => {
+    if (req.path === '/health' || req.path === '/spotify/callback') {
+      next();
+      return;
+    }
+    if (!isRequestAuthenticated(req)) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    next();
+  });
+
   app.use(
     '/api',
     createApiRouter({
@@ -390,7 +411,11 @@ export async function createSwonalServer(
     { transport: SSEServerTransport; server: ReturnType<typeof createSwonalMcpServer> }
   >();
 
-  app.get('/mcp/sse', async (_req, res) => {
+  app.get('/mcp/sse', async (req, res) => {
+    if (!isRequestAuthenticated(req)) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
     const transport = new SSEServerTransport('/mcp/messages', res);
     const mcp = createSwonalMcpServer();
     sseTransports.set(transport.sessionId, { transport, server: mcp });
@@ -404,6 +429,10 @@ export async function createSwonalServer(
   });
 
   app.post('/mcp/messages', async (req, res) => {
+    if (!isRequestAuthenticated(req)) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
     const sessionId = String(req.query.sessionId || '');
     const entry = sseTransports.get(sessionId);
     if (!entry) {

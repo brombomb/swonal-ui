@@ -211,4 +211,36 @@ describe('Spotify OAuth Routes & Config Validation', () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it('enforces passcode auth for proxied requests when SWONAL_AUTH_PASSCODE is set', async () => {
+    process.env.SWONAL_AUTH_PASSCODE = 'gym-lock-9999';
+    try {
+      const unauthResp = await fetch(`${baseUrl}/api/state`, {
+        headers: { 'x-forwarded-for': '203.0.113.10' },
+      });
+      expect(unauthResp.status).toBe(401);
+
+      const loginResp = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '203.0.113.10',
+        },
+        body: JSON.stringify({ passcode: 'gym-lock-9999' }),
+      });
+      expect(loginResp.status).toBe(200);
+      const cookie = loginResp.headers.get('set-cookie') || '';
+      expect(cookie).toContain('swonal_session=');
+
+      const authedResp = await fetch(`${baseUrl}/api/state`, {
+        headers: {
+          'x-forwarded-for': '203.0.113.10',
+          cookie: cookie.split(';')[0],
+        },
+      });
+      expect(authedResp.status).toBe(200);
+    } finally {
+      delete process.env.SWONAL_AUTH_PASSCODE;
+    }
+  });
 });

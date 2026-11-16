@@ -162,3 +162,7 @@ docker compose up -d --no-deps --build server-app
 ### Home Assistant MQTT & Webhook Event Bus
 - Set `MQTT_BROKER_URL` (plus optional `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_TOPIC_PREFIX=swonal`) and/or `HA_WEBHOOK_URL` (`HA_WEBHOOK_TOKEN`) to publish `swonal/state` (weight engagement, active lifter, `accentColor`, mode, rep count, safety faults) and `swonal/session` events (`set_logged`, `workout_queued`, `safety_cutout`).
 - Inspect recent payloads and fire test events via `GET /api/integrations/ha/status`, `POST /api/integrations/ha/test`, or the **Hardware & Mock Controls** dialog.
+
+### Security & Internet Access Lock
+- Configure an app passcode in **Settings → Security & Internet Access Lock** (or set `SWONAL_AUTH_PASSCODE` in `.env`) to require login (`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`, `GET /api/auth/token`, `POST /api/auth/configure`) for all remote/proxied requests and WebSocket `/ws` connections.
+- Direct unproxied `localhost` kiosk requests can optionally bypass login while Cloudflare/LAN connections remain protected, and MCP SSE endpoints accept `?token=<apiToken>` or `Authorization: Bearer <apiToken>`.
