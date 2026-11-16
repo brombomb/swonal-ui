@@ -793,15 +793,22 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     const ifaces = os.networkInterfaces();
     const candidates: Array<{ iface: string; address: string; score: number }> = [];
 
+    const isVirtualOrCgnat = (ifaceName: string, addr: string): boolean => {
+      const lower = ifaceName.toLowerCase();
+      if (/^(docker|veth|br-|virbr|tun|tap|utun|tailscale|wg)/.test(lower)) return true;
+      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) return true;
+      if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(addr)) return true;
+      return false;
+    };
+
     for (const [iface, entries] of Object.entries(ifaces)) {
       if (!entries) continue;
       for (const entry of entries) {
         if (entry.family !== 'IPv4' || entry.internal) continue;
+        if (isVirtualOrCgnat(iface, entry.address)) continue;
         const lower = iface.toLowerCase();
         let score = 10;
-        if (/^(docker|veth|br-|virbr|tun|tap|utun)/.test(lower)) {
-          score = 1;
-        } else if (/^(wl|wlan|en|eth|enp)/.test(lower)) {
+        if (/^(wl|wlan|en|eth|enp)/.test(lower)) {
           score = 20;
         }
         if (entry.address.startsWith('192.168.') || entry.address.startsWith('10.')) {

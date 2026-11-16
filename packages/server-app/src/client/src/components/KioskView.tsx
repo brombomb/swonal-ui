@@ -195,11 +195,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     companionBaseUrl: string | null;
   } | null>(null);
   const [selectedLanIp, setSelectedLanIp] = useState<string | null>(null);
-  const [baseUrlOverride, setBaseUrlOverride] = useState<string>(() => {
+  const [qrUseExternal, setQrUseExternal] = useState<boolean>(true);
+  const [baseUrlOverride] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
     return window.localStorage.getItem('swonal_base_url_override') ?? '';
   });
-  const [baseUrlDraft, setBaseUrlDraft] = useState<string>(baseUrlOverride);
 
   useEffect(() => {
     void fetch('/api/network-info')
@@ -456,34 +456,35 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     }
   };
 
+  const externalBaseUrl = (
+    baseUrlOverride.trim() ||
+    networkInfo?.publicUrl ||
+    ''
+  ).replace(/\/+$/, '');
+
   const companionUrl = useMemo(() => {
     const sessionParam = sessionState.activeSessionId
       ? `?session=${encodeURIComponent(sessionState.activeSessionId)}`
       : '';
-    const cleanedOverride = baseUrlOverride.trim().replace(/\/+$/, '');
-    if (cleanedOverride) {
-      return `${cleanedOverride}/companion${sessionParam}`;
-    }
-    if (networkInfo?.publicUrl) {
-      return `${networkInfo.publicUrl.replace(/\/+$/, '')}/companion${sessionParam}`;
+    if (qrUseExternal && externalBaseUrl) {
+      return `${externalBaseUrl}/companion${sessionParam}`;
     }
     if (typeof window === 'undefined') {
       return `http://127.0.0.1:3000/companion${sessionParam}`;
     }
+    const port =
+      networkInfo?.port ?? (window.location.port ? Number(window.location.port) : 3000);
+    if (selectedLanIp) {
+      return `http://${selectedLanIp}:${port}/companion${sessionParam}`;
+    }
     const isLocalhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(
       window.location.hostname
     );
-    let baseOrigin = window.location.origin;
-    if (isLocalhost) {
-      if (selectedLanIp) {
-        const port = networkInfo?.port ?? (window.location.port ? Number(window.location.port) : 3000);
-        baseOrigin = `${window.location.protocol}//${selectedLanIp}:${port}`;
-      } else if (networkInfo?.companionBaseUrl) {
-        baseOrigin = networkInfo.companionBaseUrl;
-      }
+    if (isLocalhost && networkInfo?.primaryIp) {
+      return `http://${networkInfo.primaryIp}:${port}/companion${sessionParam}`;
     }
-    return `${baseOrigin}/companion${sessionParam}`;
-  }, [sessionState.activeSessionId, selectedLanIp, networkInfo, baseUrlOverride]);
+    return `${window.location.origin}/companion${sessionParam}`;
+  }, [sessionState.activeSessionId, selectedLanIp, networkInfo, qrUseExternal, externalBaseUrl]);
 
   useEffect(() => {
     void QRCode.toDataURL(companionUrl, {
@@ -1818,98 +1819,41 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {qrDataUrl && <img src={qrDataUrl} alt="Companion Remote QR Code" className="w-64 h-64" />}
         </div>
         <div className="flex flex-col gap-3">
-          {networkInfo && networkInfo.ips.length > 1 && !baseUrlOverride && (
+          {(externalBaseUrl || (networkInfo && networkInfo.ips.length > 0)) && (
             <div className="flex flex-wrap items-center justify-center gap-1.5">
-              {networkInfo.ips.map((ip) => (
+              {externalBaseUrl && (
                 <button
-                  key={ip}
                   type="button"
-                  onClick={() => setSelectedLanIp(ip)}
-                  className={`px-2.5 py-1 rounded-lg font-mono text-xs font-bold ${
-                    selectedLanIp === ip ? 'text-slate-950' : 'elevated-pill opacity-75'
+                  onClick={() => setQrUseExternal(true)}
+                  className={`px-3 py-1.5 rounded-lg font-mono text-xs font-bold ${
+                    qrUseExternal ? 'text-slate-950' : 'elevated-pill opacity-75'
                   }`}
-                  style={
-                    selectedLanIp === ip ? { backgroundColor: 'var(--accent-primary)' } : undefined
-                  }
+                  style={qrUseExternal ? { backgroundColor: 'var(--accent-primary)' } : undefined}
                 >
-                  {ip}
+                  {externalBaseUrl.replace(/^https?:\/\//i, '')}
                 </button>
-              ))}
+              )}
+              {(networkInfo?.ips ?? []).map((ip) => {
+                const isSelected = (!externalBaseUrl || !qrUseExternal) && selectedLanIp === ip;
+                return (
+                  <button
+                    key={ip}
+                    type="button"
+                    onClick={() => {
+                      setQrUseExternal(false);
+                      setSelectedLanIp(ip);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg font-mono text-xs font-bold ${
+                      isSelected ? 'text-slate-950' : 'elevated-pill opacity-75'
+                    }`}
+                    style={isSelected ? { backgroundColor: 'var(--accent-primary)' } : undefined}
+                  >
+                    {ip}
+                  </button>
+                );
+              })}
             </div>
           )}
-
-          {/* Custom Base URL Override (e.g. https://swonal.brombomb.com) */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const trimmed = baseUrlDraft.trim().replace(/\/+$/, '');
-              const normalized =
-                trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
-              void fetch('/api/network-info/public-url', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ publicUrl: normalized || null }),
-              }).then(async (r) => {
-                if (r.ok) {
-                  const updated = (await r.json()) as { publicUrl: string | null };
-                  setNetworkInfo((prev) =>
-                    prev ? { ...prev, publicUrl: updated.publicUrl } : prev
-                  );
-                }
-              });
-              setBaseUrlOverride(normalized);
-              setBaseUrlDraft(normalized);
-              if (typeof window !== 'undefined') {
-                if (normalized) {
-                  window.localStorage.setItem('swonal_base_url_override', normalized);
-                } else {
-                  window.localStorage.removeItem('swonal_base_url_override');
-                }
-              }
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={baseUrlDraft}
-              onChange={(e) => setBaseUrlDraft(e.target.value)}
-              placeholder="Base URL override (e.g. https://swonal.brombomb.com)"
-              className="flex-1 elevated-pill px-3 py-2 rounded-xl text-xs font-mono outline-none"
-            />
-            <button
-              type="submit"
-              className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
-            >
-              Set
-            </button>
-            {baseUrlOverride && (
-              <button
-                type="button"
-                onClick={() => {
-                  void fetch('/api/network-info/public-url', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ publicUrl: null }),
-                  }).then(async (r) => {
-                    if (r.ok) {
-                      const updated = (await r.json()) as { publicUrl: string | null };
-                      setNetworkInfo((prev) =>
-                        prev ? { ...prev, publicUrl: updated.publicUrl } : prev
-                      );
-                    }
-                  });
-                  setBaseUrlOverride('');
-                  setBaseUrlDraft('');
-                  if (typeof window !== 'undefined') {
-                    window.localStorage.removeItem('swonal_base_url_override');
-                  }
-                }}
-                className="elevated-pill px-2.5 py-2 rounded-xl text-xs font-bold opacity-75 hover:opacity-100"
-              >
-                Reset
-              </button>
-            )}
-          </form>
 
           <a
             href={companionUrl}
