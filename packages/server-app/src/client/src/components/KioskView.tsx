@@ -1154,7 +1154,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         </section>
 
         {/* Quick-Access Routine / Movement Stepper Bar + Docked Form Demo */}
-        <div className="flex items-center justify-between gap-4 px-2">
+        <div className="flex items-center justify-between gap-4 px-2 mt-5">
           <button
             type="button"
             onClick={() => stepRoutine(-1)}
@@ -1165,8 +1165,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </button>
 
           {activeExercise?.mediaUrl && showDemoPip ? (
-            <div className="surface-card rounded-2xl px-3 py-2 flex items-center gap-3 max-w-md">
-              <div className="w-24 h-14 rounded-xl overflow-hidden bg-slate-950 shrink-0 flex items-center justify-center">
+            <div className="surface-card rounded-2xl px-4 py-3 flex items-center gap-4 max-w-xl">
+              <div className="w-44 h-28 rounded-xl overflow-hidden bg-slate-950 shrink-0 flex items-center justify-center">
                 {/\.(mp4|webm)(\?|$)/i.test(activeExercise.mediaUrl) ? (
                   <video
                     src={activeExercise.mediaUrl}
@@ -1185,27 +1185,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-mono font-bold uppercase tracking-wider opacity-60">
+                <p className="text-[11px] font-mono font-bold uppercase tracking-wider opacity-60">
                   Form Demo
                 </p>
-                <p className="text-xs font-extrabold truncate">{activeExercise.name}</p>
+                <p className="text-sm font-extrabold truncate">{activeExercise.name}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDemoPip(false)}
                 aria-label="Close Form Demo"
-                className="opacity-60 hover:opacity-100 p-1 shrink-0"
+                className="opacity-60 hover:opacity-100 p-1.5 shrink-0"
               >
-                <X size={14} />
+                <X size={16} />
               </button>
             </div>
-          ) : (
+          ) : activeTemplateName && routineSteps.length > 0 ? (
             <div className="text-xs font-mono font-bold uppercase tracking-widest opacity-70 text-center">
-              {activeTemplateName && routineSteps.length > 0
-                ? `${activeTemplateName} • Step ${currentStepIdx + 1} / ${routineSteps.length}`
-                : 'Quick Movement Switcher'}
+              {`${activeTemplateName} • Step ${currentStepIdx + 1} / ${routineSteps.length}`}
             </div>
-          )}
+          ) : null}
 
           <button
             type="button"
