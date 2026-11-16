@@ -461,11 +461,15 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               {isLightTheme ? <Moon size={15} /> : <Sun size={15} />}
             </button>
             <span
-              className={`w-2.5 h-2.5 rounded-full ml-1 ${
-                wsConnected && daemonConnected ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
+              className="elevated-pill p-2 rounded-xl flex items-center justify-center"
               title={daemonConnected ? 'Connected to Tonal' : 'Daemon waiting'}
-            />
+            >
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  wsConnected && daemonConnected ? 'bg-emerald-400' : 'bg-amber-400'
+                }`}
+              />
+            </span>
           </div>
         </div>
       </header>
@@ -594,8 +598,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       : undefined
                   }
                 >
-                  <span className="font-mono tabular-nums text-5xl font-black leading-none">
-                    {displayCurrentWeight} {activeUnit}
+                  <span className="inline-flex items-baseline gap-1.5 font-mono tabular-nums leading-none">
+                    <span className="text-5xl font-black">{displayCurrentWeight}</span>
+                    <span className="text-2xl font-bold opacity-75">{activeUnit}</span>
                   </span>
                   <span className="text-xs uppercase tracking-widest font-extrabold mt-2">
                     {telemetry.weight_enabled
@@ -645,9 +650,6 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               <div>
                 <div className="flex items-center justify-between text-xs uppercase tracking-widest font-bold opacity-65 mb-2">
                   <span>Target Resistance</span>
-                  <span className="font-mono tabular-nums">
-                    {displayTargetWeight} {activeUnit}
-                  </span>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   <button
@@ -819,18 +821,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     <Music size={22} />
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-extrabold truncate">{musicState.trackName}</p>
-                      {musicState.isConnected && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35 shrink-0">
-                          Spotify Connected
-                        </span>
-                      )}
-                    </div>
+                    <p className="font-extrabold truncate">{musicState.trackName}</p>
                     <p className="text-xs opacity-70 truncate">
-                      {musicState.isConnected
-                        ? musicState.artistName
-                        : 'Connect a music service to play'}
+                      {musicState.artistName || 'Spotify'}
                     </p>
                   </div>
                 </div>
@@ -1538,10 +1531,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
       {/* Bottom Mobile Navigation Bar */}
       <nav
-        className="fixed bottom-0 inset-x-0 z-20 border-t backdrop-blur-xl"
-        style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}
+        className="fixed bottom-0 inset-x-0 z-20 border-t border-white/10 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]"
+        style={{ background: 'var(--bg-secondary-bar)' }}
       >
-        <div className="max-w-lg mx-auto grid grid-cols-3 h-16">
+        <div className="max-w-lg mx-auto grid grid-cols-3 h-[4.25rem]">
           <button
             type="button"
             onClick={() => setTab('remote')}
