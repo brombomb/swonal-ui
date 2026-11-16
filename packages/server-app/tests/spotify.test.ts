@@ -77,6 +77,8 @@ describe('Spotify OAuth Routes & Config Validation', () => {
       'user-read-currently-playing',
       'playlist-read-private',
       'streaming',
+      'user-read-email',
+      'user-read-private',
     ]) {
       expect(scope).toContain(s);
     }

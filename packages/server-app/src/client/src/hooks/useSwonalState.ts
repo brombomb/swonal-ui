@@ -1172,7 +1172,14 @@ export function useSwonalState() {
         if (msg) setMusicError(`Web Player: ${msg}`);
       };
       player.addListener('initialization_error', handleSdkError);
-      player.addListener('authentication_error', handleSdkError);
+      player.addListener('authentication_error', (payload) => {
+        if (cancelled) return;
+        setWebPlayerReady(false);
+        const msg = (payload as { message?: string })?.message || 'Authentication failed';
+        setMusicError(
+          `Web Player: ${msg} — please reconnect Spotify in Settings to grant Web Playback permissions.`
+        );
+      });
       player.addListener('account_error', handleSdkError);
       player.addListener('playback_error', handleSdkError);
 

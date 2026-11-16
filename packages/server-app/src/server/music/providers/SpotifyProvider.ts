@@ -41,6 +41,8 @@ export class SpotifyProvider implements IMusicProvider {
       'user-read-currently-playing',
       'playlist-read-private',
       'streaming',
+      'user-read-email',
+      'user-read-private',
     ].join(' ');
 
     if (!clientId) {

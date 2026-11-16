@@ -149,6 +149,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [libraryTab, setLibraryTab] = useState<'routines' | 'exercises'>('routines');
+  const [routineUserFilter, setRoutineUserFilter] = useState<string>('ACTIVE');
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [muscleFilter, setMuscleFilter] = useState<string>('ALL');
   const [accessoryFilter, setAccessoryFilter] = useState<string>('ALL');
@@ -1975,8 +1976,36 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         </div>
 
         {libraryTab === 'routines' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {templates.map((tpl) => {
+          <div className="space-y-4">
+            <div className="flex items-center justify-end">
+              <select
+                aria-label="Filter routines by lifter"
+                value={routineUserFilter}
+                onChange={(e) => setRoutineUserFilter(e.target.value)}
+                className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold outline-none"
+              >
+                <option value="ACTIVE">
+                  {activeUser ? `${activeUser.name} Only` : 'Active Lifter'}
+                </option>
+                <option value="ALL">All Lifters</option>
+                {users
+                  .filter((u) => u.id !== activeUser?.id)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(routineUserFilter === 'ALL'
+              ? templates
+              : templates.filter(
+                  (t) =>
+                    t.userId ===
+                    (routineUserFilter === 'ACTIVE' ? activeUser?.id : routineUserFilter)
+                )
+            ).map((tpl) => {
               const owner = users.find((u) => u.id === tpl.userId);
               const totalSets = tpl.blocks.reduce(
                 (acc, b) => acc + b.items.reduce((s, i) => s + i.sets, 0),
@@ -2025,6 +2054,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </div>
               );
             })}
+            </div>
           </div>
         ) : (
           <div className="space-y-4">

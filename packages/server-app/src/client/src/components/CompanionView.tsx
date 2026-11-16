@@ -95,6 +95,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const [isMockMode, setIsMockMode] = useState(false);
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [showRpeInfo, setShowRpeInfo] = useState(false);
+  const [routineUserFilter, setRoutineUserFilter] = useState<string>('ACTIVE');
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const musicDialogRef = useRef<HTMLDialogElement>(null);
 
@@ -934,20 +935,54 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           <div className="space-y-4">
             {/* Existing Routines + One-Tap Send to Tonal */}
             <section className="surface-card rounded-3xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-black">Saved Routines</h2>
-                <button
-                  type="button"
-                  onClick={resetBuilder}
-                  className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>New Routine</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Filter routines by lifter"
+                    value={routineUserFilter}
+                    onChange={(e) => setRoutineUserFilter(e.target.value)}
+                    className="elevated-pill px-2.5 py-1.5 rounded-xl text-xs font-bold outline-none"
+                  >
+                    <option value="ACTIVE">
+                      {activeUser ? `${activeUser.name} Only` : 'Active Lifter'}
+                    </option>
+                    <option value="ALL">All Lifters</option>
+                    {users
+                      .filter((u) => u.id !== activeUser?.id)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={resetBuilder}
+                    className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
+                  >
+                    <Plus size={14} />
+                    <span>New Routine</span>
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2.5">
-                {templates.map((tpl) => {
+                {(() => {
+                  const targetUserId =
+                    routineUserFilter === 'ACTIVE' ? activeUser?.id : routineUserFilter;
+                  const visibleTemplates =
+                    routineUserFilter === 'ALL'
+                      ? templates
+                      : templates.filter((t) => t.userId === targetUserId);
+                  if (visibleTemplates.length === 0) {
+                    return (
+                      <p className="text-xs opacity-70 elevated-pill rounded-2xl p-4">
+                        No saved routines for this lifter yet. Build one below and save it!
+                      </p>
+                    );
+                  }
+                  return visibleTemplates.map((tpl) => {
                   const owner = users.find((u) => u.id === tpl.userId);
                   return (
                     <div
@@ -994,7 +1029,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       </div>
                     </div>
                   );
-                })}
+                });
+                })()}
               </div>
             </section>
 
