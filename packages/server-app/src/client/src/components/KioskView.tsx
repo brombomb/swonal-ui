@@ -823,16 +823,26 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               void refreshCalibration();
               mockDialogRef.current?.showModal();
             }}
-            className={`px-3.5 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 transition ${
+            className={`px-3.5 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 ${
               daemonConnected && wsConnected
-                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
+                ? ''
                 : 'bg-amber-500/10 border-amber-500/40 text-amber-400'
             }`}
+            style={
+              daemonConnected && wsConnected
+                ? {
+                    backgroundColor: 'var(--accent-muted)',
+                    borderColor: 'var(--accent-primary)',
+                    color: 'var(--accent-primary)',
+                  }
+                : undefined
+            }
           >
             <span
               className={`w-2.5 h-2.5 rounded-full ${
-                daemonConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                daemonConnected ? 'animate-pulse' : 'bg-amber-400'
               }`}
+              style={daemonConnected ? { backgroundColor: 'var(--accent-primary)' } : undefined}
             />
             <span>{daemonConnected ? 'CDC/MOCK 30Hz' : 'DAEMON WAIT'}</span>
           </button>
@@ -990,7 +1000,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     )
                   }
                   title={overloadSuggestion.reason}
-                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-extrabold text-sm hover:bg-emerald-500/30 transition"
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl border font-extrabold text-sm hover:opacity-90"
+                  style={{
+                    backgroundColor: 'var(--accent-muted)',
+                    borderColor: 'var(--accent-primary)',
+                    color: 'var(--accent-primary)',
+                  }}
                 >
                   <TrendingUp size={16} />
                   <span>
@@ -1009,9 +1024,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 <div
                   className={`px-5 py-3 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 ${
                     armsAligned
-                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                      ? ''
                       : 'bg-amber-500/15 border-amber-500/40 text-amber-400'
                   }`}
+                  style={
+                    armsAligned
+                      ? {
+                          backgroundColor: 'var(--accent-muted)',
+                          borderColor: 'var(--accent-primary)',
+                          color: 'var(--accent-primary)',
+                        }
+                      : undefined
+                  }
                 >
                   <CheckCircle2 size={18} />
                   <span>
@@ -1465,8 +1489,16 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                       ? 'bg-red-500/20 text-red-400'
                       : symmetryMetrics.status === 'drift'
                         ? 'bg-amber-500/20 text-amber-400'
-                        : 'bg-emerald-500/20 text-emerald-400'
+                        : ''
                   }`}
+                  style={
+                    symmetryMetrics.status === 'balanced'
+                      ? {
+                          backgroundColor: 'var(--accent-muted)',
+                          color: 'var(--accent-primary)',
+                        }
+                      : undefined
+                  }
                 >
                   {symmetryMetrics.status.toUpperCase()} • Δ {symmetryMetrics.positionDelta.toFixed(1)}
                 </span>
@@ -1524,18 +1556,24 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </span>
                 <span
                   className={`text-lg font-black ${
-                    vbtMetrics.velocityDropPct >= 25 ? 'text-amber-400' : 'text-emerald-400'
+                    vbtMetrics.velocityDropPct >= 25 ? 'text-amber-400' : ''
                   }`}
+                  style={
+                    vbtMetrics.velocityDropPct < 25
+                      ? { color: 'var(--accent-primary)' }
+                      : undefined
+                  }
                 >
                   -{vbtMetrics.velocityDropPct.toFixed(0)}% Velocity Drop
                 </span>
               </div>
               <div className="h-3 rounded-full elevated-pill overflow-hidden">
                 <div
-                  className="h-full transition-all duration-150"
+                  className="h-full"
                   style={{
                     width: `${Math.min(100, vbtMetrics.velocityDropPct * 2)}%`,
-                    backgroundColor: vbtMetrics.velocityDropPct >= 25 ? '#F59E0B' : '#10B981',
+                    backgroundColor:
+                      vbtMetrics.velocityDropPct >= 25 ? '#F59E0B' : 'var(--accent-primary)',
                   }}
                 />
               </div>
@@ -1666,13 +1704,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h4 className="font-extrabold text-lg truncate">{musicState.trackName}</h4>
-                {musicState.isConnected && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35 shrink-0">
-                    Spotify Connected
-                  </span>
-                )}
                 {webPlayerReady && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/35 shrink-0">
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border shrink-0"
+                    style={{
+                      backgroundColor: 'var(--accent-muted)',
+                      borderColor: 'var(--accent-primary)',
+                      color: 'var(--accent-primary)',
+                    }}
+                  >
                     Web Player Ready
                   </span>
                 )}
