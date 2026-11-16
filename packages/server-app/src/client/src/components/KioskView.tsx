@@ -1164,7 +1164,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         </section>
 
         {/* Quick-Access Routine / Movement Stepper Bar + Docked Form Demo */}
-        <div className="flex items-center justify-between gap-4 px-2 mt-5">
+        <div className="flex items-center justify-between gap-4 px-2 mt-5 h-36">
           <button
             type="button"
             onClick={() => stepRoutine(-1)}
