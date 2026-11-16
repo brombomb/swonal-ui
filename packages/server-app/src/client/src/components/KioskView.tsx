@@ -1538,13 +1538,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
             </div>
 
-            {/* 3. Voice Coach (Full Width — BYOK AI Settings live in Quick Settings) */}
+            {/* 3. Voice Coach (Shown only when an AI provider is configured in Settings) */}
+            {coachConfig &&
+              (coachConfig.provider !== 'local' ||
+                coachConfig.hasApiKey ||
+                Boolean(coachConfig.baseUrl)) && (
             <div className="col-span-2 surface-card rounded-3xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Bot size={20} style={{ color: 'var(--accent-primary)' }} />
                   <h3 className="font-black text-base uppercase tracking-wider">
-                    Voice Coach ({coachConfig?.provider.toUpperCase() ?? 'LOCAL'})
+                    Voice Coach ({coachConfig.provider.toUpperCase()})
                   </h3>
                 </div>
                 <span className="text-xs font-mono opacity-65">
@@ -1553,22 +1557,30 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
               <p className="text-sm font-medium opacity-85 line-clamp-2">{coachReply}</p>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={toggleVoiceListening}
-                  aria-pressed={isListening}
-                  className={`px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-1.5 shrink-0 ${
-                    isListening ? 'bg-red-500 text-white animate-pulse' : ''
-                  }`}
-                  style={
-                    !isListening
-                      ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
-                      : undefined
-                  }
-                >
-                  {isListening ? <Mic size={18} /> : <MicOff size={18} />}
-                  <span>{isListening ? 'Mic Open (Pause to Send)' : 'Mic Off'}</span>
-                </button>
+                {typeof window !== 'undefined' &&
+                  Boolean(
+                    (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown })
+                      .SpeechRecognition ||
+                      (window as unknown as { webkitSpeechRecognition?: unknown })
+                        .webkitSpeechRecognition
+                  ) && (
+                  <button
+                    type="button"
+                    onClick={toggleVoiceListening}
+                    aria-pressed={isListening}
+                    className={`px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-1.5 shrink-0 ${
+                      isListening ? 'bg-red-500 text-white animate-pulse' : ''
+                    }`}
+                    style={
+                      !isListening
+                        ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                        : undefined
+                    }
+                  >
+                    {isListening ? <Mic size={18} /> : <MicOff size={18} />}
+                    <span>{isListening ? 'Mic Open (Pause to Send)' : 'Mic Off'}</span>
+                  </button>
+                )}
                 <input
                   type="text"
                   value={coachPrompt}
@@ -1608,6 +1620,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 )}
               </div>
             </div>
+            )}
           </div>
         </section>
       </main>
