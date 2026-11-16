@@ -1090,10 +1090,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Self-Hosted Exercise Demo Picture-in-Picture (PiP) Loop Card */}
           {activeExercise?.mediaUrl && showDemoPip && (
             <div
-              className="absolute right-2 top-0 w-56 rounded-2xl overflow-hidden surface-card border shadow-2xl z-20"
+              className="absolute right-2 top-0 w-56 rounded-2xl overflow-hidden bg-slate-950/95 border-2 shadow-2xl z-20"
               style={{ borderColor: 'var(--accent-primary)' }}
             >
-              <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold bg-black/30">
+              <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold bg-black/40 border-b border-white/10">
                 <span className="truncate">{activeExercise.name}</span>
                 <button
                   type="button"
@@ -1104,22 +1104,24 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <X size={14} />
                 </button>
               </div>
-              {/\.(mp4|webm)(\?|$)/i.test(activeExercise.mediaUrl) ? (
-                <video
-                  src={activeExercise.mediaUrl}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="w-full h-32 object-cover bg-slate-950"
-                />
-              ) : (
-                <img
-                  src={activeExercise.mediaUrl}
-                  alt={`${activeExercise.name} form demo`}
-                  className="w-full h-32 object-contain bg-slate-950"
-                />
-              )}
+              <div className="p-1.5 bg-slate-950">
+                {/\.(mp4|webm)(\?|$)/i.test(activeExercise.mediaUrl) ? (
+                  <video
+                    src={activeExercise.mediaUrl}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="block w-full h-32 object-contain rounded-xl bg-slate-950"
+                  />
+                ) : (
+                  <img
+                    src={activeExercise.mediaUrl}
+                    alt={`${activeExercise.name} form demo`}
+                    className="block w-full h-32 object-contain rounded-xl bg-slate-950"
+                  />
+                )}
+              </div>
             </div>
           )}
 
