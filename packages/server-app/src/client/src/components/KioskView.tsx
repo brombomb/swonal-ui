@@ -660,10 +660,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       }`}
       style={{ color: 'var(--text-primary)' }}
     >
-      {/* Subtle Industrial Dot-Grid Texture */}
+      {/* Subtle Architectural Crosshair / Blueprint Grid & Anodized Grain */}
       <div
         aria-hidden="true"
-        className="swonal-dot-grid absolute inset-0 opacity-[0.03] pointer-events-none z-0"
+        className="swonal-dot-grid absolute inset-0 pointer-events-none z-0"
+      />
+      <div
+        aria-hidden="true"
+        className="swonal-noise-grain absolute inset-0 pointer-events-none z-0"
       />
       {/* Dynamic Ambient Profile Bloom (zero-blur radial gradient for smooth FPS) */}
       <div
@@ -1256,15 +1260,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
             {/* ~620px Interactive SVG Weight Gauge & Tap Target */}
             <div className="relative flex items-center justify-center">
-              {telemetry.weight_enabled && (
-                <div
-                  aria-hidden="true"
-                  className="absolute w-[740px] h-[740px] rounded-full pointer-events-none"
-                  style={{
-                    background: 'radial-gradient(circle, var(--accent-glow) 0%, transparent 66%)',
-                  }}
-                />
-              )}
+              <div
+                aria-hidden="true"
+                className={`absolute w-[760px] h-[760px] rounded-full pointer-events-none transition-all duration-500 ${
+                  telemetry.weight_enabled ? 'opacity-95 scale-105' : 'opacity-25 scale-100'
+                }`}
+                style={{
+                  background: 'radial-gradient(circle, var(--accent-glow) 0%, transparent 66%)',
+                }}
+              />
               <svg className="w-[620px] h-[620px] -rotate-90" viewBox="0 0 620 620">
                 <circle
                   cx="310"
@@ -1274,6 +1278,32 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   strokeWidth="36"
                   fill="transparent"
                 />
+                {/* Concentric Compass / Load-Cell Tick Ring */}
+                <g aria-hidden="true">
+                  {Array.from({ length: 60 }, (_, idx) => {
+                    const angle = (idx * 6 * Math.PI) / 180;
+                    const isMajor = idx % 5 === 0;
+                    const rOuter = 250;
+                    const rInner = isMajor ? 238 : 243;
+                    const x1 = 310 + rInner * Math.cos(angle);
+                    const y1 = 310 + rInner * Math.sin(angle);
+                    const x2 = 310 + rOuter * Math.cos(angle);
+                    const y2 = 310 + rOuter * Math.sin(angle);
+                    return (
+                      <line
+                        key={idx}
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        stroke={telemetry.weight_enabled ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                        strokeOpacity={isMajor ? (telemetry.weight_enabled ? 0.55 : 0.32) : 0.16}
+                        strokeWidth={isMajor ? 2 : 1}
+                        strokeLinecap="round"
+                      />
+                    );
+                  })}
+                </g>
                 <circle
                   cx="310"
                   cy="310"
@@ -1301,8 +1331,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     ? 'var(--accent-primary)'
                     : 'var(--border-subtle)',
                   background: telemetry.weight_enabled
-                    ? 'var(--accent-muted)'
-                    : 'var(--bg-surface-solid)',
+                    ? 'radial-gradient(circle at 50% 35%, var(--accent-muted) 0%, var(--bg-surface-solid) 100%)'
+                    : 'var(--bg-dial-idle)',
+                  boxShadow: telemetry.weight_enabled
+                    ? undefined
+                    : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -10px 28px rgba(0,0,0,0.35)',
                 }}
               >
                 <span

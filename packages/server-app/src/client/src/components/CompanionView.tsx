@@ -371,10 +371,14 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       className="relative swonal-canvas min-h-screen pb-24 overflow-x-hidden transition-colors duration-300"
       style={{ color: 'var(--text-primary)' }}
     >
-      {/* Subtle Industrial Dot-Grid Texture */}
+      {/* Subtle Architectural Crosshair / Blueprint Grid & Anodized Grain */}
       <div
         aria-hidden="true"
-        className="swonal-dot-grid fixed inset-0 opacity-[0.03] pointer-events-none z-0"
+        className="swonal-dot-grid fixed inset-0 pointer-events-none z-0"
+      />
+      <div
+        aria-hidden="true"
+        className="swonal-noise-grain fixed inset-0 pointer-events-none z-0"
       />
       {/* Dynamic Ambient Profile Bloom */}
       <div
@@ -585,7 +589,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   onPointerLeave={cancelHoldEngage}
                   onPointerCancel={cancelHoldEngage}
                   className={`flex-1 py-6 rounded-3xl flex flex-col items-center justify-center border-2 transition select-none ${
-                    telemetry.weight_enabled ? '' : 'elevated-pill'
+                    telemetry.weight_enabled ? '' : 'elevated-pill swonal-carbon-pad'
                   } ${holdingEngage ? 'scale-[0.98] opacity-90' : ''}`}
                   style={
                     telemetry.weight_enabled
