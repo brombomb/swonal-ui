@@ -629,14 +629,22 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
   const stepSmall = activeUnit === 'KG' ? 0.5 : 1;
 
+  const formatVelocity = (cmPerSec: number, unit: 'LB' | 'KG') => {
+    if (unit === 'LB') {
+      return { value: (cmPerSec / 2.54).toFixed(1), unitLabel: 'in/s' };
+    }
+    return { value: cmPerSec.toFixed(1), unitLabel: 'cm/s' };
+  };
+
   const renderCableBar = (
     label: string,
     cable: { position: number; velocity: number; load_lb: number },
   ) => {
     const travelPct = Math.max(0, Math.min((cable.position / 200) * 100, 100));
     const puckBottom = `calc(${travelPct}% - ${(travelPct / 100) * 58}px)`;
+    const vel = formatVelocity(cable.velocity, activeUnit);
     return (
-      <div className="flex flex-col items-center gap-3">
+      <div className="w-32 flex flex-col items-center gap-3 shrink-0">
         <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
           {label}
         </span>
@@ -661,14 +669,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             />
           </div>
         </div>
-        <div className="text-center font-mono tabular-nums space-y-0.5">
-          <p className="text-xl font-black">
+        <div className="w-full text-center font-mono tabular-nums space-y-0.5">
+          <p className="text-xl font-black whitespace-nowrap">
             {formatDisplayWeight(cable.load_lb, activeUnit, true)} {activeUnit}
           </p>
-          <p className="text-base font-bold opacity-90">
-            {cable.velocity.toFixed(1)} cm/s
+          <p className="text-base font-bold opacity-90 whitespace-nowrap">
+            {vel.value} {vel.unitLabel}
           </p>
-          <p className="text-sm font-semibold opacity-75">
+          <p className="text-sm font-semibold opacity-75 whitespace-nowrap">
             ROM {cable.position.toFixed(0)}
           </p>
         </div>
@@ -1127,14 +1135,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
           </div>
 
-          <div className="flex flex-col items-end justify-center gap-2.5 shrink-0">
+          <div className="w-[316px] flex flex-col items-stretch justify-center gap-2.5 shrink-0">
             <button
               type="button"
               onClick={() => {
                 setLibraryOpen(true);
                 libraryDialogRef.current?.showModal();
               }}
-              className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 whitespace-nowrap"
+              className="w-full elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 whitespace-nowrap"
             >
               <Dumbbell size={17} style={{ color: 'var(--accent-ink)' }} />
               <span>Routines &amp; Exercises</span>
@@ -1142,7 +1150,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
             {/* Arm Position Guide Badge + H/R/A Info Bubble */}
             {activeExercise && (
-              <div className="relative flex items-center gap-2.5">
+              <div className="relative w-full">
                 <div
                   role="button"
                   tabIndex={0}
@@ -1154,7 +1162,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     }
                   }}
                   title={armsAligned ? 'Arms aligned — tap to re-verify' : 'Tap to sync arms to recommended position'}
-                  className={`px-4 py-2.5 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 cursor-pointer hover:opacity-90 whitespace-nowrap ${
+                  className={`w-full px-4 py-2.5 rounded-2xl border text-sm font-mono font-bold flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 whitespace-nowrap ${
                     armsAligned
                       ? ''
                       : isLightTheme
@@ -1206,7 +1214,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             )}
 
             {/* Consolidated Attachment Selector */}
-            <div className="flex items-center gap-2">
+            <div className="w-full grid grid-cols-3 gap-2">
               {(['HANDLES', 'BAR', 'ROPE'] as AccessoryType[]).map((acc) => {
                 const active = telemetry.accessory === acc;
                 return (
@@ -1214,7 +1222,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     key={acc}
                     type="button"
                     onClick={() => setAccessory(acc)}
-                    className={`px-3.5 py-2 rounded-xl font-mono text-xs font-black ${
+                    className={`px-3 py-2 rounded-xl font-mono text-xs font-black text-center ${
                       active ? 'border-2' : 'elevated-pill opacity-75 hover:opacity-100'
                     }`}
                     style={
@@ -1628,7 +1636,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
               <div className="relative h-5 flex items-center">
                 {/* Center notch tick */}
-                <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-0.5 bg-white/70 z-20 rounded-full" />
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-0.5 z-0 rounded-full"
+                  style={{
+                    backgroundColor: isLightTheme
+                      ? 'rgba(15, 23, 42, 0.25)'
+                      : 'rgba(255, 255, 255, 0.25)',
+                  }}
+                />
                 <div className="relative w-full h-3.5 rounded-full elevated-pill overflow-hidden">
                   <div
                     className="absolute top-0.5 bottom-0.5 w-6 rounded-full transition-all duration-75 z-10"
@@ -1675,14 +1690,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   </button>
                 ) : (
                   <span className="font-mono tabular-nums text-xs font-bold opacity-75">
-                    Peak {vbtMetrics.peakSetVelocity.toFixed(1)} cm/s
+                    Peak {formatVelocity(vbtMetrics.peakSetVelocity, activeUnit).value}{' '}
+                    {formatVelocity(vbtMetrics.peakSetVelocity, activeUnit).unitLabel}
                   </span>
                 )}
               </div>
               <div className="flex items-baseline justify-between font-mono tabular-nums">
                 <span className="text-2xl font-black">
-                  {vbtMetrics.currentVelocity.toFixed(1)}{' '}
-                  <span className="text-xs font-bold opacity-70">cm/s</span>
+                  {formatVelocity(vbtMetrics.currentVelocity, activeUnit).value}{' '}
+                  <span className="text-xs font-bold opacity-70">
+                    {formatVelocity(vbtMetrics.currentVelocity, activeUnit).unitLabel}
+                  </span>
                 </span>
                 <span
                   className={`text-base font-black ${
@@ -1699,9 +1717,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
               <div className="relative h-3.5 rounded-full elevated-pill overflow-hidden">
                 <div
-                  className="h-full rounded-full"
+                  className="h-full rounded-full transition-all duration-75"
                   style={{
-                    width: `${Math.min(100, vbtMetrics.velocityDropPct * 2)}%`,
+                    width: `${
+                      vbtMetrics.currentVelocity >= 0.5
+                        ? Math.min(
+                            100,
+                            (vbtMetrics.currentVelocity /
+                              Math.max(vbtMetrics.peakSetVelocity, 60)) *
+                              100
+                          )
+                        : Math.min(100, vbtMetrics.velocityDropPct * 2)
+                    }%`,
                     background:
                       'linear-gradient(90deg, var(--accent-primary) 0%, #F59E0B 60%, #EF4444 100%)',
                   }}
