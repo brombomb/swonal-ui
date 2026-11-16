@@ -628,6 +628,53 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const strokeDashoffset = circumference - progress * circumference;
 
   const stepSmall = activeUnit === 'KG' ? 0.5 : 1;
+
+  const renderCableBar = (
+    label: string,
+    cable: { position: number; velocity: number; load_lb: number },
+  ) => {
+    const travelPct = Math.max(0, Math.min((cable.position / 200) * 100, 100));
+    const puckBottom = `calc(${travelPct}% - ${(travelPct / 100) * 58}px)`;
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
+          {label}
+        </span>
+        <div className="relative w-16 h-[500px] elevated-pill rounded-full overflow-hidden">
+          <div className="absolute inset-[2px] rounded-[29px] overflow-hidden">
+            {travelPct > 0 && (
+              <div
+                className="absolute inset-x-0 bottom-0 rounded-b-[29px] opacity-30 transition-all duration-75"
+                style={{
+                  height: `calc(${puckBottom} + 29px)`,
+                  backgroundColor: 'var(--accent-primary)',
+                }}
+              />
+            )}
+            <div
+              className="absolute inset-x-0 h-[58px] rounded-full transition-all duration-75"
+              style={{
+                bottom: puckBottom,
+                backgroundColor: 'var(--accent-primary)',
+                boxShadow: '0 0 20px var(--accent-glow)',
+              }}
+            />
+          </div>
+        </div>
+        <div className="text-center font-mono tabular-nums space-y-0.5">
+          <p className="text-xl font-black">
+            {formatDisplayWeight(cable.load_lb, activeUnit, true)} {activeUnit}
+          </p>
+          <p className="text-base font-bold opacity-90">
+            {cable.velocity.toFixed(1)} cm/s
+          </p>
+          <p className="text-sm font-semibold opacity-75">
+            ROM {cable.position.toFixed(0)}
+          </p>
+        </div>
+      </div>
+    );
+  };
   const stepLarge = activeUnit === 'KG' ? 2.5 : 5;
 
   const handleStockSwitchConfirm = async () => {
@@ -1256,32 +1303,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Flanking ROM Bars + 620px Dial Row */}
           <div className="flex items-center justify-center gap-8">
             {/* Left Cable ROM & Velocity Bar */}
-            <div className="flex flex-col items-center gap-3">
-              <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
-                LEFT
-              </span>
-              <div className="w-16 h-[500px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
-                <div
-                  className="w-full rounded-full transition-all duration-75"
-                  style={{
-                    height: `${Math.min((telemetry.left_cable.position / 200) * 100, 100)}%`,
-                    backgroundColor: 'var(--accent-primary)',
-                    boxShadow: '0 0 20px var(--accent-glow)',
-                  }}
-                />
-              </div>
-              <div className="text-center font-mono tabular-nums space-y-0.5">
-                <p className="text-xl font-black">
-                  {formatDisplayWeight(telemetry.left_cable.load_lb, activeUnit, true)} {activeUnit}
-                </p>
-                <p className="text-base font-bold opacity-90">
-                  {telemetry.left_cable.velocity.toFixed(1)} cm/s
-                </p>
-                <p className="text-sm font-semibold opacity-75">
-                  ROM {telemetry.left_cable.position.toFixed(0)}
-                </p>
-              </div>
-            </div>
+            {renderCableBar('LEFT', telemetry.left_cable)}
 
             {/* ~620px Interactive SVG Weight Gauge & Tap Target */}
             <div className="relative flex items-center justify-center">
@@ -1459,32 +1481,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
 
             {/* Right Cable ROM & Velocity Bar */}
-            <div className="flex flex-col items-center gap-3">
-              <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
-                RIGHT
-              </span>
-              <div className="w-16 h-[500px] elevated-pill rounded-full p-1.5 flex flex-col-reverse overflow-hidden">
-                <div
-                  className="w-full rounded-full transition-all duration-75"
-                  style={{
-                    height: `${Math.min((telemetry.right_cable.position / 200) * 100, 100)}%`,
-                    backgroundColor: 'var(--accent-primary)',
-                    boxShadow: '0 0 20px var(--accent-glow)',
-                  }}
-                />
-              </div>
-              <div className="text-center font-mono tabular-nums space-y-0.5">
-                <p className="text-xl font-black">
-                  {formatDisplayWeight(telemetry.right_cable.load_lb, activeUnit, true)} {activeUnit}
-                </p>
-                <p className="text-base font-bold opacity-90">
-                  {telemetry.right_cable.velocity.toFixed(1)} cm/s
-                </p>
-                <p className="text-sm font-semibold opacity-75">
-                  ROM {telemetry.right_cable.position.toFixed(0)}
-                </p>
-              </div>
-            </div>
+            {renderCableBar('RIGHT', telemetry.right_cable)}
           </div>
 
           {/* Direct Weight Stepper Strip Directly Below Dial */}
