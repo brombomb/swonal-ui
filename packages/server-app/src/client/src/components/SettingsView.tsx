@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Smartphone,
   Trash2,
+  TrendingUp,
   Users,
   Wrench,
 } from 'lucide-react';
@@ -346,6 +347,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             >
               <Smartphone size={15} />
               <span>Companion</span>
+            </a>
+            <a
+              href="/history"
+              className="elevated-pill px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:opacity-90"
+            >
+              <TrendingUp size={15} style={{ color: 'var(--accent-primary)' }} />
+              <span>History</span>
             </a>
             <a
               href="/admin"

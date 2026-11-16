@@ -174,6 +174,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [newProfileAccent, setNewProfileAccent] = useState('#CCFF00');
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
+  const [isMockMode, setIsMockMode] = useState(false);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
   const [telemetryDisplayMode, setTelemetryDisplayMode] = useState<'auto' | 'always' | 'off'>(() => {
     if (typeof window === 'undefined') return 'auto';
@@ -216,6 +217,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     if (typeof window === 'undefined') return '';
     return window.localStorage.getItem('swonal_base_url_override') ?? '';
   });
+
+  useEffect(() => {
+    void fetch('/api/daemon/health')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h: { mock?: boolean } | null) => {
+        if (h) setIsMockMode(Boolean(h.mock));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     void fetch('/api/network-info')
@@ -839,6 +849,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 </button>
 
                 <a
+                  href="/history"
+                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90"
+                >
+                  <TrendingUp size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span>History &amp; PRs</span>
+                </a>
+
+                <a
                   href="/settings"
                   className="w-full py-3 px-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition hover:opacity-95"
                   style={{
@@ -864,13 +882,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <span>Phone</span>
           </button>
 
-          {/* Hardware Telemetry Pill (also opens Mock Diagnostic Drawer) */}
+          {/* Hardware Telemetry Pill (opens Mock Diagnostic Drawer in mock mode, or /admin on real hardware) */}
           <button
             type="button"
             onClick={() => {
-              void refreshHaStatus();
-              void refreshCalibration();
-              mockDialogRef.current?.showModal();
+              if (isMockMode) {
+                void refreshHaStatus();
+                void refreshCalibration();
+                mockDialogRef.current?.showModal();
+              } else {
+                window.location.assign('/admin');
+              }
             }}
             className={`px-3.5 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 ${
               daemonConnected && wsConnected
@@ -893,7 +915,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               }`}
               style={daemonConnected ? { backgroundColor: 'var(--accent-primary)' } : undefined}
             />
-            <span>{daemonConnected ? 'CDC/MOCK 30Hz' : 'DAEMON WAIT'}</span>
+            <span>
+              {daemonConnected ? (isMockMode ? 'MOCK 30Hz' : 'TONAL CDC 30Hz') : 'DAEMON WAIT'}
+            </span>
           </button>
 
           {/* Original Tonal Mode Switch */}
