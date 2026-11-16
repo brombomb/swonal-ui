@@ -65,6 +65,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     musicState,
     musicError,
     clearMusicError,
+    webPlayerEnabled,
+    setWebPlayerEnabled,
+    webPlayerReady,
     musicProviders,
     activeProviderId,
     devices,
@@ -906,6 +909,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               musicState={musicState}
               musicError={musicError}
               clearMusicError={clearMusicError}
+              webPlayerEnabled={webPlayerEnabled}
+              setWebPlayerEnabled={setWebPlayerEnabled}
+              webPlayerReady={webPlayerReady}
               devices={devices}
               playlists={playlists}
               updateUserPreferences={updateUserPreferences}

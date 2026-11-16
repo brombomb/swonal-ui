@@ -231,9 +231,24 @@ export function useSwonalState() {
   const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
   const [devices, setDevices] = useState<MusicDevice[]>([]);
   const [musicError, setMusicError] = useState<string | null>(null);
+  const [webPlayerEnabled, setWebPlayerEnabledState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('swonal_web_player_enabled') === '1';
+  });
   const [webPlayerReady, setWebPlayerReady] = useState(false);
   const [webPlayerDeviceId, setWebPlayerDeviceId] = useState<string | null>(null);
   const spotifyPlayerRef = useRef<SpotifySdkPlayer | null>(null);
+
+  const setWebPlayerEnabled = useCallback((enabled: boolean) => {
+    setWebPlayerEnabledState(enabled);
+    if (typeof window !== 'undefined') {
+      if (enabled) {
+        window.localStorage.setItem('swonal_web_player_enabled', '1');
+      } else {
+        window.localStorage.removeItem('swonal_web_player_enabled');
+      }
+    }
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const prevRepCountRef = useRef<number>(0);
@@ -466,7 +481,19 @@ export function useSwonalState() {
     return () => clearInterval(iv);
   }, [musicState.isPlaying, activeUser?.id, activeProviderId, refreshMusic]);
 
-  // WebSocket hub connection
+  // Keep latest callbacks/IDs in refs so WebSocket stays connected without tearing down on user switch
+  const activeUserIdRef = useRef<string | undefined>(activeUser?.id);
+  const activeProviderIdRef = useRef<string>(activeProviderId);
+  const refreshBootstrapRef = useRef(refreshBootstrap);
+  const refreshMusicRef = useRef(refreshMusic);
+  const refreshUserHistoryRef = useRef(refreshUserHistory);
+  activeUserIdRef.current = activeUser?.id;
+  activeProviderIdRef.current = activeProviderId;
+  refreshBootstrapRef.current = refreshBootstrap;
+  refreshMusicRef.current = refreshMusic;
+  refreshUserHistoryRef.current = refreshUserHistory;
+
+  // WebSocket hub connection (connects once on mount)
   useEffect(() => {
     let closed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -573,21 +600,21 @@ export function useSwonalState() {
               delta: typeof msg.delta === 'number' ? msg.delta : undefined,
               timestamp: Date.now(),
             });
-            soundEngine.playSafetyCutout(activeProviderId, activeUser?.id);
+            soundEngine.playSafetyCutout(activeProviderIdRef.current, activeUserIdRef.current);
           } else if (
             msg.type === 'users_updated' ||
             msg.type === 'user_updated' ||
             msg.type === 'templates_updated' ||
             msg.type === 'exercises_updated'
           ) {
-            void refreshBootstrap();
+            void refreshBootstrapRef.current();
           } else if (msg.type === 'music_updated') {
-            if (activeUser?.id) {
-              void refreshMusic(activeUser.id, activeProviderId);
+            if (activeUserIdRef.current) {
+              void refreshMusicRef.current(activeUserIdRef.current, activeProviderIdRef.current);
             }
           } else if (msg.type === 'set_logged' || msg.type === 'partner_rotated') {
-            if (activeUser?.id) {
-              void refreshUserHistory(activeUser.id);
+            if (activeUserIdRef.current) {
+              void refreshUserHistoryRef.current(activeUserIdRef.current);
             }
           }
         } catch {
@@ -611,7 +638,7 @@ export function useSwonalState() {
       if (pingTimer) clearInterval(pingTimer);
       wsRef.current?.close();
     };
-  }, [activeUser?.id, activeProviderId, refreshBootstrap, refreshMusic, refreshUserHistory]);
+  }, []);
 
   // Motor Actions
   const setWeight = useCallback(
@@ -1142,11 +1169,12 @@ export function useSwonalState() {
     };
   }, [activeTemplateName, currentStep, logCompletedSet]);
 
-  // Spotify Web Playback SDK — registers this browser as "Swonal Web Player" fallback
-  // (server prefers librespot "Tonal Gym" whenever it is online).
+  // Spotify Web Playback SDK (opt-in) — registers this browser as "Swonal Web Player"
+  // when enabled. librespot ("Tonal Gym") remains the default without loading third-party DRM.
   useEffect(() => {
     if (
       typeof window === 'undefined' ||
+      !webPlayerEnabled ||
       activeProviderId !== 'spotify' ||
       !musicState.isConnected ||
       !activeUser?.id
@@ -1259,7 +1287,7 @@ export function useSwonalState() {
         spotifyPlayerRef.current = null;
       }
     };
-  }, [activeProviderId, musicState.isConnected, activeUser?.id, refreshMusic]);
+  }, [webPlayerEnabled, activeProviderId, musicState.isConnected, activeUser?.id, refreshMusic]);
 
   return {
     users,
@@ -1295,6 +1323,8 @@ export function useSwonalState() {
     musicState,
     musicError,
     clearMusicError: () => setMusicError(null),
+    webPlayerEnabled,
+    setWebPlayerEnabled,
     webPlayerReady,
     webPlayerDeviceId,
     playlists,

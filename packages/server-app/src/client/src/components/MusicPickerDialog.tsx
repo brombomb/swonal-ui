@@ -17,6 +17,9 @@ interface MusicPickerDialogProps {
   musicState: MusicPlaybackState;
   musicError: string | null;
   clearMusicError: () => void;
+  webPlayerEnabled?: boolean;
+  setWebPlayerEnabled?: (enabled: boolean) => void;
+  webPlayerReady?: boolean;
   devices: MusicDevice[];
   playlists: MusicPlaylist[];
   updateUserPreferences: (
@@ -36,6 +39,9 @@ export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
   musicState,
   musicError,
   clearMusicError,
+  webPlayerEnabled = false,
+  setWebPlayerEnabled,
+  webPlayerReady = false,
   devices,
   playlists,
   updateUserPreferences,
@@ -114,9 +120,24 @@ export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
 
         {/* Connect Audio Devices */}
         <div>
-          <p className="text-xs uppercase tracking-widest font-bold opacity-70 mb-2">
-            Output Devices
-          </p>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs uppercase tracking-widest font-bold opacity-70">
+              Output Devices
+            </p>
+            {activeProviderId === 'spotify' && musicState.isConnected && setWebPlayerEnabled && (
+              <button
+                type="button"
+                onClick={() => setWebPlayerEnabled(!webPlayerEnabled)}
+                className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold hover:opacity-90"
+              >
+                {webPlayerEnabled
+                  ? webPlayerReady
+                    ? 'Disable Browser Player (Ready)'
+                    : 'Disable Browser Player'
+                  : 'Enable Browser Web Player'}
+              </button>
+            )}
+          </div>
           {devices.length === 0 ? (
             <p className="text-sm opacity-70 elevated-pill rounded-2xl p-4">
               {musicState.isConnected
