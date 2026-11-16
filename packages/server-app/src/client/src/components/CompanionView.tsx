@@ -127,7 +127,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     }
   };
 
-  // Couch Workout Builder state
+  // Workout Builder state
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [routineName, setRoutineName] = useState('');
   const [routineDesc, setRoutineDesc] = useState('');
@@ -161,17 +161,24 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   );
   const displayTargetWeight = formatDisplayWeight(telemetry.target_weight_lb, activeUnit);
 
-  const filteredExercises = useMemo(() => {
+  const groupedExercises = useMemo(() => {
     const q = exerciseSearch.trim().toLowerCase();
-    if (!q) return exercises.slice(0, 12);
-    return exercises
-      .filter(
-        (e) =>
-          e.name.toLowerCase().includes(q) ||
-          e.muscleGroup.toLowerCase().includes(q) ||
-          e.accessory.toLowerCase().includes(q)
-      )
-      .slice(0, 16);
+    const list = q
+      ? exercises.filter(
+          (e) =>
+            e.name.toLowerCase().includes(q) ||
+            e.muscleGroup.toLowerCase().includes(q) ||
+            e.accessory.toLowerCase().includes(q)
+        )
+      : exercises;
+    const groups = new Map<string, typeof exercises>();
+    for (const ex of list) {
+      const group = ex.muscleGroup || 'Other';
+      const arr = groups.get(group) ?? [];
+      arr.push(ex);
+      groups.set(group, arr);
+    }
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [exercises, exerciseSearch]);
 
   const loadTemplateIntoBuilder = (tpl: WorkoutTemplate) => {
@@ -1034,10 +1041,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               </div>
             </section>
 
-            {/* Couch Workout Builder Composer */}
+            {/* Workout Builder Composer */}
             <section className="surface-card rounded-3xl p-5 space-y-4">
               <h2 className="text-lg font-black">
-                {editingTemplateId ? 'Edit Routine' : 'Couch Workout Builder'}
+                {editingTemplateId ? 'Edit Routine' : 'Workout Builder'}
               </h2>
 
               <div className="space-y-2.5">
@@ -1248,7 +1255,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       })}
                     </div>
 
-                    {/* Quick Exercise Adder for Block */}
+                    {/* Quick Exercise Adder for Block (Grouped by Body Area) */}
                     <div className="pt-1 space-y-2">
                       <input
                         type="search"
@@ -1257,18 +1264,39 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                         placeholder="Search exercise to add to this block..."
                         className="w-full surface-card px-3 py-2 rounded-xl text-xs outline-none"
                       />
-                      <div className="flex gap-1.5 overflow-x-auto pb-1">
-                        {filteredExercises.map((ex) => (
-                          <button
-                            key={ex.id}
-                            type="button"
-                            onClick={() => addExerciseToBlock(bIdx, ex.id)}
-                            className="surface-card px-2.5 py-1.5 rounded-xl text-xs font-bold shrink-0 hover:opacity-80 flex items-center gap-1"
-                          >
-                            <Plus size={12} style={{ color: 'var(--accent-primary)' }} />
-                            <span>{ex.name}</span>
-                          </button>
-                        ))}
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                        {groupedExercises.length === 0 ? (
+                          <p className="text-xs opacity-65 px-2 py-1">No matching exercises.</p>
+                        ) : (
+                          groupedExercises.map(([bodyArea, list]) => (
+                            <details
+                              key={bodyArea}
+                              open={Boolean(exerciseSearch.trim())}
+                              className="surface-card rounded-xl overflow-hidden"
+                            >
+                              <summary className="px-3 py-2 text-xs font-extrabold uppercase tracking-wider cursor-pointer select-none flex items-center justify-between">
+                                <span>{bodyArea}</span>
+                                <span className="opacity-60 font-mono">{list.length}</span>
+                              </summary>
+                              <div className="px-2 pb-2 space-y-1">
+                                {list.map((ex) => (
+                                  <button
+                                    key={ex.id}
+                                    type="button"
+                                    onClick={() => addExerciseToBlock(bIdx, ex.id)}
+                                    className="w-full elevated-pill px-3 py-2 rounded-lg text-xs font-bold hover:opacity-85 flex items-center justify-between gap-2 text-left"
+                                  >
+                                    <span className="truncate">{ex.name}</span>
+                                    <span className="flex items-center gap-1 shrink-0 text-[10px] opacity-65">
+                                      <span>{ex.accessory}</span>
+                                      <Plus size={12} style={{ color: 'var(--accent-primary)' }} />
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </details>
+                          ))
+                        )}
                       </div>
                     </div>
                   </div>
