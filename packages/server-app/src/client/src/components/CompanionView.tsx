@@ -450,7 +450,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               aria-label="Application Settings"
               className="elevated-pill p-1.5 rounded-xl flex items-center justify-center hover:opacity-90"
             >
-              <Settings size={15} style={{ color: 'var(--accent-primary)' }} />
+              <Settings size={15} style={{ color: 'var(--accent-ink)' }} />
             </a>
             <button
               type="button"
@@ -483,7 +483,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
         <div className="max-w-lg mx-auto w-full px-4 pt-3">
           <div
             className="surface-card rounded-2xl px-4 py-2.5 text-sm font-bold flex items-center gap-2 border"
-            style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)' }}
+            style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-ink)' }}
           >
             <Sparkles size={16} />
             <span>{toast}</span>
@@ -515,7 +515,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     onClick={() => workoutPickerDialogRef.current?.showModal()}
                     className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl elevated-pill text-xs font-bold hover:opacity-90"
                   >
-                    <Dumbbell size={13} style={{ color: 'var(--accent-primary)' }} />
+                    <Dumbbell size={13} style={{ color: 'var(--accent-ink)' }} />
                     <span>Saved Workouts</span>
                   </button>
                   {activeExercise && (
@@ -727,7 +727,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       <p className="text-[11px] uppercase font-bold opacity-65">Rest Countdown</p>
                       <p
                         className="font-mono tabular-nums text-2xl font-black"
-                        style={{ color: 'var(--accent-primary)' }}
+                        style={{ color: 'var(--accent-ink)' }}
                       >
                         {Math.floor(restSecondsRemaining / 60)}:
                         {String(restSecondsRemaining % 60).padStart(2, '0')}
@@ -819,7 +819,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
                     style={{
                       backgroundColor: 'var(--accent-muted)',
-                      color: 'var(--accent-primary)',
+                      color: 'var(--accent-ink)',
                     }}
                   >
                     <Music size={22} />
@@ -861,7 +861,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               </div>
 
               <div className="flex items-center gap-3">
-                <Volume2 size={16} style={{ color: 'var(--accent-primary)' }} />
+                <Volume2 size={16} style={{ color: 'var(--accent-ink)' }} />
                 <input
                   type="range"
                   min={0}
@@ -869,7 +869,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   value={musicState.volumePct ?? 72}
                   onChange={(e) => void setMusicVolume(Number(e.target.value))}
                   className="flex-1 accent-current"
-                  style={{ color: 'var(--accent-primary)' }}
+                  style={{ color: 'var(--accent-ink)' }}
                 />
                 <span className="font-mono text-xs font-bold w-9 text-right">
                   {musicState.volumePct ?? 72}%
@@ -884,7 +884,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                 }}
                 className="w-full py-2.5 px-3 rounded-xl elevated-pill text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
               >
-                <Music size={14} style={{ color: 'var(--accent-primary)' }} />
+                <Music size={14} style={{ color: 'var(--accent-ink)' }} />
                 <span>Playlists &amp; Devices ({playlists.length})</span>
               </button>
             </section>
@@ -920,7 +920,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <Dumbbell size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <Dumbbell size={20} style={{ color: 'var(--accent-ink)' }} />
                   <h2 id="companion-workout-picker-title" className="text-xl font-black">
                     Saved Workouts
                   </h2>
@@ -1393,7 +1393,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                     <span className="truncate">{ex.name}</span>
                                     <span className="flex items-center gap-1 shrink-0 text-[10px] opacity-65">
                                       <span>{ex.accessory}</span>
-                                      <Plus size={12} style={{ color: 'var(--accent-primary)' }} />
+                                      <Plus size={12} style={{ color: 'var(--accent-ink)' }} />
                                     </span>
                                   </button>
                                 ))}
@@ -1448,7 +1448,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
             <section className="surface-card rounded-3xl p-5 space-y-3">
               <div className="flex items-center gap-2">
-                <Trophy size={20} style={{ color: 'var(--accent-primary)' }} />
+                <Trophy size={20} style={{ color: 'var(--accent-ink)' }} />
                 <h2 className="text-lg font-black">
                   {activeUser?.name} Personal Records ({activeUnit})
                 </h2>
@@ -1468,7 +1468,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     <div className="text-right font-mono tabular-nums">
                       <p
                         className="text-base font-black"
-                        style={{ color: 'var(--accent-primary)' }}
+                        style={{ color: 'var(--accent-ink)' }}
                       >
                         {formatDisplayWeight(pr.oneRepMaxEst, activeUnit)} {activeUnit} 1RM
                       </p>
@@ -1484,7 +1484,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             <section className="surface-card rounded-3xl p-5 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <History size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <History size={20} style={{ color: 'var(--accent-ink)' }} />
                   <h2 className="text-lg font-black">Recent Sessions</h2>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1517,7 +1517,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       </span>
                       <span
                         className="font-mono tabular-nums text-sm font-black"
-                        style={{ color: 'var(--accent-primary)' }}
+                        style={{ color: 'var(--accent-ink)' }}
                       >
                         {formatDisplayWeight(s.totalVolume, activeUnit, true)} {activeUnit} vol
                       </span>

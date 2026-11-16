@@ -779,7 +779,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               title="Customize Theme, Units, & Accent Color"
               className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
             >
-              <Settings size={20} style={{ color: 'var(--accent-primary)' }} />
+              <Settings size={20} style={{ color: 'var(--accent-ink)' }} />
             </button>
 
             {showQuickSettings && (
@@ -837,7 +837,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   className="w-full elevated-pill py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between"
                 >
                   <span>Form Demo Video</span>
-                  <span style={{ color: 'var(--accent-primary)' }}>
+                  <span style={{ color: 'var(--accent-ink)' }}>
                     {showDemoPip ? 'Shown' : 'Hidden'}
                   </span>
                 </button>
@@ -859,7 +859,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   className="w-full elevated-pill py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between"
                 >
                   <span>VBT &amp; Symmetry Meters</span>
-                  <span style={{ color: 'var(--accent-primary)' }}>
+                  <span style={{ color: 'var(--accent-ink)' }}>
                     {telemetryDisplayMode === 'always'
                       ? 'Always'
                       : telemetryDisplayMode === 'off'
@@ -876,7 +876,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   }}
                   className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
                 >
-                  <Palette size={17} style={{ color: 'var(--accent-primary)' }} />
+                  <Palette size={17} style={{ color: 'var(--accent-ink)' }} />
                   <span>Accent Color &amp; Profiles</span>
                 </button>
 
@@ -884,7 +884,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   href="/history"
                   className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90"
                 >
-                  <TrendingUp size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <TrendingUp size={16} style={{ color: 'var(--accent-ink)' }} />
                   <span>History &amp; PRs</span>
                 </a>
 
@@ -910,7 +910,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             title="Open Companion QR Code Remote"
             className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
           >
-            <QrCode size={18} style={{ color: 'var(--accent-primary)' }} />
+            <QrCode size={18} style={{ color: 'var(--accent-ink)' }} />
             <span>Phone</span>
           </button>
 
@@ -936,7 +936,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 ? {
                     backgroundColor: 'var(--accent-muted)',
                     borderColor: 'var(--accent-primary)',
-                    color: 'var(--accent-primary)',
+                    color: 'var(--accent-ink)',
                   }
                 : undefined
             }
@@ -978,7 +978,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             }}
           >
             <div className="flex items-center gap-3">
-              <Sparkles size={24} style={{ color: 'var(--accent-primary)' }} />
+              <Sparkles size={24} style={{ color: 'var(--accent-ink)' }} />
               <div>
                 <p className="text-xs uppercase tracking-widest font-bold opacity-70">
                   Queued From Companion / AI Coach
@@ -1085,7 +1085,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               }}
               className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90 whitespace-nowrap"
             >
-              <Dumbbell size={17} style={{ color: 'var(--accent-primary)' }} />
+              <Dumbbell size={17} style={{ color: 'var(--accent-ink)' }} />
               <span>Routines &amp; Exercises</span>
             </button>
 
@@ -1106,14 +1106,16 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   className={`px-4 py-2.5 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 cursor-pointer hover:opacity-90 whitespace-nowrap ${
                     armsAligned
                       ? ''
-                      : 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                      : isLightTheme
+                        ? 'bg-amber-500/15 border-amber-600/45 text-amber-900'
+                        : 'bg-amber-500/15 border-amber-500/40 text-amber-400'
                   }`}
                   style={
                     armsAligned
                       ? {
                           backgroundColor: 'var(--accent-muted)',
-                          borderColor: 'var(--accent-primary)',
-                          color: 'var(--accent-primary)',
+                          borderColor: 'var(--accent-ink)',
+                          color: 'var(--accent-ink)',
                         }
                       : undefined
                   }
@@ -1167,9 +1169,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     style={
                       active
                         ? {
-                            borderColor: 'var(--accent-primary)',
+                            borderColor: 'var(--accent-ink)',
                             backgroundColor: 'var(--accent-muted)',
-                            color: 'var(--accent-primary)',
+                            color: 'var(--accent-ink)',
                           }
                         : undefined
                     }
@@ -1189,7 +1191,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             onClick={() => stepRoutine(-1)}
             className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90 shrink-0"
           >
-            <ChevronLeft size={18} style={{ color: 'var(--accent-primary)' }} />
+            <ChevronLeft size={18} style={{ color: 'var(--accent-ink)' }} />
             <span>{activeTemplateName ? 'Prev Step' : 'Prev Exercise'}</span>
           </button>
 
@@ -1240,7 +1242,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             className="elevated-pill px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-1.5 hover:opacity-90 shrink-0"
           >
             <span>{activeTemplateName ? 'Next Step' : 'Next Exercise'}</span>
-            <ChevronRight size={18} style={{ color: 'var(--accent-primary)' }} />
+            <ChevronRight size={18} style={{ color: 'var(--accent-ink)' }} />
           </button>
         </div>
 
@@ -1424,7 +1426,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     </p>
                     <p
                       className="font-mono tabular-nums text-4xl font-black"
-                      style={{ color: 'var(--accent-primary)' }}
+                      style={{ color: 'var(--accent-ink)' }}
                     >
                       {Math.floor(restSecondsRemaining / 60)}:
                       {String(restSecondsRemaining % 60).padStart(2, '0')}
@@ -1569,7 +1571,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 style={{
                   backgroundColor: 'var(--accent-muted)',
                   borderColor: 'var(--accent-primary)',
-                  color: 'var(--accent-primary)',
+                  color: 'var(--accent-ink)',
                 }}
               >
                 <TrendingUp size={16} />
@@ -1598,7 +1600,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <div className="space-y-2.5 pr-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Scale size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <Scale size={18} style={{ color: 'var(--accent-ink)' }} />
                   <h3 className="font-black text-sm uppercase tracking-wider">
                     Form Symmetry &amp; Balance
                   </h3>
@@ -1615,7 +1617,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     symmetryMetrics.status === 'balanced'
                       ? {
                           backgroundColor: 'var(--accent-muted)',
-                          color: 'var(--accent-primary)',
+                          color: 'var(--accent-ink)',
                         }
                       : undefined
                   }
@@ -1652,7 +1654,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <div className="space-y-2.5 pl-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Gauge size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <Gauge size={18} style={{ color: 'var(--accent-ink)' }} />
                   <h3 className="font-black text-sm uppercase tracking-wider">
                     Velocity &amp; Fatigue (VBT)
                   </h3>
@@ -1661,7 +1663,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <button
                     type="button"
                     onClick={() => setWeight(telemetry.target_weight_lb, 'spotter', 0)}
-                    className="px-3 py-1 rounded-xl bg-amber-500/25 border border-amber-400/50 text-amber-300 text-xs font-black flex items-center gap-1"
+                    className={`px-3 py-1 rounded-xl border text-xs font-black flex items-center gap-1 ${
+                      isLightTheme
+                        ? 'bg-amber-500/20 border-amber-600/50 text-amber-900'
+                        : 'bg-amber-500/25 border-amber-400/50 text-amber-300'
+                    }`}
                   >
                     <Zap size={14} />
                     <span>Enable Spotter</span>
@@ -1683,7 +1689,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   }`}
                   style={
                     vbtMetrics.velocityDropPct < 25
-                      ? { color: 'var(--accent-primary)' }
+                      ? { color: 'var(--accent-ink)' }
                       : undefined
                   }
                 >
@@ -1816,7 +1822,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <div className="col-span-2 surface-card rounded-3xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Bot size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <Bot size={20} style={{ color: 'var(--accent-ink)' }} />
                   <h3 className="font-black text-base uppercase tracking-wider">
                     Voice Coach ({coachConfig.provider.toUpperCase()})
                   </h3>
@@ -1917,7 +1923,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden"
               style={{
                 backgroundColor: 'var(--accent-muted)',
-                color: 'var(--accent-primary)',
+                color: 'var(--accent-ink)',
               }}
             >
               {musicState.artworkUrl ? (
@@ -1939,7 +1945,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     style={{
                       backgroundColor: 'var(--accent-muted)',
                       borderColor: 'var(--accent-primary)',
-                      color: 'var(--accent-primary)',
+                      color: 'var(--accent-ink)',
                     }}
                   >
                     Web Player Ready
@@ -2013,7 +2019,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Volume Slider + Playlists / Devices Drawer */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 elevated-pill px-3.5 py-2 rounded-2xl">
-              <Volume2 size={18} style={{ color: 'var(--accent-primary)' }} />
+              <Volume2 size={18} style={{ color: 'var(--accent-ink)' }} />
               <input
                 type="range"
                 min={0}
@@ -2021,7 +2027,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 value={musicState.volumePct ?? 72}
                 onChange={(e) => void setMusicVolume(Number(e.target.value))}
                 className="w-24 accent-current"
-                style={{ color: 'var(--accent-primary)' }}
+                style={{ color: 'var(--accent-ink)' }}
               />
               <span className="font-mono tabular-nums text-xs font-bold w-8 text-right">
                 {musicState.volumePct ?? 72}%
@@ -2045,7 +2051,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               }}
               className="elevated-pill px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:opacity-90"
             >
-              <ListMusic size={18} style={{ color: 'var(--accent-primary)' }} />
+              <ListMusic size={18} style={{ color: 'var(--accent-ink)' }} />
               <span>Playlists &amp; Devices</span>
             </button>
           </div>
@@ -2392,7 +2398,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                                 {pr && (
                                   <span
                                     className="font-mono font-bold"
-                                    style={{ color: 'var(--accent-primary)' }}
+                                    style={{ color: 'var(--accent-ink)' }}
                                   >
                                     1RM {formatDisplayWeight(pr.oneRepMaxEst, activeUnit)}{' '}
                                     {activeUnit}
@@ -2524,7 +2530,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <Wrench size={22} style={{ color: 'var(--accent-primary)' }} />
+            <Wrench size={22} style={{ color: 'var(--accent-ink)' }} />
             <h2 id="mock-dialog-title" className="text-2xl font-black">
               Hardware & Mock Controls
             </h2>
@@ -2679,7 +2685,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <Key size={22} style={{ color: 'var(--accent-primary)' }} />
+            <Key size={22} style={{ color: 'var(--accent-ink)' }} />
             <h2 id="ai-dialog-title" className="text-2xl font-black">
               Voice Coach (BYOK AI Provider)
             </h2>
@@ -2790,7 +2796,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <Activity size={22} style={{ color: 'var(--accent-primary)' }} />
+            <Activity size={22} style={{ color: 'var(--accent-ink)' }} />
             <h2 id="diag-dialog-title" className="text-2xl font-black">
               Session Export &amp; Diagnostics
             </h2>
