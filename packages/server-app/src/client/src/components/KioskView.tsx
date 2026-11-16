@@ -1071,7 +1071,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             {activeExercise && (
               <div className="relative flex items-center gap-2.5">
                 <div
-                  className={`px-5 py-3 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 ${
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => void alignMockArmsToExercise(activeExercise)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      void alignMockArmsToExercise(activeExercise);
+                    }
+                  }}
+                  title={armsAligned ? 'Arms aligned — tap to re-verify' : 'Tap to sync arms to recommended position'}
+                  className={`px-5 py-3 rounded-2xl border text-sm font-mono font-bold flex items-center gap-2 cursor-pointer hover:opacity-90 ${
                     armsAligned
                       ? ''
                       : 'bg-amber-500/15 border-amber-500/40 text-amber-400'
@@ -1094,7 +1104,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   </span>
                   <button
                     type="button"
-                    onClick={() => setShowArmInfo((v) => !v)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowArmInfo((v) => !v);
+                    }}
                     aria-label="Explain Arm Position Codes"
                     className="ml-1 opacity-75 hover:opacity-100"
                   >
@@ -1113,15 +1126,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     <p><strong>R (Rotation):</strong> Horizontal arm swing (1 – 3)</p>
                     <p><strong>A (Angle):</strong> Pivot angle tilt (1 – 2)</p>
                   </div>
-                )}
-                {!armsAligned && (
-                  <button
-                    type="button"
-                    onClick={() => void alignMockArmsToExercise(activeExercise)}
-                    className="elevated-pill px-4 py-3 rounded-2xl text-sm font-bold hover:opacity-90"
-                  >
-                    Sync Arms
-                  </button>
                 )}
               </div>
             )}
