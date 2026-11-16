@@ -168,6 +168,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
+  const [telemetryDisplayMode, setTelemetryDisplayMode] = useState<'auto' | 'always'>(() => {
+    if (typeof window === 'undefined') return 'auto';
+    return window.localStorage.getItem('swonal_telemetry_display') === 'always' ? 'always' : 'auto';
+  });
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
   const [coachConfig, setCoachConfig] = useState<AiCoachPublicConfig | null>(null);
@@ -780,6 +784,23 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 <button
                   type="button"
                   onClick={() => {
+                    const next = telemetryDisplayMode === 'auto' ? 'always' : 'auto';
+                    setTelemetryDisplayMode(next);
+                    if (typeof window !== 'undefined') {
+                      window.localStorage.setItem('swonal_telemetry_display', next);
+                    }
+                  }}
+                  className="w-full elevated-pill py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between"
+                >
+                  <span>VBT &amp; Symmetry Meters</span>
+                  <span style={{ color: 'var(--accent-primary)' }}>
+                    {telemetryDisplayMode === 'always' ? 'Always' : 'During Set'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
                     setShowQuickSettings(false);
                     profileDialogRef.current?.showModal();
                   }}
@@ -1354,6 +1375,116 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
         </section>
 
+        {/* Conditional Live Symmetry & VBT Telemetry (Above Completed Reps) */}
+        {(telemetryDisplayMode === 'always' || telemetry.weight_enabled || telemetry.rep_count > 0) && (
+          <section className="grid grid-cols-2 gap-4">
+            {/* 1. Form Symmetry & Balance Meter */}
+            <div className="surface-card rounded-3xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Scale size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-base uppercase tracking-wider">
+                    Form Symmetry &amp; Balance
+                  </h3>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-mono font-black ${
+                    symmetryMetrics.status === 'critical'
+                      ? 'bg-red-500/20 text-red-400'
+                      : symmetryMetrics.status === 'drift'
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : ''
+                  }`}
+                  style={
+                    symmetryMetrics.status === 'balanced'
+                      ? {
+                          backgroundColor: 'var(--accent-muted)',
+                          color: 'var(--accent-primary)',
+                        }
+                      : undefined
+                  }
+                >
+                  {symmetryMetrics.status.toUpperCase()} • Δ {symmetryMetrics.positionDelta.toFixed(1)}
+                </span>
+              </div>
+              <div className="relative h-4 rounded-full elevated-pill overflow-hidden">
+                <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/40 z-10" />
+                <div
+                  className="absolute top-0.5 bottom-0.5 w-6 rounded-full transition-all duration-75"
+                  style={{
+                    left: `calc(${Math.max(4, Math.min(92, 50 + symmetryMetrics.signedBalance * 1.1))}% - 12px)`,
+                    backgroundColor:
+                      symmetryMetrics.status === 'critical'
+                        ? '#EF4444'
+                        : symmetryMetrics.status === 'drift'
+                          ? '#F59E0B'
+                          : 'var(--accent-primary)',
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-sm font-mono tabular-nums font-bold opacity-80">
+                <span>L {symmetryMetrics.leftLoadPct}%</span>
+                <span>Centered Bar Target</span>
+                <span>R {symmetryMetrics.rightLoadPct}%</span>
+              </div>
+            </div>
+
+            {/* 2. Velocity-Based Training (VBT) & Auto-Regulation */}
+            <div className="surface-card rounded-3xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Gauge size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 className="font-black text-base uppercase tracking-wider">
+                    Velocity &amp; Fatigue (VBT)
+                  </h3>
+                </div>
+                {vbtMetrics.fatigueAlert ? (
+                  <button
+                    type="button"
+                    onClick={() => setWeight(telemetry.target_weight_lb, 'spotter', 0)}
+                    className="px-3 py-1 rounded-xl bg-amber-500/25 border border-amber-400/50 text-amber-300 text-xs font-black flex items-center gap-1"
+                  >
+                    <Zap size={14} />
+                    <span>Enable Spotter</span>
+                  </button>
+                ) : (
+                  <span className="font-mono tabular-nums text-xs font-bold opacity-75">
+                    Peak {vbtMetrics.peakSetVelocity.toFixed(1)} cm/s
+                  </span>
+                )}
+              </div>
+              <div className="flex items-baseline justify-between font-mono tabular-nums">
+                <span className="text-3xl font-black">
+                  {vbtMetrics.currentVelocity.toFixed(1)}{' '}
+                  <span className="text-sm font-bold opacity-70">cm/s</span>
+                </span>
+                <span
+                  className={`text-lg font-black ${
+                    vbtMetrics.velocityDropPct >= 25 ? 'text-amber-400' : ''
+                  }`}
+                  style={
+                    vbtMetrics.velocityDropPct < 25
+                      ? { color: 'var(--accent-primary)' }
+                      : undefined
+                  }
+                >
+                  -{vbtMetrics.velocityDropPct.toFixed(0)}% Velocity Drop
+                </span>
+              </div>
+              <div className="h-3 rounded-full elevated-pill overflow-hidden">
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${Math.min(100, vbtMetrics.velocityDropPct * 2)}%`,
+                    backgroundColor:
+                      vbtMetrics.velocityDropPct >= 25 ? '#F59E0B' : 'var(--accent-primary)',
+                  }}
+                />
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Consolidated Rep Callout (0 / 12), Complete Set, Up Next Preview, & Dynamic Modes */}
         <section className="space-y-4">
           <div className="surface-card rounded-3xl px-8 py-5 flex items-center justify-between gap-4">
@@ -1472,112 +1603,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
           </div>
 
-          {/* 2x2 Live Athletic Telemetry, Symmetry, VBT & BYOK Voice Coach Grid */}
+          {/* Voice Coach (Shown only when an AI provider is configured in Settings) */}
           <div className="grid grid-cols-2 gap-4">
-            {/* 1. Form Symmetry & Balance Meter */}
-            <div className="surface-card rounded-3xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Scale size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <h3 className="font-black text-base uppercase tracking-wider">
-                    Form Symmetry &amp; Balance
-                  </h3>
-                </div>
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-mono font-black ${
-                    symmetryMetrics.status === 'critical'
-                      ? 'bg-red-500/20 text-red-400'
-                      : symmetryMetrics.status === 'drift'
-                        ? 'bg-amber-500/20 text-amber-400'
-                        : ''
-                  }`}
-                  style={
-                    symmetryMetrics.status === 'balanced'
-                      ? {
-                          backgroundColor: 'var(--accent-muted)',
-                          color: 'var(--accent-primary)',
-                        }
-                      : undefined
-                  }
-                >
-                  {symmetryMetrics.status.toUpperCase()} • Δ {symmetryMetrics.positionDelta.toFixed(1)}
-                </span>
-              </div>
-              <div className="relative h-4 rounded-full elevated-pill overflow-hidden">
-                <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/40 z-10" />
-                <div
-                  className="absolute top-0.5 bottom-0.5 w-6 rounded-full transition-all duration-75"
-                  style={{
-                    left: `calc(${Math.max(4, Math.min(92, 50 + symmetryMetrics.signedBalance * 1.1))}% - 12px)`,
-                    backgroundColor:
-                      symmetryMetrics.status === 'critical'
-                        ? '#EF4444'
-                        : symmetryMetrics.status === 'drift'
-                          ? '#F59E0B'
-                          : 'var(--accent-primary)',
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-sm font-mono tabular-nums font-bold opacity-80">
-                <span>L {symmetryMetrics.leftLoadPct}%</span>
-                <span>Centered Bar Target</span>
-                <span>R {symmetryMetrics.rightLoadPct}%</span>
-              </div>
-            </div>
-
-            {/* 2. Velocity-Based Training (VBT) & Auto-Regulation */}
-            <div className="surface-card rounded-3xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Gauge size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <h3 className="font-black text-base uppercase tracking-wider">
-                    Velocity &amp; Fatigue (VBT)
-                  </h3>
-                </div>
-                {vbtMetrics.fatigueAlert ? (
-                  <button
-                    type="button"
-                    onClick={() => setWeight(telemetry.target_weight_lb, 'spotter', 0)}
-                    className="px-3 py-1 rounded-xl bg-amber-500/25 border border-amber-400/50 text-amber-300 text-xs font-black flex items-center gap-1"
-                  >
-                    <Zap size={14} />
-                    <span>Enable Spotter</span>
-                  </button>
-                ) : (
-                  <span className="font-mono tabular-nums text-xs font-bold opacity-75">
-                    Peak {vbtMetrics.peakSetVelocity.toFixed(1)} cm/s
-                  </span>
-                )}
-              </div>
-              <div className="flex items-baseline justify-between font-mono tabular-nums">
-                <span className="text-3xl font-black">
-                  {vbtMetrics.currentVelocity.toFixed(1)}{' '}
-                  <span className="text-sm font-bold opacity-70">cm/s</span>
-                </span>
-                <span
-                  className={`text-lg font-black ${
-                    vbtMetrics.velocityDropPct >= 25 ? 'text-amber-400' : ''
-                  }`}
-                  style={
-                    vbtMetrics.velocityDropPct < 25
-                      ? { color: 'var(--accent-primary)' }
-                      : undefined
-                  }
-                >
-                  -{vbtMetrics.velocityDropPct.toFixed(0)}% Velocity Drop
-                </span>
-              </div>
-              <div className="h-3 rounded-full elevated-pill overflow-hidden">
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${Math.min(100, vbtMetrics.velocityDropPct * 2)}%`,
-                    backgroundColor:
-                      vbtMetrics.velocityDropPct >= 25 ? '#F59E0B' : 'var(--accent-primary)',
-                  }}
-                />
-              </div>
-            </div>
 
             {/* 3. Voice Coach (Shown only when an AI provider is configured in Settings) */}
             {coachConfig &&
