@@ -485,74 +485,82 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           <>
             {/* Live Telemetry & Big Weight Toggle Card */}
             <section className="surface-card rounded-3xl p-5 space-y-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] uppercase tracking-widest font-bold opacity-65">
-                    Active Movement
-                  </p>
-                  <h2 className="text-xl font-black truncate">
-                    {activeExercise?.name ?? 'Free Lift'}
-                  </h2>
-                  <p className="text-xs font-semibold opacity-80 mt-0.5">
-                    {currentStep
-                      ? `Set ${currentStep.setNumber} of ${currentStep.totalSetsInItem} • Target ${currentStep.targetReps} Reps`
-                      : 'Free Lift Mode'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => workoutPickerDialogRef.current?.showModal()}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl elevated-pill text-xs font-bold hover:opacity-90"
-                  >
-                    <Dumbbell size={13} style={{ color: 'var(--accent-ink)' }} />
-                    <span>Saved Workouts</span>
-                  </button>
-                  {activeExercise && (
-                    <div className="relative inline-block mt-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setShowArmInfo((v) => !v)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg elevated-pill text-[11px] font-mono font-bold opacity-85 hover:opacity-100"
-                      >
-                        <span>
-                          {activeExercise.accessory} • H{activeExercise.recommendedHeight} R
-                          {activeExercise.recommendedRotation} A{activeExercise.recommendedAngle}
-                        </span>
-                        <Info size={12} />
-                      </button>
-                      {showArmInfo && (
-                        <div className="absolute left-0 top-7 w-64 surface-card rounded-xl p-3 shadow-xl border text-[11px] space-y-1 z-30">
-                          <p><strong>H:</strong> Arm Height (1 low – 6 high)</p>
-                          <p><strong>R:</strong> Arm Rotation (swing 1 – 3)</p>
-                          <p><strong>A:</strong> Arm Angle (tilt 1 – 2)</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
+              <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-widest font-bold opacity-65">
+                      Active Movement
+                    </p>
+                    <h2 className="text-[22px] leading-tight font-black truncate mt-0.5">
+                      {activeExercise?.name ?? 'Free Lift'}
+                    </h2>
+                    <p className="text-xs font-semibold opacity-80 mt-0.5">
+                      {currentStep
+                        ? `Set ${currentStep.setNumber} of ${currentStep.totalSetsInItem} • Target ${currentStep.targetReps} Reps`
+                        : 'Free Lift Mode'}
+                    </p>
+                  </div>
+                  <div className="text-right font-mono tabular-nums shrink-0">
+                    <p className="text-xs font-bold tracking-wider opacity-65">REPS</p>
+                    <p className="text-4xl font-black leading-none mt-0.5">
+                      {telemetry.rep_count}
+                      {currentStep ? (
+                        <span className="text-lg opacity-55"> / {currentStep.targetReps}</span>
+                      ) : null}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right font-mono tabular-nums shrink-0">
-                  <p className="text-xs opacity-65">REPS</p>
-                  <p className="text-3xl font-black">
-                    {telemetry.rep_count}
-                    {currentStep ? (
-                      <span className="text-lg opacity-55"> / {currentStep.targetReps}</span>
-                    ) : null}
-                  </p>
-                  <div className="flex items-center justify-end gap-1.5 mt-1.5">
+
+                <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => workoutPickerDialogRef.current?.showModal()}
+                      className="h-8 px-2.5 rounded-lg elevated-pill inline-flex items-center gap-1.5 text-xs font-sans font-bold hover:opacity-90 shrink-0"
+                    >
+                      <Dumbbell size={13} style={{ color: 'var(--accent-ink)' }} />
+                      <span>Saved Workouts</span>
+                    </button>
+                    {activeExercise && (
+                      <div className="relative inline-block">
+                        <button
+                          type="button"
+                          onClick={() => setShowArmInfo((v) => !v)}
+                          className="h-8 px-2.5 rounded-lg elevated-pill inline-flex items-center gap-1.5 text-[11px] font-mono font-bold opacity-85 hover:opacity-100 whitespace-nowrap"
+                        >
+                          <span>
+                            {activeExercise.accessory} • H{activeExercise.recommendedHeight} R
+                            {activeExercise.recommendedRotation} A{activeExercise.recommendedAngle}
+                          </span>
+                          <Info size={12} />
+                        </button>
+                        {showArmInfo && (
+                          <div className="absolute left-0 top-9 w-64 surface-card rounded-xl p-3 shadow-xl border text-[11px] space-y-1 z-30">
+                            <p><strong>H:</strong> Arm Height (1 low – 6 high)</p>
+                            <p><strong>R:</strong> Arm Rotation (swing 1 – 3)</p>
+                            <p><strong>A:</strong> Arm Angle (tilt 1 – 2)</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       onClick={() => stepRoutine(-1)}
-                      className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5"
+                      className="h-8 px-2.5 rounded-lg elevated-pill inline-flex items-center gap-0.5 text-xs font-sans font-bold hover:opacity-90"
                     >
-                      <ChevronLeft size={13} />
+                      <ChevronLeft size={14} />
                       <span>Prev</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => stepRoutine(1)}
-                      className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5"
+                      className="h-8 px-2.5 rounded-lg elevated-pill inline-flex items-center gap-0.5 text-xs font-sans font-bold hover:opacity-90"
                     >
                       <span>Next</span>
-                      <ChevronRight size={13} />
+                      <ChevronRight size={14} />
                     </button>
                   </div>
                 </div>
