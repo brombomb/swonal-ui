@@ -74,6 +74,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     switchUser,
     updateUserPreferences,
     togglePartnerMode,
+    startWorkoutTemplate,
     stepRoutine,
     logCompletedSet,
     skipRestTimer,
@@ -98,6 +99,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const [routineUserFilter, setRoutineUserFilter] = useState<string>('ACTIVE');
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const musicDialogRef = useRef<HTMLDialogElement>(null);
+  const workoutPickerDialogRef = useRef<HTMLDialogElement>(null);
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
 
@@ -494,6 +496,14 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       ? `Set ${currentStep.setNumber} of ${currentStep.totalSetsInItem} • Target ${currentStep.targetReps} Reps`
                       : 'Free Lift Mode'}
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => workoutPickerDialogRef.current?.showModal()}
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl elevated-pill text-xs font-bold hover:opacity-90"
+                  >
+                    <Dumbbell size={13} style={{ color: 'var(--accent-primary)' }} />
+                    <span>Saved Workouts</span>
+                  </button>
                   {activeExercise && (
                     <div className="relative inline-block mt-1.5">
                       <button
@@ -903,6 +913,102 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               playPlaylist={playPlaylist}
               fetchPlaylistTracks={fetchPlaylistTracks}
             />
+
+            <dialog
+              ref={workoutPickerDialogRef}
+              closedby="any"
+              aria-labelledby="companion-workout-picker-title"
+              className="rounded-3xl p-6 max-w-lg w-full max-h-[82vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Dumbbell size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <h2 id="companion-workout-picker-title" className="text-xl font-black">
+                    Saved Workouts
+                  </h2>
+                </div>
+                <select
+                  aria-label="Filter saved workouts by lifter"
+                  value={routineUserFilter}
+                  onChange={(e) => setRoutineUserFilter(e.target.value)}
+                  className="elevated-pill px-2.5 py-1.5 rounded-xl text-xs font-bold outline-none"
+                >
+                  <option value="ACTIVE">
+                    {activeUser ? `${activeUser.name} Only` : 'Active Lifter'}
+                  </option>
+                  <option value="ALL">All Lifters</option>
+                  {users
+                    .filter((u) => u.id !== activeUser?.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="space-y-2.5">
+                {(() => {
+                  const targetUserId =
+                    routineUserFilter === 'ACTIVE' ? activeUser?.id : routineUserFilter;
+                  const visibleTemplates =
+                    routineUserFilter === 'ALL'
+                      ? templates
+                      : templates.filter((t) => t.userId === targetUserId);
+                  if (visibleTemplates.length === 0) {
+                    return (
+                      <p className="text-xs opacity-70 elevated-pill rounded-2xl p-4">
+                        No saved workouts for this lifter yet. Create one in the Builder tab.
+                      </p>
+                    );
+                  }
+                  return visibleTemplates.map((tpl) => {
+                    const owner = users.find((u) => u.id === tpl.userId);
+                    return (
+                      <div
+                        key={tpl.id}
+                        className="elevated-pill rounded-2xl p-3.5 flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{
+                                backgroundColor: owner?.accentColor ?? 'var(--accent-primary)',
+                              }}
+                            />
+                            <p className="font-extrabold text-sm truncate">{tpl.name}</p>
+                          </div>
+                          <p className="text-xs opacity-70 truncate mt-0.5">
+                            {owner?.name} • {tpl.blocks.length} blocks
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            startWorkoutTemplate(tpl);
+                            void queueTemplateToTonal(tpl.id, tpl.name);
+                            workoutPickerDialogRef.current?.close();
+                          }}
+                          className="px-3.5 py-2 rounded-xl text-xs font-extrabold text-slate-950 shrink-0"
+                          style={{ backgroundColor: 'var(--accent-primary)' }}
+                        >
+                          Start
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => workoutPickerDialogRef.current?.close()}
+                  className="elevated-pill px-4 py-2 rounded-xl text-xs font-bold"
+                >
+                  Close
+                </button>
+              </div>
+            </dialog>
 
             {/* Collapsible Mock Hardware Handle Shortcuts (shown only in --mock mode) */}
             {isMockMode && (
