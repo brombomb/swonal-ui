@@ -60,6 +60,9 @@ const ACCENT_SWATCHES = [
   { name: 'Volt Lime', hex: '#CCFF00' },
   { name: 'Blaze Orange', hex: '#FF5500' },
   { name: 'Ultra Violet', hex: '#8B5CF6' },
+  { name: 'Emerald Green', hex: '#10B981' },
+  { name: 'Crimson Red', hex: '#EF4444' },
+  { name: 'Dark Blue', hex: '#1D4ED8' },
 ];
 
 const DYNAMIC_MODES: Array<{ id: DynamicMode; label: string; defaultPct: number }> = [
