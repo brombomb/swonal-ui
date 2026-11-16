@@ -760,7 +760,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </button>
 
             {showQuickSettings && (
-              <div className="absolute right-0 top-14 w-72 surface-card rounded-2xl p-4 shadow-2xl border space-y-3 z-40">
+              <div
+                className="absolute right-0 top-14 w-72 rounded-2xl p-4 shadow-2xl border space-y-3 z-40"
+                style={{
+                  backgroundColor: 'var(--bg-surface-solid)',
+                  borderColor: 'var(--border-top-highlight)',
+                }}
+              >
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase tracking-widest font-bold opacity-70">
                     Quick Preferences
