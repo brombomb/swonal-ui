@@ -1284,7 +1284,7 @@ export function useSwonalState() {
         setWebPlayerEnabled(false);
         const msg = (payload as { message?: string })?.message || 'Authentication failed';
         setMusicError(
-          `Web Player: ${msg} — please reconnect Spotify in Settings to grant Web Playback permissions.`
+          `Web Player: ${msg}. Your browser is likely blocking Spotify DRM or third-party requests (sdk.scdn.co / dealer.g2.spotify.com) — disable tracking protection & enable DRM for this site, or use Tonal Gym (librespot) / the Spotify app.`
         );
       });
       player.addListener('account_error', handleSdkError);
