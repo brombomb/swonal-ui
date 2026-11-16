@@ -432,18 +432,6 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               <Users size={14} />
               <span>Work In</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!activeUser) return;
-                void updateUserPreferences(activeUser.id, {
-                  weightUnit: activeUnit === 'LB' ? 'KG' : 'LB',
-                });
-              }}
-              className="elevated-pill px-2.5 py-1.5 rounded-xl font-mono text-xs font-bold"
-            >
-              {activeUnit}
-            </button>
             <a
               href="/settings"
               title="Application Settings"
