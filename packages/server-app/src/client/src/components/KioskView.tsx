@@ -179,6 +179,25 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [isMockMode, setIsMockMode] = useState(false);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
+  const quickSettingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showQuickSettings) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (quickSettingsRef.current && !quickSettingsRef.current.contains(e.target as Node)) {
+        setShowQuickSettings(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowQuickSettings(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showQuickSettings]);
   const [telemetryDisplayMode, setTelemetryDisplayMode] = useState<'auto' | 'always' | 'off'>(() => {
     if (typeof window === 'undefined') return 'auto';
     const saved = window.localStorage.getItem('swonal_telemetry_display');
@@ -752,7 +771,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         {/* Right Utility Controls (Consolidated Quick-Settings Popover + Phone + Hardware + Original Tonal) */}
         <div className="flex items-center gap-2.5">
           {/* Quick Settings Popover Trigger (Theme, Units, Accent Color / Profiles) */}
-          <div className="relative">
+          <div ref={quickSettingsRef} className="relative">
             <button
               type="button"
               onClick={() => setShowQuickSettings((v) => !v)}
