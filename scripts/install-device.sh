@@ -167,6 +167,9 @@ if [[ "${SKIP_DAEMON}" -eq 0 ]]; then
   "${ADB[@]}" shell "su -c 'tar -xzf /data/local/tmp/tonal-daemon.tar.gz -C /data/swonal/packages/tonal-daemon && rm -f /data/local/tmp/tonal-daemon.tar.gz'"
   "${ADB[@]}" push "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/98-swonal-daemon.sh
   "${ADB[@]}" shell "su -c 'mv /data/local/tmp/98-swonal-daemon.sh /data/adb/service.d/98-swonal-daemon.sh && chmod 755 /data/adb/service.d/98-swonal-daemon.sh'"
+  echo "  [termux] Installing tonal-daemon & swolectl Python dependencies in Termux..."
+  "${ADB[@]}" shell "su -c 'PATH=/data/data/com.termux/files/usr/bin:\$PATH pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon'" || \
+    echo "  [warn] Open Termux once on the Tonal screen to finish bootstrap, then run: pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon"
 fi
 
 echo "==> Step 4/4: Launching Via Browser to ${SERVER_URL}..."

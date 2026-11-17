@@ -122,7 +122,7 @@ docker compose up -d --no-deps --build server-app
 ## Deploying `tonal-daemon` to Rooted Tonal V1
 
 1. Follow `RUNBOOK-Tonal V1 Rooting & On-Device Setup Guide.md` to root the MediaTek Android 6.0 host with Magisk and set up Termux/Python 3.11+.
-2. Copy `packages/tonal-daemon` to `/data/swonal/packages/tonal-daemon` on the tablet.
+2. Copy `packages/tonal-daemon` to `/data/swonal/packages/tonal-daemon` on the tablet and install it in Termux (`pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon`, which includes `swolectl`).
 3. Copy `config.example.yaml` to `config.yaml` and configure your Bluetooth MAC addresses (`handle_left_mac`, `handle_right_mac`, `bar_control_mac`) and `daemon.server_url`.
 4. Install the boot script into Magisk `service.d`:
    ```sh
