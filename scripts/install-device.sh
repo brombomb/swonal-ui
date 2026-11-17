@@ -93,7 +93,7 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
   echo "==> Step 1/4: Downloading & installing APKs (Magisk, Termux Android 5/6, Via Browser)..."
 
   MAGISK_APK="${APK_DIR}/Magisk-v27.0.apk"
-  TERMUX_APK="${APK_DIR}/termux-android5-v0.118.0.apk"
+  TERMUX_APK="${APK_DIR}/termux-android5-v0.119.0-beta.3.apk"
   VIA_APK="${APK_DIR}/via-browser.apk"
 
   download_if_missing "${MAGISK_APK}" \
@@ -101,7 +101,7 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
     "Magisk v27.0" || true
 
   download_if_missing "${TERMUX_APK}" \
-    "https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+apt-android-5-github-debug_universal.apk" \
+    "https://github.com/termux/termux-app/releases/download/v0.119.0-beta.3/termux-app_v0.119.0-beta.3%2Bapt-android-5-github-debug_universal.apk" \
     "Termux (Android 5/6 Universal)" || true
 
   download_if_missing "${VIA_APK}" \

@@ -9,7 +9,6 @@ __pycache__/
 dist/
 packages/server-app/dist/
 packages/tonal-daemon/*.egg-info/
-packages/device-assets/
 
 # Local Databases & Environment Files
 *.db
