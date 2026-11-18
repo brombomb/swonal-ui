@@ -93,6 +93,54 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.swonal-range {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+.swonal-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+}
+
+.swonal-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-surface-solid);
+  box-shadow: 0 0 8px var(--accent-glow);
+  margin-top: -4px;
+}
+
+.swonal-range::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.swonal-range::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--accent-primary);
+}
+
+.swonal-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-surface-solid);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
 .surface-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);

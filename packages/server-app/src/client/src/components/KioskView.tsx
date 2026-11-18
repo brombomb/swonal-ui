@@ -2054,8 +2054,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 max={100}
                 value={musicState.volumePct ?? 72}
                 onChange={(e) => void setMusicVolume(Number(e.target.value))}
-                className="w-24 accent-current"
-                style={{ color: 'var(--accent-ink)' }}
+                className="w-24 swonal-range"
+                style={{
+                  background: `linear-gradient(to right, var(--accent-primary) ${musicState.volumePct ?? 72}%, var(--border-subtle) ${musicState.volumePct ?? 72}%)`,
+                }}
               />
               <span className="font-mono tabular-nums text-xs font-bold w-8 text-right">
                 {musicState.volumePct ?? 72}%

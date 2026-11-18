@@ -864,8 +864,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   max={100}
                   value={musicState.volumePct ?? 72}
                   onChange={(e) => void setMusicVolume(Number(e.target.value))}
-                  className="flex-1 accent-current"
-                  style={{ color: 'var(--accent-ink)' }}
+                  className="flex-1 swonal-range"
+                  style={{
+                    background: `linear-gradient(to right, var(--accent-primary) ${musicState.volumePct ?? 72}%, var(--border-subtle) ${musicState.volumePct ?? 72}%)`,
+                  }}
                 />
                 <span className="font-mono text-xs font-bold w-9 text-right">
                   {musicState.volumePct ?? 72}%
