@@ -29,7 +29,6 @@ import {
   Scale,
   Send,
   Settings,
-  ShieldAlert,
   SkipForward,
   Sliders,
   Sparkles,
@@ -155,7 +154,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
   // Native <dialog> refs
   const qrDialogRef = useRef<HTMLDialogElement>(null);
-  const stockDialogRef = useRef<HTMLDialogElement>(null);
   const libraryDialogRef = useRef<HTMLDialogElement>(null);
   const profileDialogRef = useRef<HTMLDialogElement>(null);
   const mockDialogRef = useRef<HTMLDialogElement>(null);
@@ -175,7 +173,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
   const [newProfileName, setNewProfileName] = useState('');
   const [newProfileAccent, setNewProfileAccent] = useState('#CCFF00');
-  const [stockError, setStockError] = useState<string | null>(null);
   const [mockStatusMsg, setMockStatusMsg] = useState<string | null>(null);
   const [isMockMode, setIsMockMode] = useState(false);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
@@ -685,20 +682,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   };
   const stepLarge = activeUnit === 'KG' ? 2.5 : 5;
 
-  const handleStockSwitchConfirm = async () => {
-    setStockError(null);
-    if (telemetry.weight_enabled) {
-      sendWs({ type: 'disable_weight' });
-    }
-    const resp = await fetch('/api/daemon/mode/stock', { method: 'POST' });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ detail: 'Failed to switch mode' }));
-      setStockError(err.detail || err.error || 'Daemon unreachable');
-      return;
-    }
-    stockDialogRef.current?.close();
-  };
-
   const triggerMockBle = async (action: 'toggle_weight' | 'spotify_next' | 'emergency_stop') => {
     const resp = await fetch('/api/daemon/mock/ble-event', {
       method: 'POST',
@@ -1005,23 +988,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <span>
               {daemonConnected ? (isMockMode ? 'MOCK 30Hz' : 'TONAL CDC 30Hz') : 'DAEMON WAIT'}
             </span>
-          </button>
-
-          {/* Original Tonal Mode Switch */}
-          <button
-            type="button"
-            onClick={() => {
-              setStockError(null);
-              stockDialogRef.current?.showModal();
-            }}
-            className={`border font-bold px-4 py-2.5 rounded-2xl transition flex items-center gap-2 text-sm ${
-              isLightTheme
-                ? 'bg-red-500/15 hover:bg-red-500/25 border-red-600/50 text-red-800'
-                : 'bg-red-500/15 hover:bg-red-500/25 border-red-500/40 text-red-400'
-            }`}
-          >
-            <ShieldAlert size={18} />
-            <span>Original Tonal</span>
           </button>
         </div>
       </header>
@@ -2168,47 +2134,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             Open /companion Directly
           </a>
           <p className="text-xs font-mono opacity-60 text-center break-all">{companionUrl}</p>
-        </div>
-      </dialog>
-
-      {/* DIALOG 2: ORIGINAL TONAL SAFETY CONFIRMATION */}
-      <dialog
-        ref={stockDialogRef}
-        aria-labelledby="stock-dialog-title"
-        className="rounded-3xl p-8 max-w-lg w-full"
-      >
-        <div className="flex items-center gap-3 text-red-400 mb-3">
-          <ShieldAlert size={30} />
-          <h2 id="stock-dialog-title" className="text-2xl font-black">
-            Switch to Original Tonal Mode?
-          </h2>
-        </div>
-        <p className="text-sm opacity-80 leading-relaxed mb-4">
-          {telemetry.weight_enabled
-            ? 'WARNING: Cable resistance is currently ACTIVE! Switching modes will immediately turn weight OFF, release /dev/ttyACM0, stop BLE listeners, and launch com.tonal.app.'
-            : 'This will cleanly disengage motor resistance, release the /dev/ttyACM0 serial lock, and hand control back to the stock com.tonal.app Android experience.'}
-        </p>
-        {stockError && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/15 border border-red-500/40 text-red-300 text-sm">
-            {stockError}
-          </div>
-        )}
-        <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            autoFocus
-            onClick={() => stockDialogRef.current?.close()}
-            className="elevated-pill px-5 py-2.5 rounded-xl font-bold"
-          >
-            Stay in swonal-ui
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleStockSwitchConfirm()}
-            className="bg-red-600 hover:bg-red-500 text-white px-5 py-2.5 rounded-xl font-extrabold"
-          >
-            {telemetry.weight_enabled ? 'Turn Off Weight & Switch' : 'Switch to Original Tonal'}
-          </button>
         </div>
       </dialog>
 
