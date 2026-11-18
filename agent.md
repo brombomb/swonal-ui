@@ -18,11 +18,10 @@ Context, hardware constraints, design decisions, and operational playbooks for c
 - **`packages/device-assets`**
   - Tracked APKs (< 100 MB GitHub limit):
     - `termux-android5-v0.119.0-beta.3.apk` (`77.87 MB`, Android 5/6 universal Termux)
-    - `fennec-68.11.0.en-US.android-aarch64.apk` (`48.63 MB`, Firefox 68.11.0 ESR)
-    - Use preinstalled AOSP `com.android.launcher3` on the device as the Home launcher (supports PWA shortcuts)
   - Ignored in `.gitignore` (> 100 MB): `bromite-108-*.apk` (`176 MB`, downloaded on-demand by `scripts/install-device.sh`).
+  - Use preinstalled AOSP `com.android.launcher3` on the device as the Home launcher (supports PWA shortcuts).
 - **`scripts/install-device.sh`**
-  - All-in-one ADB installer for Termux, KISS Launcher, Bromite 108 / Firefox 68.11.0 ESR (`--browser bromite|firefox`), `librespot` (`99-swonal-librespot.sh`), and `tonal-daemon` (`98-swonal-daemon.sh`).
+  - All-in-one ADB installer for Termux, Bromite 108, `librespot` (`99-swonal-librespot.sh`), and `tonal-daemon` (`98-swonal-daemon.sh`).
 
 ---
 

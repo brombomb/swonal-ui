@@ -62,12 +62,35 @@ export function verifyPasscode(candidate: string): boolean {
   return verifyPasscodeHash(candidate, stored);
 }
 
-export function isDirectLocalhost(req: IncomingMessage): boolean {
-  if (req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']) {
-    return false;
+function isPrivateOrLoopbackIp(rawIp: string): boolean {
+  const ip = rawIp.trim().replace(/^::ffff:/i, '');
+  if (!ip) return false;
+  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.')) return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.')) return true;
+  const m172 = /^172\.(\d+)\./.exec(ip);
+  if (m172) {
+    const second = Number(m172[1]);
+    if (second >= 16 && second <= 31) return true;
   }
-  const addr = req.socket?.remoteAddress || '';
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+  const lower = ip.toLowerCase();
+  return lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+}
+
+export function isDirectLocalhost(req: IncomingMessage): boolean {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (cfIp) {
+    const val = Array.isArray(cfIp) ? cfIp[0] : cfIp;
+    if (!isPrivateOrLoopbackIp(val)) return false;
+  }
+  const remoteAddr = req.socket?.remoteAddress || '';
+  if (!isPrivateOrLoopbackIp(remoteAddr)) return false;
+
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) {
+    const firstHop = (Array.isArray(xff) ? xff[0] : xff).split(',')[0] ?? '';
+    return isPrivateOrLoopbackIp(firstHop);
+  }
+  return true;
 }
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
