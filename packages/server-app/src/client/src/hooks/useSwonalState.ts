@@ -206,6 +206,14 @@ export function useSwonalState() {
   const currentRepPeakVelRef = useRef<number>(0);
   const firstRepPeakVelRef = useRef<number>(0);
   const lastRepPeakVelRef = useRef<number>(0);
+  const liveTelemetryListenersRef = useRef<Set<(frame: TelemetryFrame) => void>>(new Set());
+
+  const subscribeLiveTelemetry = useCallback((listener: (frame: TelemetryFrame) => void) => {
+    liveTelemetryListenersRef.current.add(listener);
+    return () => {
+      liveTelemetryListenersRef.current.delete(listener);
+    };
+  }, []);
 
   // Active routine & exercise state
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>('');
@@ -621,7 +629,8 @@ export function useSwonalState() {
               Math.abs(prev.right_cable.velocity - frame.right_cable.velocity) >= 0.2;
 
             const now = Date.now();
-            if (discreteChanged || (cableChanged && now - lastTelemetryCommitMsRef.current >= 80)) {
+            liveTelemetryListenersRef.current.forEach((cb) => cb(frame));
+            if (discreteChanged || (cableChanged && now - lastTelemetryCommitMsRef.current >= 250)) {
               telemetryRef.current = frame;
               lastTelemetryCommitMsRef.current = now;
               setTelemetry(frame);
@@ -1422,5 +1431,6 @@ export function useSwonalState() {
     switchMusicProvider,
     refreshBootstrap,
     refreshUserHistory,
+    subscribeLiveTelemetry,
   };
 }

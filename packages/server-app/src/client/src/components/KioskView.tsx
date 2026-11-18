@@ -1,5 +1,39 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
+import { KioskCableBar } from './KioskCableBar';
+
+const DIAL_TICKS = Array.from({ length: 60 }, (_, idx) => {
+  const angle = (idx * 6 * Math.PI) / 180;
+  const isMajor = idx % 5 === 0;
+  const rOuter = 250;
+  const rInner = isMajor ? 238 : 243;
+  return {
+    idx,
+    isMajor,
+    x1: 310 + rInner * Math.cos(angle),
+    y1: 310 + rInner * Math.sin(angle),
+    x2: 310 + rOuter * Math.cos(angle),
+    y2: 310 + rOuter * Math.sin(angle),
+  };
+});
+
+const DialTickRing: React.FC<{ enabled: boolean }> = React.memo(({ enabled }) => (
+  <g aria-hidden="true">
+    {DIAL_TICKS.map((t) => (
+      <line
+        key={t.idx}
+        x1={t.x1}
+        y1={t.y1}
+        x2={t.x2}
+        y2={t.y2}
+        stroke={enabled ? 'var(--accent-primary)' : 'var(--text-muted)'}
+        strokeOpacity={t.isMajor ? (enabled ? 0.55 : 0.32) : 0.16}
+        strokeWidth={t.isMajor ? 2 : 1}
+        strokeLinecap="round"
+      />
+    ))}
+  </g>
+));
 import {
   Activity,
   AlertTriangle,
@@ -124,6 +158,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     favoritePlaylistIds,
     devices,
     sendWs,
+    subscribeLiveTelemetry,
     setWeight,
     toggleWeight,
     setAccessory,
@@ -631,54 +666,6 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       return { value: (cmPerSec / 2.54).toFixed(1), unitLabel: 'in/s' };
     }
     return { value: cmPerSec.toFixed(1), unitLabel: 'cm/s' };
-  };
-
-  const renderCableBar = (
-    label: string,
-    cable: { position: number; velocity: number; load_lb: number },
-  ) => {
-    const travelPct = Math.max(0, Math.min((cable.position / 200) * 100, 100));
-    const puckBottom = `calc(${travelPct}% - ${(travelPct / 100) * 58}px)`;
-    const vel = formatVelocity(cable.velocity, activeUnit);
-    return (
-      <div className="w-32 flex flex-col items-center gap-3 shrink-0">
-        <span className="text-sm font-mono font-black uppercase tracking-widest opacity-75">
-          {label}
-        </span>
-        <div className="relative w-16 h-[500px] elevated-pill rounded-full overflow-hidden">
-          <div className="absolute inset-[2px] rounded-[29px] overflow-hidden">
-            {travelPct > 0 && (
-              <div
-                className="absolute inset-x-0 bottom-0 rounded-b-[29px] opacity-30 transition-all duration-75"
-                style={{
-                  height: `calc(${puckBottom} + 29px)`,
-                  backgroundColor: 'var(--accent-primary)',
-                }}
-              />
-            )}
-            <div
-              className="absolute inset-x-0 h-[58px] rounded-full transition-all duration-75"
-              style={{
-                bottom: puckBottom,
-                backgroundColor: 'var(--accent-primary)',
-                boxShadow: '0 0 20px var(--accent-glow)',
-              }}
-            />
-          </div>
-        </div>
-        <div className="w-full text-center font-mono tabular-nums space-y-0.5">
-          <p className="text-xl font-black whitespace-nowrap">
-            {formatDisplayWeight(cable.load_lb, activeUnit, true)} {activeUnit}
-          </p>
-          <p className="text-base font-bold opacity-90 whitespace-nowrap">
-            {vel.value} {vel.unitLabel}
-          </p>
-          <p className="text-sm font-semibold opacity-75 whitespace-nowrap">
-            ROM {cable.position.toFixed(0)}
-          </p>
-        </div>
-      </div>
-    );
   };
   const stepLarge = activeUnit === 'KG' ? 2.5 : 5;
 
@@ -1285,7 +1272,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           {/* Flanking ROM Bars + 620px Dial Row */}
           <div className="flex items-center justify-center gap-8">
             {/* Left Cable ROM & Velocity Bar */}
-            {renderCableBar('LEFT', telemetry.left_cable)}
+            <KioskCableBar
+              side="left"
+              label="LEFT"
+              activeUnit={activeUnit}
+              initialCable={telemetry.left_cable}
+              subscribeLiveTelemetry={subscribeLiveTelemetry}
+            />
 
             {/* ~620px Interactive SVG Weight Gauge & Tap Target */}
             <div className="relative flex items-center justify-center">
@@ -1308,31 +1301,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   fill="transparent"
                 />
                 {/* Concentric Compass / Load-Cell Tick Ring */}
-                <g aria-hidden="true">
-                  {Array.from({ length: 60 }, (_, idx) => {
-                    const angle = (idx * 6 * Math.PI) / 180;
-                    const isMajor = idx % 5 === 0;
-                    const rOuter = 250;
-                    const rInner = isMajor ? 238 : 243;
-                    const x1 = 310 + rInner * Math.cos(angle);
-                    const y1 = 310 + rInner * Math.sin(angle);
-                    const x2 = 310 + rOuter * Math.cos(angle);
-                    const y2 = 310 + rOuter * Math.sin(angle);
-                    return (
-                      <line
-                        key={idx}
-                        x1={x1}
-                        y1={y1}
-                        x2={x2}
-                        y2={y2}
-                        stroke={telemetry.weight_enabled ? 'var(--accent-primary)' : 'var(--text-muted)'}
-                        strokeOpacity={isMajor ? (telemetry.weight_enabled ? 0.55 : 0.32) : 0.16}
-                        strokeWidth={isMajor ? 2 : 1}
-                        strokeLinecap="round"
-                      />
-                    );
-                  })}
-                </g>
+                <DialTickRing enabled={telemetry.weight_enabled} />
                 <circle
                   cx="310"
                   cy="310"
@@ -1463,7 +1432,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
 
             {/* Right Cable ROM & Velocity Bar */}
-            {renderCableBar('RIGHT', telemetry.right_cable)}
+            <KioskCableBar
+              side="right"
+              label="RIGHT"
+              activeUnit={activeUnit}
+              initialCable={telemetry.right_cable}
+              subscribeLiveTelemetry={subscribeLiveTelemetry}
+            />
           </div>
 
           {/* Direct Weight Stepper Strip Directly Below Dial */}
