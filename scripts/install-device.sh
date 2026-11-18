@@ -136,6 +136,18 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
   done
 fi
 
+run_in_termux() {
+  local cmd="$1"
+  local termux_uid
+  termux_uid="$("${ADB[@]}" shell "su -c 'stat -c %u /data/data/com.termux/files 2>/dev/null'" | tr -d '\r')"
+  local env_str="PREFIX=/data/data/com.termux/files/usr HOME=/data/data/com.termux/files/home TMPDIR=/data/data/com.termux/files/usr/tmp LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib PATH=/data/data/com.termux/files/usr/bin:\$PATH"
+  if [[ -n "${termux_uid}" ]]; then
+    "${ADB[@]}" shell "su ${termux_uid} -c '${env_str} ${cmd}'"
+  else
+    "${ADB[@]}" shell "su -c '${env_str} ${cmd}'"
+  fi
+}
+
 if [[ "${SKIP_LIBRESPOT}" -eq 0 ]]; then
   echo "==> Step 2/4: Installing librespot Spotify Connect receiver..."
   LIBRESPOT_LOCAL=""
@@ -152,7 +164,7 @@ if [[ "${SKIP_LIBRESPOT}" -eq 0 ]]; then
     LIBRESPOT_BIN="/data/local/bin/librespot"
   else
     echo "  [termux] Installing librespot inside Termux (place a static binary at ${LIBRESPOT_LOCAL} to use /data/local/bin instead)..."
-    "${ADB[@]}" shell "su -c 'PATH=/data/data/com.termux/files/usr/bin:\$PATH pkg update -y && pkg install -y librespot'" || \
+    run_in_termux "pkg update -y && pkg install -y librespot" || \
       echo "  [warn] Open Termux once on the Tonal screen to finish bootstrap, then run: pkg install -y librespot"
     LIBRESPOT_BIN="/data/data/com.termux/files/usr/bin/librespot"
   fi
@@ -164,6 +176,8 @@ if [[ "${SKIP_LIBRESPOT}" -eq 0 ]]; then
 until [ "\$(getprop sys.boot_completed)" -eq 1 ]; do
   sleep 2
 done
+export PREFIX="/data/data/com.termux/files/usr"
+export LD_LIBRARY_PATH="/data/data/com.termux/files/usr/lib:\${LD_LIBRARY_PATH:-}"
 export PATH="/data/data/com.termux/files/usr/bin:/data/local/bin:\$PATH"
 if [ -x "${LIBRESPOT_BIN}" ]; then
   nohup "${LIBRESPOT_BIN}" --name "Tonal Gym" --bitrate 320 --backend rodio > /data/local/swonal-librespot.log 2>&1 &
@@ -178,17 +192,17 @@ fi
 if [[ "${SKIP_DAEMON}" -eq 0 ]]; then
   echo "==> Step 3/4: Deploying tonal-daemon & boot service..."
   "${ADB[@]}" shell "su -c 'mkdir -p /data/swonal/packages/tonal-daemon /data/adb/service.d'"
-  TMP_TAR="$(mktemp --suffix=.tar.gz)"
-  tar -czf "${TMP_TAR}" \
+  TMP_TAR="$(mktemp --suffix=.tar)"
+  tar -cf "${TMP_TAR}" \
     --exclude='.venv' --exclude='.pytest_cache' --exclude='__pycache__' \
     -C "${ROOT_DIR}/packages/tonal-daemon" .
-  "${ADB[@]}" push "${TMP_TAR}" /data/local/tmp/tonal-daemon.tar.gz
+  "${ADB[@]}" push "${TMP_TAR}" /data/local/tmp/tonal-daemon.tar
   rm -f "${TMP_TAR}"
-  "${ADB[@]}" shell "su -c 'tar -xzf /data/local/tmp/tonal-daemon.tar.gz -C /data/swonal/packages/tonal-daemon && rm -f /data/local/tmp/tonal-daemon.tar.gz'"
+  "${ADB[@]}" shell "su -c 'tar -xf /data/local/tmp/tonal-daemon.tar -C /data/swonal/packages/tonal-daemon && rm -f /data/local/tmp/tonal-daemon.tar'"
   "${ADB[@]}" push "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/98-swonal-daemon.sh
   "${ADB[@]}" shell "su -c 'mv /data/local/tmp/98-swonal-daemon.sh /data/adb/service.d/98-swonal-daemon.sh && chmod 755 /data/adb/service.d/98-swonal-daemon.sh'"
   echo "  [termux] Installing tonal-daemon & swolectl Python dependencies in Termux..."
-  "${ADB[@]}" shell "su -c 'PATH=/data/data/com.termux/files/usr/bin:\$PATH pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon'" || \
+  run_in_termux "pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon" || \
     echo "  [warn] Open Termux once on the Tonal screen to finish bootstrap, then run: pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon"
 fi
 

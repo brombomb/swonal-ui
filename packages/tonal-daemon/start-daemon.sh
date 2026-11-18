@@ -12,6 +12,8 @@ done
 chmod 0666 /dev/ttyACM0
 
 # Path initialization for Termux / embedded Python runtime
+export PREFIX="/data/data/com.termux/files/usr"
+export LD_LIBRARY_PATH="/data/data/com.termux/files/usr/lib:${LD_LIBRARY_PATH:-}"
 export PATH="/data/data/com.termux/files/usr/bin:$PATH"
 export PYTHONHOME="/data/data/com.termux/files/usr"
 
