@@ -1192,13 +1192,21 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                       setShowArmInfo((v) => !v);
                     }}
                     aria-label="Explain Arm Position Codes"
-                    className="ml-1 opacity-75 hover:opacity-100"
+                    className={`ml-1 bg-transparent border-0 p-1 rounded-full opacity-80 hover:opacity-100 transition ${
+                      isLightTheme ? 'hover:bg-black/10' : 'hover:bg-white/10'
+                    }`}
                   >
                     <Info size={16} />
                   </button>
                 </div>
                 {showArmInfo && (
-                  <div className="absolute right-0 top-14 w-80 surface-card rounded-2xl p-4 shadow-2xl border text-xs space-y-1.5 z-40">
+                  <div
+                    className="absolute right-0 top-14 w-80 rounded-2xl p-4 shadow-2xl border text-xs space-y-1.5 z-40"
+                    style={{
+                      backgroundColor: 'var(--bg-surface-solid)',
+                      borderColor: 'var(--border-top-highlight)',
+                    }}
+                  >
                     <div className="flex items-center justify-between font-bold uppercase tracking-wider opacity-75">
                       <span>Arm Position Guide</span>
                       <button type="button" onClick={() => setShowArmInfo(false)}>
