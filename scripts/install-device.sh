@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Swonal All-in-One Tonal Device Installer
-# Installs: Magisk APK, Termux (Android 5/6), Bromite 108 / Firefox 68 ESR APK, librespot, and tonal-daemon
+# Installs: Termux (Android 5/6), Bromite 108 / Firefox 68 ESR APK, librespot, and tonal-daemon (assumes Magisk is already installed)
 # Usage:
 #   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url https://swonal.brombomb.com] [--apk-dir packages/device-assets] [--browser bromite|firefox]
 
@@ -95,16 +95,11 @@ download_if_missing() {
 }
 
 if [[ "${SKIP_APKS}" -eq 0 ]]; then
-  echo "==> Step 1/4: Downloading & installing APKs (Magisk, Termux Android 5/6, Standalone Browser)..."
+  echo "==> Step 1/4: Downloading & installing APKs (Termux Android 5/6, Standalone Browser)..."
 
-  MAGISK_APK="${APK_DIR}/Magisk-v27.0.apk"
   TERMUX_APK="${APK_DIR}/termux-android5-v0.119.0-beta.3.apk"
   FIREFOX_APK="${APK_DIR}/fennec-68.11.0.en-US.android-aarch64.apk"
   BROMITE_APK="${APK_DIR}/bromite-108-arm64.apk"
-
-  download_if_missing "${MAGISK_APK}" \
-    "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk" \
-    "Magisk v27.0" || true
 
   download_if_missing "${TERMUX_APK}" \
     "https://github.com/termux/termux-app/releases/download/v0.119.0-beta.3/termux-app_v0.119.0-beta.3%2Bapt-android-5-github-debug_universal.apk" \
@@ -133,7 +128,7 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
     fi
   fi
 
-  for apk in "${MAGISK_APK}" "${TERMUX_APK}" "${BROWSER_APK}"; do
+  for apk in "${TERMUX_APK}" "${BROWSER_APK}"; do
     if [[ -n "${apk}" && -f "${apk}" ]]; then
       echo "  [install] ${apk}"
       "${ADB[@]}" install -r -d "${apk}" || echo "  [warn] adb install returned non-zero for ${apk} (may already be installed)"
