@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Swonal All-in-One Tonal Device Installer
-# Installs: Termux (Android 5/6), KISS Launcher, Bromite 108 / Firefox 68 ESR APK, librespot, and tonal-daemon (assumes Magisk is already installed)
+# Installs: Termux (Android 5/6), Simple App Launcher, Bromite 108 / Firefox 68 ESR APK, librespot, and tonal-daemon (assumes Magisk is already installed)
 # Usage:
 #   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url https://swonal.brombomb.com] [--apk-dir packages/device-assets] [--browser bromite|firefox]
 
@@ -95,10 +95,10 @@ download_if_missing() {
 }
 
 if [[ "${SKIP_APKS}" -eq 0 ]]; then
-  echo "==> Step 1/4: Downloading & installing APKs (Termux Android 5/6, KISS Launcher, Standalone Browser)..."
+  echo "==> Step 1/4: Downloading & installing APKs (Termux Android 5/6, Simple App Launcher, Standalone Browser)..."
 
   TERMUX_APK="${APK_DIR}/termux-android5-v0.119.0-beta.3.apk"
-  KISS_APK="${APK_DIR}/KISS-v3.27.1.apk"
+  LAUNCHER_APK="${APK_DIR}/Simple-App-Launcher-5.11.4.apk"
   FIREFOX_APK="${APK_DIR}/fennec-68.11.0.en-US.android-aarch64.apk"
   BROMITE_APK="${APK_DIR}/bromite-108-arm64.apk"
 
@@ -106,9 +106,9 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
     "https://github.com/termux/termux-app/releases/download/v0.119.0-beta.3/termux-app_v0.119.0-beta.3%2Bapt-android-5-github-debug_universal.apk" \
     "Termux (Android 5/6 Universal)" || true
 
-  download_if_missing "${KISS_APK}" \
-    "https://github.com/Neamar/KISS/releases/download/v3.27.1/KISS-v3.27.1.apk" \
-    "KISS Launcher v3.27.1" || true
+  download_if_missing "${LAUNCHER_APK}" \
+    "https://github.com/SimpleMobileTools/Simple-App-Launcher/releases/download/5.11.4/app-launcher-fdroid-release.apk" \
+    "Simple App Launcher v5.11.4" || true
 
   BROWSER_APK=""
   if [[ "${BROWSER}" == "bromite" ]]; then
@@ -133,7 +133,7 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
     fi
   fi
 
-  for apk in "${TERMUX_APK}" "${KISS_APK}" "${BROWSER_APK}"; do
+  for apk in "${TERMUX_APK}" "${LAUNCHER_APK}" "${BROWSER_APK}"; do
     if [[ -n "${apk}" && -f "${apk}" ]]; then
       echo "  [install] ${apk}"
       "${ADB[@]}" install -r -d "${apk}" || echo "  [warn] adb install returned non-zero for ${apk} (may already be installed)"
