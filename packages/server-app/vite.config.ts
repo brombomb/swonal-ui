@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   root: path.resolve(__dirname, 'src/client'),
   build: {
+    target: ['es2018', 'firefox68', 'chrome70'],
     outDir: path.resolve(__dirname, 'dist/client'),
     emptyOutDir: true,
   },
