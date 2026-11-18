@@ -27,3 +27,6 @@ packages/tonal-daemon/config.yaml
 # Logs & OS Files
 *.log
 .DS_Store
+
+# Local ADB / Tonal Keys
+tonal_keys/
