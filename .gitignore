@@ -28,5 +28,6 @@ packages/tonal-daemon/config.yaml
 *.log
 .DS_Store
 
-# Local ADB / Tonal Keys
+# Local ADB / Tonal Keys & Oversized Cached APKs (>100MB)
 tonal_keys/
+packages/device-assets/bromite-*.apk

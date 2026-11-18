@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Swonal All-in-One Tonal Device Installer
-# Installs: Magisk APK, Termux (Android 5/6), Via Browser APK, librespot, and tonal-daemon
+# Installs: Magisk APK, Termux (Android 5/6), Bromite 108 / Firefox 68 ESR APK, librespot, and tonal-daemon
 # Usage:
-#   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url https://swonal.brombomb.com] [--apk-dir packages/device-assets]
+#   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url https://swonal.brombomb.com] [--apk-dir packages/device-assets] [--browser bromite|firefox]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -14,6 +14,7 @@ SERVER_URL="http://localhost:3000"
 SKIP_APKS=0
 SKIP_LIBRESPOT=0
 SKIP_DAEMON=0
+BROWSER="bromite"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +41,10 @@ while [[ $# -gt 0 ]]; do
     --skip-daemon)
       SKIP_DAEMON=1
       shift
+      ;;
+    --browser)
+      BROWSER="${2:-bromite}"
+      shift 2
       ;;
     -h|--help)
       sed -n '3,10p' "$0"
@@ -90,11 +95,12 @@ download_if_missing() {
 }
 
 if [[ "${SKIP_APKS}" -eq 0 ]]; then
-  echo "==> Step 1/4: Downloading & installing APKs (Magisk, Termux Android 5/6, Via Browser)..."
+  echo "==> Step 1/4: Downloading & installing APKs (Magisk, Termux Android 5/6, Standalone Browser)..."
 
   MAGISK_APK="${APK_DIR}/Magisk-v27.0.apk"
   TERMUX_APK="${APK_DIR}/termux-android5-v0.119.0-beta.3.apk"
-  VIA_APK="${APK_DIR}/via-browser.apk"
+  FIREFOX_APK="${APK_DIR}/fennec-68.11.0.en-US.android-aarch64.apk"
+  BROMITE_APK="${APK_DIR}/bromite-108-arm64.apk"
 
   download_if_missing "${MAGISK_APK}" \
     "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk" \
@@ -104,12 +110,31 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
     "https://github.com/termux/termux-app/releases/download/v0.119.0-beta.3/termux-app_v0.119.0-beta.3%2Bapt-android-5-github-debug_universal.apk" \
     "Termux (Android 5/6 Universal)" || true
 
-  download_if_missing "${VIA_APK}" \
-    "https://res.viayoo.com/v1/via-release-cn.apk" \
-    "Via Browser" || true
+  BROWSER_APK=""
+  if [[ "${BROWSER}" == "bromite" ]]; then
+    if [[ "${DEVICE_ABI}" == arm64* ]]; then
+      BROMITE_URL="https://github.com/bromite/bromite/releases/download/108.0.5359.156/arm64_ChromePublic.apk"
+    else
+      BROMITE_APK="${APK_DIR}/bromite-108-arm.apk"
+      BROMITE_URL="https://github.com/bromite/bromite/releases/download/108.0.5359.156/arm_ChromePublic.apk"
+    fi
+    if download_if_missing "${BROMITE_APK}" "${BROMITE_URL}" "Bromite 108 (bundled Chromium)"; then
+      BROWSER_APK="${BROMITE_APK}"
+    fi
+  fi
 
-  for apk in "${MAGISK_APK}" "${TERMUX_APK}" "${VIA_APK}"; do
-    if [[ -f "${apk}" ]]; then
+  if [[ -z "${BROWSER_APK}" ]]; then
+    download_if_missing "${FIREFOX_APK}" \
+      "https://archive.mozilla.org/pub/mobile/releases/68.11.0/android-aarch64/en-US/fennec-68.11.0.en-US.android-aarch64.apk" \
+      "Firefox 68.11.0 ESR (bundled Gecko)" || true
+    if [[ -f "${FIREFOX_APK}" ]]; then
+      BROWSER_APK="${FIREFOX_APK}"
+      BROWSER="firefox"
+    fi
+  fi
+
+  for apk in "${MAGISK_APK}" "${TERMUX_APK}" "${BROWSER_APK}"; do
+    if [[ -n "${apk}" && -f "${apk}" ]]; then
       echo "  [install] ${apk}"
       "${ADB[@]}" install -r -d "${apk}" || echo "  [warn] adb install returned non-zero for ${apk} (may already be installed)"
     fi
@@ -172,12 +197,20 @@ if [[ "${SKIP_DAEMON}" -eq 0 ]]; then
     echo "  [warn] Open Termux once on the Tonal screen to finish bootstrap, then run: pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon"
 fi
 
-echo "==> Step 4/4: Launching Via Browser to ${SERVER_URL}..."
-"${ADB[@]}" shell "am start -a android.intent.action.VIEW -d '${SERVER_URL}' mark.via.gp" || \
-  echo "  [info] Open Via Browser manually and navigate to ${SERVER_URL}"
+if [[ "${BROWSER}" == "bromite" ]]; then
+  BROWSER_PKG="org.bromite.bromite"
+  BROWSER_LABEL="Bromite"
+else
+  BROWSER_PKG="org.mozilla.firefox"
+  BROWSER_LABEL="Firefox"
+fi
+
+echo "==> Step 4/4: Launching ${BROWSER_LABEL} to ${SERVER_URL}..."
+"${ADB[@]}" shell "am start -a android.intent.action.VIEW -d '${SERVER_URL}' ${BROWSER_PKG}" || \
+  echo "  [info] Open ${BROWSER_LABEL} manually and navigate to ${SERVER_URL}"
 
 echo ""
 echo "All-in-one device setup complete!"
 echo "  - Tonal Gym (librespot) boot script: /data/adb/service.d/99-swonal-librespot.sh"
 echo "  - tonal-daemon boot script:          /data/adb/service.d/98-swonal-daemon.sh"
-echo "  - Kiosk URL in Via Browser:          ${SERVER_URL}"
+echo "  - Kiosk URL in ${BROWSER_LABEL}:     ${SERVER_URL}"
