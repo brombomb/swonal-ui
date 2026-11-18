@@ -69,14 +69,14 @@ body {
 .swonal-dot-grid {
   background-image: var(--bg-grid-pattern);
   background-size: 36px 36px;
-  -webkit-mask-image: radial-gradient(ellipse 85% 78% at 50% 45%, #000 35%, transparent 100%);
-  mask-image: radial-gradient(ellipse 85% 78% at 50% 45%, #000 35%, transparent 100%);
+  contain: strict;
 }
 
 .swonal-noise-grain {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-  background-size: 140px 140px;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.28) 0.5px, transparent 0.5px);
+  background-size: 4px 4px;
   opacity: var(--bg-noise-opacity);
+  contain: strict;
 }
 
 .swonal-carbon-pad {
@@ -188,7 +188,8 @@ svg.lucide {
 }
 
 /* Native <dialog> scroll containment & modal styling */
-dialog:modal {
+dialog:modal,
+dialog[open] {
   overscroll-behavior: contain;
   background-color: var(--bg-dialog);
   color: var(--text-primary);
