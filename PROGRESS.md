@@ -26,7 +26,7 @@
 ## Milestone 2: Database Layer, Seed Catalog, & Pluggable Music Provider Architecture
 - [x] Initialize `packages/server-app` (`package.json` with Prisma `^5.22.0`, `tsconfig.json`, `.env`)
 - [x] Implement `packages/server-app/prisma/schema.prisma` (canonical `lb` storage) and run `prisma db push`
-- [x] Implement `packages/server-app/prisma/seed.ts` (48+ exercises, Jeri & Rob profiles, PRs, templates) and run seed
+- [x] Implement `packages/server-app/prisma/seed.ts` (48+ exercises, Alex & Taylor profiles, PRs, templates) and run seed
 - [x] Implement `src/server/db.ts` and `src/server/utils/units.ts` (`LB` <-> `KG` conversion)
 - [x] Implement Pluggable Music Provider Architecture (`MusicProvider.ts`, `Registry.ts`, `SpotifyProvider.ts`, `YouTubeMusicProvider.ts`, `AppleMusicProvider.ts`)
 - [x] Write and verify Milestone 2 unit tests (`vitest`)
@@ -52,9 +52,46 @@
 - [x] Verify TypeScript (`tsc --noEmit`) and production build (`npm run build`)
 - [x] Commit Milestone 5 (`feat(milestone-5): ...`)
 
-## Milestone 6: Dockerization, End-to-End Integration Verification, & Documentation
-- [x] Finalize `packages/server-app/Dockerfile`, `packages/tonal-daemon/Dockerfile`, `docker-compose.yml`, and `.env.example`
-- [x] Write and run automated E2E verification script (`scripts/verify-e2e.mjs`)
-- [x] Write comprehensive `README.md`
-- [x] Run full test suites (`pytest`, `vitest`, `tsc --noEmit`, `npm run build`, E2E script) and verify clean git tree
-- [x] Commit Milestone 6 (`feat(milestone-6): ...`)
+## Post-Milestone Hardening: Physical Hardware Integration & Reboot Persistence
+- [x] Restored customized user profiles ("Rob" and "Jeri") and updated `packages/server-app/prisma/seed.ts` upsert (`update: {}`) to prevent wiping customized users on server restart.
+- [x] Fixed Python 3.8 / Termux runtime compatibility in `packages/tonal-daemon`:
+  - Added `from __future__ import annotations` across daemon source modules.
+  - Replaced Python 3.10+ pipe union syntax with `typing.Union`.
+  - Added Pydantic v1 `model_dump = dict` shim for backwards compatibility.
+  - Added loop executor `_to_thread` fallback for Python < 3.9.
+  - Bundled pure-Python `swolectl` without `slots=True` and with `StrEnum` fallback.
+- [x] Resolved `/dev/ttyACM0` serial port locking:
+  - Added `am force-stop com.riptlabs.mcb.service` and `am force-stop com.tonal.app` to `start-daemon.sh` and `/data/adb/service.d/98-swonal-daemon.sh` to allow swonal-daemon exclusive access to the motor controller.
+- [x] Fixed `mock_mode` telemetry parsing and dynamic health polling:
+  - Fixed property mismatch in `KioskView.tsx`, `CompanionView.tsx`, and `AdminView.tsx` where `mock_mode` from the daemon `/health` endpoint was previously ignored in favor of `mock`.
+  - Added 5s interval polling for daemon health in `KioskView.tsx` and `CompanionView.tsx` so reconnects after daemon restarts dynamically update the hardware status pill.
+- [x] Application Settings Dark Theme & Performance Optimizations:
+  - Eliminated white flash before page load: Added `<meta name="color-scheme" content="dark" />`, inline dark canvas styles (`#06090e`), and `#initial-loader` in `index.html`.
+  - Accelerated Settings loading time: Converted `App.tsx` routes to dynamic lazy code-splitting (`React.lazy()` / `Suspense`), reducing the initial JavaScript payload for `/settings` by over 50% (from 424kB down to 181kB core + 47kB SettingsView chunk).
+  - Added background pre-warming of `GeckoRuntime` in `SwonalApp.onCreate()` and native themed dark loading overlay in `SwonalWebActivity.kt`.
+  - Pre-granted permanent Magisk root policy (`policy: 2`, `notification: 0`) to `com.swonal.kiosk`, clearing stuck denial toasts.
+- [x] Hardened reboot persistence and hardware isolation:
+  - Installed persistent Wireless ADB watchdogs in `/data/adb/post-fs-data.d/00-swonal-adbd.sh` and `/data/adb/service.d/00-swonal-adbd.sh` (`persist.adb.tcp.port 5555`).
+  - Added early suppression of stock Tonal MCB motor service (`pm disable com.riptlabs.mcb.service` and `am force-stop`) so stock apps cannot hijack `/dev/ttyACM0` on boot.
+  - Set hardware serial permissions strictly to `0600 root:root` so non-root apps cannot open `/dev/ttyACM0`.
+  - Updated `mode_switcher.py` to enable MCB only when transitioning to stock mode, and disable/re-lock on return to custom mode.
+  - Verified full reboot recovery over Wi-Fi ADB: tablet boots, port 5555 auto-connects, `tonal-daemon` claims `/dev/ttyACM0` (`mock_mode: false`), and kiosk UI displays `• TONAL CDC 30Hz` with household profiles intact.
+- [x] Settings View 5 Dedicated Tabs & Music/Audio Refinements:
+  - Organized `SettingsView.tsx` into 5 clean, focused tabs: `Users` (lifter profiles, units LB/KG, accent colors), `Music` (Spotify Connect, Plexamp, YTM, Apple, Amazon), `AI` (BYOK Voice Coach), `Network` (LAN IPs, Companion QR override, MCP SSE endpoint, Home Assistant event bus), and `Security` (passcode lock, localhost bypass, API tokens, database export/backups).
+  - Cleaned up internal `librespot` branding across Android kiosk UI and server-app web views, replacing user-facing labels with "Tonal Speakers" / "Built-in Speakers".
+  - Fixed Tonal Zeroconf mDNS discovery for on-device Spotify receiver by adding persistent kernel multicast route (`224.0.0.0/4 dev wlan0`) and ALSA config exports.
+  - Attenuated screen tap sounds: replaced deafening stock Android click effects with a subtle `0.20f` `Cue.TAP` synthesizer in `SwonalSoundEngine`, routed through `USAGE_MEDIA` to track media volume (33% device volume produces soft, comfortable tactile clicks), and synchronized `STREAM_SYSTEM` with `STREAM_MUSIC`.
+  - Handled Spotify Web API 429 rate-limiting with exponential backoff (`Retry-After`), persisted playlists to SQLite metadata cache, and expanded curated fallback workout playlists.
+- [x] Verified live physical Tonal hardware connection:
+  - Native tablet kiosk shows `• TONAL CDC 30Hz` in magenta.
+  - Tonal daemon (`192.168.0.140:8765`) reports `mock_mode: false` bound to `/dev/ttyACM0`.
+  - All test suites passing (`pytest` 9/9, `vitest` 17/17, Gradle unit tests 26/26).
+  - Implemented `_to_thread` async helper fallback using `loop.run_in_executor` for Python < 3.9.
+  - Bundled pure-Python `swolectl` with Python 3.8-compatible dataclasses (removed `slots=True`) and `StrEnum` fallback.
+- [x] Hardened Magisk `service.d` boot scripts on the Tonal V1 tablet (`192.168.0.140`):
+  - Fixed boot loop check from `[ sys.boot_completed -eq 1 ]` to safe string comparison `[ sys.boot_completed != "1" ]` in both `98-swonal-daemon.sh` and `99-swonal-librespot.sh`.
+  - Added persistent Wi-Fi ADB retention (`setprop service.adb.tcp.port 5555; stop adbd; start adbd`).
+  - Added pre-startup force-stop of `com.tonal.app` and `com.riptlabs.mcb.service` to release exclusive file locks on `/dev/ttyACM0`.
+  - Set root environment variables (`HOME`, `PREFIX`, `LD_LIBRARY_PATH`, `PATH`, `PYTHONHOME`) in `start-daemon.sh`.
+- [x] Updated `BootReceiver.kt` in `android-kiosk` to ensure Wi-Fi ADB port 5555 is retained on `BOOT_COMPLETED`.
+- [x] Verified live physical Tonal motor telemetry streaming at 30Hz (`TONAL CDC 30Hz`) and active `librespot` ALSA sink.

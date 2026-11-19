@@ -110,12 +110,19 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
 
   useEffect(() => {
-    void fetch('/api/daemon/health')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { mock_mode?: boolean } | null) => {
-        if (d?.mock_mode) setIsMockMode(true);
-      })
-      .catch(() => {});
+    const checkHealth = () => {
+      void fetch('/api/daemon/health')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { mock_mode?: boolean; mock?: boolean } | null) => {
+          if (d && (d.mock_mode !== undefined || d.mock !== undefined)) {
+            setIsMockMode(Boolean(d.mock_mode ?? d.mock));
+          }
+        })
+        .catch(() => {});
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const beginHoldEngage = () => {

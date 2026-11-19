@@ -1,0 +1,669 @@
+package com.swonal.kiosk.ui
+
+import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
+import android.media.AudioManager
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.SeekBar
+import android.widget.TextView
+import com.swonal.kiosk.net.KioskUiState
+import com.swonal.kiosk.net.SwonalRepository
+import com.swonal.kiosk.theme.SwonalFonts
+import com.swonal.kiosk.theme.SwonalPalette
+import kotlin.math.roundToInt
+
+object KioskPopups {
+
+    fun showQuickPreferences(
+        context: Context,
+        anchor: View,
+        initialUi: KioskUiState,
+        palette: SwonalPalette,
+        onToggleUnit: () -> Unit,
+        onToggleTheme: () -> Unit,
+        onToggleDemoPip: () -> Unit,
+        onCycleTelemetry: () -> Unit,
+        onOpenProfiles: () -> Unit,
+        onOpenDiagnostics: () -> Unit,
+        onOpenMenu: () -> Unit,
+        onOpenWebPath: (path: String, title: String) -> Unit
+    ) {
+        val d = context.resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
+        lateinit var popup: PopupWindow
+        var localUnit = initialUi.activeUnit
+        var localDark = palette.isDark
+        var localDemoPip = initialUi.showDemoPip
+        var localTelemetry = initialUi.telemetryDisplayMode
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = palette.solidSurfaceDrawable(d, 16f, palette.borderTopHighlight)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+        }
+
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+            addView(TextView(context).apply {
+                text = "QUICK PREFERENCES"
+                textSize = 10.5f
+                letterSpacing = 0.08f
+                typeface = SwonalFonts.interExtraBold(context)
+                setTextColor(palette.textMuted)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(TextView(context).apply {
+                text = "✕"
+                textSize = 14f
+                setTextColor(palette.textMuted)
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+                setOnClickListener { popup.dismiss() }
+            }.also { PressFeedback.attachSingle(it) })
+        }
+        root.addView(header)
+
+        // Device Hardware Volume Slider (`AudioManager.STREAM_MUSIC`)
+        val audioMgr = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVol = audioMgr.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val curVol = audioMgr.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val curPct = ((curVol.toFloat() / maxVol.toFloat()) * 100f).roundToInt()
+        val barFillColor = if (palette.isDark) palette.accentPrimary else palette.accentInk
+
+        val volCard = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = palette.elevatedPillDrawable(d, 10f, interactive = false)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+        val volTop = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val volPctTv = TextView(context).apply {
+            text = "$curPct%"
+            textSize = 11.5f
+            typeface = SwonalFonts.monoBold(context)
+            fontFeatureSettings = "tnum"
+            setTextColor(palette.accentInk)
+        }
+        volTop.addView(TextView(context).apply {
+            text = "Device Volume"
+            textSize = 12f
+            typeface = SwonalFonts.interBold(context)
+            setTextColor(palette.textPrimary)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        volTop.addView(volPctTv)
+        volCard.addView(volTop)
+
+        volCard.addView(SeekBar(context).apply {
+            max = maxVol
+            progress = curVol
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+            progressDrawable = createSliderTrack(palette.bgSurfaceSolid, barFillColor, 6f * d)
+            thumb = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(barFillColor)
+                setSize(dp(14), dp(14))
+                setStroke(dp(2), palette.bgSurfaceSolid)
+            }
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        audioMgr.setStreamVolume(AudioManager.STREAM_MUSIC, progress, 0)
+                        val sysMax = audioMgr.getStreamMaxVolume(AudioManager.STREAM_SYSTEM).coerceAtLeast(1)
+                        val sysProgress = ((progress.toFloat() / maxVol.toFloat()) * sysMax.toFloat()).roundToInt()
+                        audioMgr.setStreamVolume(AudioManager.STREAM_SYSTEM, sysProgress, 0)
+                        val pct = ((progress.toFloat() / maxVol.toFloat()) * 100f).roundToInt()
+                        volPctTv.text = "$pct%"
+                    }
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        })
+        root.addView(volCard)
+
+        // 2-col row: Units & Theme
+        val topRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+        val unitBtn = makePopupButton(context, "Units: $localUnit", palette, d, mono = true) {}
+        unitBtn.setOnClickListener {
+            localUnit = if (localUnit.equals("KG", ignoreCase = true)) "LB" else "KG"
+            unitBtn.text = "Units: $localUnit"
+            onToggleUnit()
+        }
+        unitBtn.layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }
+
+        val themeBtn = makePopupButton(context, "Theme: ${if (localDark) "Dark" else "Light"}", palette, d) {}
+        themeBtn.setOnClickListener {
+            localDark = !localDark
+            themeBtn.text = "Theme: ${if (localDark) "Dark" else "Light"}"
+            onToggleTheme()
+            popup.dismiss()
+        }
+        themeBtn.layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
+        topRow.addView(unitBtn)
+        topRow.addView(themeBtn)
+        root.addView(topRow)
+
+        val (demoRow, demoValueTv) = makeToggleRow(
+            context,
+            "Form Demo Video",
+            if (localDemoPip) "Shown" else "Hidden",
+            palette,
+            d
+        )
+        demoRow.setOnClickListener {
+            localDemoPip = !localDemoPip
+            demoValueTv.text = if (localDemoPip) "Shown" else "Hidden"
+            onToggleDemoPip()
+        }
+        root.addView(demoRow)
+
+        val (vbtRow, vbtValueTv) = makeToggleRow(
+            context,
+            "VBT & Symmetry",
+            localTelemetry.label,
+            palette,
+            d
+        )
+        vbtRow.setOnClickListener {
+            localTelemetry = localTelemetry.next()
+            vbtValueTv.text = localTelemetry.label
+            onCycleTelemetry()
+        }
+        root.addView(vbtRow)
+
+        root.addView(makePopupButton(context, "Accent Color & Profiles", palette, d) {
+            popup.dismiss()
+            onOpenProfiles()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(6) }
+        })
+
+        root.addView(makePopupButton(context, "Hardware & Diagnostics", palette, d) {
+            popup.dismiss()
+            onOpenDiagnostics()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(6) }
+        })
+
+        root.addView(makePopupButton(context, "Menu & Stock Tonal", palette, d) {
+            popup.dismiss()
+            onOpenMenu()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(6) }
+        })
+
+        root.addView(makePopupButton(context, "History & PRs", palette, d) {
+            popup.dismiss()
+            onOpenWebPath("/history", "History & PRs")
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(8) }
+        })
+
+        root.addView(TextView(context).apply {
+            text = "Application Settings →"
+            textSize = 12.5f
+            gravity = Gravity.CENTER
+            typeface = SwonalFonts.interExtraBold(context)
+            setTextColor(palette.accentTextColor)
+            background = palette.accentPillDrawable(d, 10f)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40))
+            setOnClickListener {
+                popup.dismiss()
+                onOpenWebPath("/settings", "Application Settings")
+            }
+        }.also { PressFeedback.attachSingle(it) })
+
+        popup = PopupWindow(root, dp(264), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = 16f * d
+            isOutsideTouchable = true
+        }
+        popup.showAsDropDown(anchor, -dp(194), dp(8))
+    }
+
+    fun showArmPositionGuide(
+        context: Context,
+        anchor: View,
+        palette: SwonalPalette,
+        telemetry: com.swonal.kiosk.model.TelemetryFrame? = null,
+        exercise: com.swonal.kiosk.model.Exercise? = null,
+        isMockMode: Boolean = false,
+        onSyncMockArms: (() -> Unit)? = null
+    ) {
+        val d = context.resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
+        lateinit var popup: PopupWindow
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = palette.solidSurfaceDrawable(d, 14f, palette.borderTopHighlight)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+            addView(TextView(context).apply {
+                text = "ARM POSITION & SENSORS"
+                textSize = 10.5f
+                letterSpacing = 0.08f
+                typeface = SwonalFonts.interExtraBold(context)
+                setTextColor(palette.accentInk)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(TextView(context).apply {
+                text = "✕"
+                textSize = 13f
+                setTextColor(palette.textMuted)
+                setPadding(dp(6), dp(2), dp(4), dp(2))
+                setOnClickListener { popup.dismiss() }
+            }.also { PressFeedback.attachSingle(it) })
+        }
+        root.addView(header)
+
+        if (telemetry != null && exercise != null) {
+            val alignment = com.swonal.kiosk.model.ArmAlignmentHelper.evaluate(telemetry, exercise)
+            val sensorBox = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                background = palette.elevatedPillDrawable(d, 10f, interactive = false)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(8) }
+            }
+
+            fun addSensorRow(label: String, value: String, color: Int) {
+                sensorBox.addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(2); bottomMargin = dp(2) }
+                    addView(TextView(context).apply {
+                        text = label
+                        textSize = 11f
+                        typeface = SwonalFonts.interBold(context)
+                        setTextColor(palette.textMuted)
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(TextView(context).apply {
+                        text = value
+                        textSize = 11f
+                        typeface = SwonalFonts.monoBold(context)
+                        fontFeatureSettings = "tnum"
+                        setTextColor(color)
+                    })
+                })
+            }
+
+            addSensorRow("Target", alignment.targetText, palette.textPrimary)
+            addSensorRow(
+                "Left Arm",
+                "${alignment.leftLiveText} ${if (alignment.leftMatched) "✓" else "✗"}",
+                when {
+                    alignment.leftUnlocked -> palette.criticalText
+                    alignment.leftMatched -> palette.accentInk
+                    else -> palette.warningText
+                }
+            )
+            addSensorRow(
+                "Right Arm",
+                "${alignment.rightLiveText} ${if (alignment.rightMatched) "✓" else "✗"}",
+                when {
+                    alignment.rightUnlocked -> palette.criticalText
+                    alignment.rightMatched -> palette.accentInk
+                    else -> palette.warningText
+                }
+            )
+            addSensorRow(
+                "Attachment",
+                "${telemetry.accessory} ${if (alignment.accessoryMatched) "✓" else "→ ${exercise.accessory}"}",
+                if (alignment.accessoryMatched) palette.accentInk else palette.warningText
+            )
+            root.addView(sensorBox)
+
+            root.addView(TextView(context).apply {
+                text = if (isMockMode) {
+                    "Live sensor auto-check enabled (running in Mock 30Hz simulator)."
+                } else {
+                    "Auto-updates at 30Hz from Tonal arm height, rotation & lock sensors."
+                }
+                textSize = 10.5f
+                setTextColor(palette.textMuted)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(8) }
+            })
+
+            if (isMockMode && onSyncMockArms != null && alignment.status != com.swonal.kiosk.model.ArmAlignmentStatus.ALIGNED) {
+                root.addView(makePopupButton(context, "Simulate Aligned Arms (Mock)", palette, d) {
+                    onSyncMockArms()
+                    popup.dismiss()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(36)
+                    ).apply { bottomMargin = dp(8) }
+                })
+            }
+        }
+
+        listOf(
+            "H (Height): Vertical rail notch (1 low – 6 high)",
+            "R (Rotation): Horizontal arm swing (1 – 3)",
+            "A (Angle): Pivot angle tilt (1 – 2)"
+        ).forEach { line ->
+            root.addView(TextView(context).apply {
+                text = line
+                textSize = 11f
+                setTextColor(palette.textMuted)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(2) }
+            })
+        }
+
+        popup = PopupWindow(root, dp(304), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = 16f * d
+            isOutsideTouchable = true
+        }
+        popup.showAsDropDown(anchor, -dp(250), dp(6))
+    }
+
+    private fun makePopupButton(
+        context: Context,
+        label: String,
+        palette: SwonalPalette,
+        d: Float,
+        mono: Boolean = false,
+        onClick: () -> Unit
+    ): TextView {
+        return TextView(context).apply {
+            text = label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            typeface = if (mono) SwonalFonts.monoBold(context) else SwonalFonts.interBold(context)
+            setTextColor(palette.textPrimary)
+            background = palette.elevatedPillDrawable(d, 10f)
+            setOnClickListener { onClick() }
+        }.also { PressFeedback.attachSingle(it) }
+    }
+
+    private fun makeToggleRow(
+        context: Context,
+        title: String,
+        value: String,
+        palette: SwonalPalette,
+        d: Float
+    ): Pair<LinearLayout, TextView> {
+        fun dp(v: Int) = (v * d).toInt()
+        val valTv = TextView(context).apply {
+            text = value
+            textSize = 11.5f
+            typeface = SwonalFonts.monoBold(context)
+            setTextColor(palette.accentInk)
+        }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = palette.elevatedPillDrawable(d, 10f)
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6) }
+            addView(TextView(context).apply {
+                text = title
+                textSize = 12f
+                typeface = SwonalFonts.interBold(context)
+                setTextColor(palette.textPrimary)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(valTv)
+        }.also { PressFeedback.attachSingle(it) }
+        return row to valTv
+    }
+
+    private fun createSliderTrack(trackColor: Int, fillColor: Int, heightPx: Float): LayerDrawable {
+        val radius = heightPx * 0.5f
+        val bg = GradientDrawable().apply {
+            setColor(trackColor)
+            cornerRadius = radius
+            setSize(-1, heightPx.toInt().coerceAtLeast(4))
+        }
+        val fg = GradientDrawable().apply {
+            setColor(fillColor)
+            cornerRadius = radius
+            setSize(-1, heightPx.toInt().coerceAtLeast(4))
+        }
+        val clip = ClipDrawable(fg, Gravity.START, ClipDrawable.HORIZONTAL)
+        val insetY = (heightPx * 0.9f).roundToInt().coerceAtLeast(4)
+        return LayerDrawable(arrayOf(bg, clip)).apply {
+            setId(0, android.R.id.background)
+            setId(1, android.R.id.progress)
+            setLayerInset(0, 0, insetY, 0, insetY)
+            setLayerInset(1, 0, insetY, 0, insetY)
+        }
+    }
+
+    /**
+     * Fast inline speaker selector anchored directly above the Music Dock's speaker pill.
+     * Sorts the on-device Tonal `librespot` speaker first so it's always 1 tap away.
+     */
+    fun showSpeakerPicker(
+        context: Context,
+        anchor: View,
+        ui: KioskUiState,
+        palette: SwonalPalette,
+        onSelectDevice: (String) -> Unit,
+        onRefresh: () -> Unit,
+        onOpenMusicLibrary: () -> Unit
+    ) {
+        val d = context.resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
+        lateinit var popup: PopupWindow
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = palette.solidSurfaceDrawable(d, 16f, palette.borderTopHighlight)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+        }
+
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+            addView(TextView(context).apply {
+                text = "ACTIVE SPEAKER"
+                textSize = 10.5f
+                letterSpacing = 0.08f
+                typeface = SwonalFonts.interExtraBold(context)
+                setTextColor(palette.textMuted)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(TextView(context).apply {
+                text = "Refresh"
+                textSize = 11f
+                typeface = SwonalFonts.interBold(context)
+                setTextColor(palette.accentInk)
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+                setOnClickListener {
+                    onRefresh()
+                    popup.dismiss()
+                }
+            }.also { PressFeedback.attachSingle(it) })
+            addView(TextView(context).apply {
+                text = "✕"
+                textSize = 14f
+                setTextColor(palette.textMuted)
+                setPadding(dp(6), dp(2), dp(4), dp(2))
+                setOnClickListener { popup.dismiss() }
+            }.also { PressFeedback.attachSingle(it) })
+        }
+        root.addView(header)
+
+        val localLibrespot = SwonalRepository.findLibrespotDevice(ui.musicDevices)
+        val sortedDevices = ui.musicDevices.sortedWith(
+            compareByDescending<com.swonal.kiosk.model.MusicDevice> { it.id == localLibrespot?.id }
+                .thenByDescending { it.isActive || it.id == ui.musicState.activeDeviceId }
+                .thenBy { it.name.lowercase() }
+        )
+
+        if (sortedDevices.isEmpty()) {
+            root.addView(TextView(context).apply {
+                text = "No Spotify Connect speakers discovered yet. Open Spotify or select Tonal Speakers."
+                textSize = 11.5f
+                setTextColor(palette.textMuted)
+                setPadding(dp(4), dp(4), dp(4), dp(10))
+            })
+        } else {
+            sortedDevices.forEach { dev ->
+                val isLocal = dev.id == localLibrespot?.id
+                val isActive = dev.isActive || dev.id == ui.musicState.activeDeviceId
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = if (isActive) {
+                        palette.accentMutedDrawable(d, 10f, 1.6f)
+                    } else {
+                        palette.elevatedPillDrawable(d, 10f)
+                    }
+                    setPadding(dp(12), dp(9), dp(12), dp(9))
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(6) }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        onSelectDevice(dev.id)
+                        popup.dismiss()
+                    }
+                }.also { PressFeedback.attachSingle(it) }
+
+                val info = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val cleanDevName = dev.name
+                    .replace(Regex("\\(?librespot\\)?", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\s{2,}"), " ")
+                    .trim()
+                    .ifBlank { "Tonal Speakers" }
+                info.addView(TextView(context).apply {
+                    text = if (isLocal && !cleanDevName.contains("Tonal", ignoreCase = true)) {
+                        "$cleanDevName (Tonal)"
+                    } else {
+                        cleanDevName
+                    }
+                    textSize = 12.5f
+                    typeface = SwonalFonts.interBold(context)
+                    setTextColor(if (isActive) palette.accentInk else palette.textPrimary)
+                })
+                info.addView(TextView(context).apply {
+                    text = buildString {
+                        append(dev.type)
+                        if (isLocal) append(" • Default")
+                    }
+                    textSize = 10.5f
+                    setTextColor(palette.textMuted)
+                })
+                row.addView(info)
+
+                if (isActive) {
+                    row.addView(TextView(context).apply {
+                        text = "ACTIVE"
+                        textSize = 9.5f
+                        typeface = SwonalFonts.monoBold(context)
+                        setTextColor(palette.accentTextColor)
+                        background = palette.accentPillDrawable(d, 6f, interactive = false)
+                        setPadding(dp(7), dp(3), dp(7), dp(3))
+                    })
+                }
+                root.addView(row)
+            }
+        }
+
+        root.addView(makePopupButton(context, "Browse Playlists & Library →", palette, d) {
+            popup.dismiss()
+            onOpenMusicLibrary()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)).apply {
+                topMargin = dp(4)
+            }
+        })
+
+        val widthPx = dp(310)
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val measuredHeight = root.measuredHeight
+
+        popup = PopupWindow(root, widthPx, ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = 18f * d
+            isOutsideTouchable = true
+        }
+        // Open directly above the speaker pill so it stays inside the viewport
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val popupY = (loc[1] - measuredHeight - dp(8)).coerceAtLeast(dp(16))
+        val popupX = loc[0].coerceAtLeast(dp(16))
+        popup.showAtLocation(anchor, Gravity.NO_GRAVITY, popupX, popupY)
+    }
+}

@@ -267,7 +267,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
                 {daemonConnected ? 'ONLINE' : 'OFFLINE'} • WS {wsConnected ? 'OK' : 'DOWN'}
               </p>
               <p className="opacity-70 font-mono">
-                {daemonHealth?.mock ? 'MOCK ENGINE' : daemonHealth?.serial_port || 'HARDWARE'}
+                {(daemonHealth?.mock_mode ?? daemonHealth?.mock)
+                  ? 'MOCK ENGINE'
+                  : daemonHealth?.serial_port || 'TONAL CDC HARDWARE'}
               </p>
             </div>
 

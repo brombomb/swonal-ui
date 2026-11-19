@@ -200,7 +200,7 @@ export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
             <div className="text-xs opacity-80 elevated-pill rounded-2xl p-4 space-y-2">
               <p>
                 {musicState.isConnected
-                  ? 'Spotify Connect only lists devices where Spotify or Tonal Gym (librespot) is currently awake. Open Spotify on your phone/PC and tap Refresh, or enable the Browser Web Player.'
+                  ? 'Spotify Connect only lists devices where Spotify or Tonal Speakers is currently awake. Open Spotify on your phone/PC and tap Refresh, or enable the Browser Web Player.'
                   : 'Connect a music service in Settings to play and select output devices.'}
               </p>
               {musicState.isConnected && activeProviderId === 'spotify' && (
@@ -218,33 +218,39 @@ export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {devices.map((dev) => (
-                <button
-                  key={dev.id}
-                  type="button"
-                  onClick={() => void transferMusicDevice(dev.id)}
-                  className={`p-4 rounded-2xl text-left border flex items-center justify-between ${
-                    dev.isActive ? 'border-2' : 'elevated-pill opacity-85'
-                  }`}
-                  style={
-                    dev.isActive
-                      ? {
-                          borderColor: 'var(--accent-primary)',
-                          backgroundColor: 'var(--accent-muted)',
-                        }
-                      : undefined
-                  }
-                >
-                  <div>
-                    <p className="font-bold text-sm">{dev.name}</p>
-                    <p className="text-xs opacity-65">{dev.type}</p>
-                  </div>
-                  <Radio
-                    size={18}
-                    style={{ color: dev.isActive ? 'var(--accent-primary)' : undefined }}
-                  />
-                </button>
-              ))}
+              {devices.map((dev) => {
+                const displayName = dev.name
+                  .replace(/\s*\((?:librespot|on-device)\)/gi, '')
+                  .replace(/\blibrespot\b/gi, 'Tonal Speakers')
+                  .trim() || 'Tonal Speakers';
+                return (
+                  <button
+                    key={dev.id}
+                    type="button"
+                    onClick={() => void transferMusicDevice(dev.id)}
+                    className={`p-4 rounded-2xl text-left border flex items-center justify-between ${
+                      dev.isActive ? 'border-2' : 'elevated-pill opacity-85'
+                    }`}
+                    style={
+                      dev.isActive
+                        ? {
+                            borderColor: 'var(--accent-primary)',
+                            backgroundColor: 'var(--accent-muted)',
+                          }
+                        : undefined
+                    }
+                  >
+                    <div>
+                      <p className="font-bold text-sm">{displayName}</p>
+                      <p className="text-xs opacity-65">{dev.type}</p>
+                    </div>
+                    <Radio
+                      size={18}
+                      style={{ color: dev.isActive ? 'var(--accent-primary)' : undefined }}
+                    />
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -23,6 +23,7 @@ packages/server-app/data/media/*
 !packages/server-app/data/media/*.svg
 packages/server-app/prisma/data/
 packages/tonal-daemon/config.yaml
+packages/data/swonal-settings.json
 
 # Logs & OS Files
 *.log
@@ -30,4 +31,12 @@ packages/tonal-daemon/config.yaml
 
 # Local ADB / Tonal Keys & Oversized Cached APKs (>100MB)
 tonal_keys/
-packages/device-assets/bromite-*.apk
+packages/device-assets/*.apk
+
+# Android Kiosk Build Artifacts
+packages/android-kiosk/.gradle/
+packages/android-kiosk/build/
+packages/android-kiosk/app/build/
+packages/android-kiosk/local.properties
+packages/android-kiosk/.idea/
+*.iml

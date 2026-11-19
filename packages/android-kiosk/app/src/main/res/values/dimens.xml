@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Scaled for 1080x1920 @ 213dpi (811dp x 1442dp) matching 1080x1920 web canvas -->
+    <dimen name="kiosk_root_padding">20dp</dimen>
+    <dimen name="kiosk_card_radius">18dp</dimen>
+    <dimen name="kiosk_pill_radius">12dp</dimen>
+    <dimen name="kiosk_action_col_width">240dp</dimen>
+    <dimen name="kiosk_stepper_row_height">108dp</dimen>
+    <dimen name="kiosk_dial_size">450dp</dimen>
+    <dimen name="kiosk_cable_width">100dp</dimen>
+    <dimen name="kiosk_cable_height">410dp</dimen>
+    <dimen name="kiosk_weight_btn_height">54dp</dimen>
+    <dimen name="kiosk_weight_btn_lg_width">72dp</dimen>
+    <dimen name="kiosk_weight_btn_sm_width">66dp</dimen>
+</resources>

@@ -1,4 +1,5 @@
 """System Execution Context Switcher between Stock Tonal Android app and swonal-ui."""
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -7,9 +8,13 @@ from typing import Any, Dict
 
 logger = logging.getLogger("tonal-daemon.switcher")
 
+STOCK_APP_PACKAGE = "com.tonal.apps.machineclient2.beta"
+LAUNCHER_PACKAGE = "com.tonal.tonallauncher"
+SWONAL_KIOSK_COMPONENT = "com.swonal.kiosk/.ui.MainActivity"
+
 
 class ModeSwitcher:
-    """Coordinates safe hardware handoff between Custom swonal-ui and Stock com.tonal.app."""
+    """Coordinates safe hardware handoff between Custom swonal-ui and Stock Tonal app."""
 
     def __init__(self, motor_bridge: Any, ble_manager: Any, server_url: str):
         self.motor_bridge = motor_bridge
@@ -17,7 +22,7 @@ class ModeSwitcher:
         self.server_url = server_url
 
     async def switch_to_stock(self) -> Dict[str, Any]:
-        """Zero load, release serial/BLE locks, and launch Stock com.tonal.app."""
+        """Zero load, release serial/BLE locks, and launch Stock Tonal app."""
         logger.info("Executing Mode Transition: CUSTOM -> STOCK TONAL APP")
         try:
             # 1. Safely zero load and disable power stage
@@ -30,18 +35,21 @@ class ModeSwitcher:
             await self.motor_bridge.release_port()
 
             if getattr(self.motor_bridge, "mock_mode", False):
-                logger.info("Mock mode: simulated Android handoff to com.tonal.app")
+                logger.info("Mock mode: simulated Android handoff to %s", STOCK_APP_PACKAGE)
                 return {
                     "status": "success",
                     "mode": "STOCK",
-                    "detail": "Simulated transition to Stock Tonal mode",
+                    "detail": f"Simulated transition to Stock Tonal mode ({STOCK_APP_PACKAGE})",
                 }
 
             # 4. Invoke native Android package commands via su
             cmd = (
                 "su -c '"
-                "pm enable com.tonal.app && "
-                "monkey -p com.tonal.app -c android.intent.category.LAUNCHER 1"
+                f"pm enable {STOCK_APP_PACKAGE} && "
+                "pm enable com.riptlabs.mcb.service && "
+                "chmod 0666 /dev/ttyACM0 2>/dev/null || true; "
+                "am startservice com.swonal.kiosk/.service.StockOverlayService && "
+                f"monkey -p {STOCK_APP_PACKAGE} -c android.intent.category.LAUNCHER 1"
                 "'"
             )
             process = await asyncio.create_subprocess_shell(
@@ -62,7 +70,7 @@ class ModeSwitcher:
             return {"status": "error", "message": str(exc)}
 
     async def switch_to_custom(self) -> Dict[str, Any]:
-        """Stop Stock Tonal app, re-acquire motor/BLE hardware, and open swonal-ui."""
+        """Stop Stock Tonal app, release lock-task mode, re-acquire hardware, and open swonal-ui."""
         logger.info("Executing Mode Transition: STOCK TONAL APP -> CUSTOM SWONAL-UI")
         try:
             if getattr(self.motor_bridge, "mock_mode", False):
@@ -75,8 +83,19 @@ class ModeSwitcher:
                     "detail": "Simulated transition to Custom swonal-ui mode",
                 }
 
-            # 1. Force kill stock app process holding resources
-            cmd_stop = "su -c 'am force-stop com.tonal.app'"
+            # 1. Release LockTaskMode (kiosk pinning) via Tonal launcher broadcast and stop stock processes
+            cmd_stop = (
+                "su -c '"
+                "am broadcast -a com.tonal.apps.machineclient2.EXIT_KIOSK && "
+                f"am force-stop {STOCK_APP_PACKAGE} && "
+                f"am force-stop {LAUNCHER_PACKAGE} && "
+                "am force-stop com.riptlabs.mcb.service && "
+                "pm disable com.riptlabs.mcb.service 2>/dev/null || true; "
+                "chown 0:0 /dev/ttyACM0 2>/dev/null || true; "
+                "chmod 0600 /dev/ttyACM0 2>/dev/null || true; "
+                "am stopservice com.swonal.kiosk/.service.StockOverlayService"
+                "'"
+            )
             proc = await asyncio.create_subprocess_shell(
                 cmd_stop, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
@@ -91,10 +110,12 @@ class ModeSwitcher:
             # 4. Re-establish BLE background listeners
             await self.ble_manager.start()
 
-            # 5. Launch custom fullscreen UI browser activity
+            # 5. Launch custom native kiosk activity, fallback to browser if not installed
             cmd_launch = (
-                f"su -c 'am start -a android.intent.action.VIEW "
-                f"-d \"{self.server_url}\" com.android.chrome'"
+                "su -c '"
+                f"am start -n {SWONAL_KIOSK_COMPONENT} || "
+                f"am start -a android.intent.action.VIEW -d \"{self.server_url}\" com.android.chrome"
+                "'"
             )
             proc_launch = await asyncio.create_subprocess_shell(
                 cmd_launch, stdout=subprocess.PIPE, stderr=subprocess.PIPE

@@ -12,9 +12,15 @@ Context, hardware constraints, design decisions, and operational playbooks for c
   - Velocity displays as **`in/s`** (`cm/s / 2.54`) when `activeUnit === 'LB'` and **`cm/s`** when `KG`.
 - **`packages/tonal-daemon`** (Python 3.11+, FastAPI + WebSockets on port `8765`)
   - Runs on the Tonal V1 under Termux + Magisk `service.d` (`start-daemon.sh`).
-  - Bridges `/dev/ttyACM0` via `swolectl` (`from swolectl import Controller, SafetyPolicy` in `src/motor_bridge.py`), BLE accessories (`bleak`), and Stock <-> Custom mode switching.
+  - Bridges `/dev/ttyACM0` via `swolectl` (`from swolectl import Controller, SafetyPolicy` in `src/motor_bridge.py`, reading live `telemetry`, `cart_position` `0x1020`, `column_rotation` `0x1021`, and `arm_positions` `0x1025` including lock-pin flags), BLE accessories (`bleak`), and Stock <-> Custom mode switching.
   - Supports `--mock` mode (`python -m src.main --mock`) for offline 30Hz simulation on a dev machine.
   - `swolectl` is **not on PyPI** — it is specified in `packages/tonal-daemon/pyproject.toml` as `swolectl @ git+https://github.com/d4l3k/swolectl.git`.
+- **`packages/android-kiosk`** (`com.swonal.kiosk`, Kotlin, Classic Android Views + XML/ViewBinding + Custom `Canvas`, `minSdk = 23`, `compileSdk = 35`, `arm64-v8a`)
+  - Native 60fps Android 6.0 kiosk app & optional `CATEGORY_HOME` launcher replacing Bromite on the Tonal V1 wall screen (`1080x1920`, `Physical density: 213dpi`).
+  - Separates 30Hz telemetry (`telemetryFlow`, `vbtFlow`) from discrete workout/session/music state (`uiStateFlow`) with diffed hot-path caches, tactile `PressFeedback`, and zero-allocation Canvas rendering (`AtmosphericBackdropView` bitmap cache, `LoadDialView`, `CableTravelView`, `SymmetrySliderView`, `VelocityGaugeView`).
+  - Embeds **Mozilla GeckoView 140 ESR (`arm64-v8a`)** in `SwonalWebActivity` so `/history`, `/settings`, and `/admin` open 100% in-app on Android 6.0 (replacing obsolete System WebView v44 without launching an external browser).
+  - Includes Music Dock active speaker picker (defaulting to on-device `librespot` / `"Tonal Gym"`), Tonal hardware volume slider (`AudioManager.STREAM_MUSIC`), simplified `"Menu"` dialog (Stock Tonal UI + History / Settings / Admin; Termux/Magisk hidden unless Developer Mode is unlocked via 5× tap on Diagnostics title), bundled modern Root CAs (`res/raw/swonal_extra_roots.pem`), static `Inter` & `JetBrains Mono` TTFs, Android Keystore AES-256-GCM secret storage, origin-scoped `CookieJar`, and a Phase 3 local loopback fail-safe (`LocalDaemonFailSafeClient` targeting `http://127.0.0.1:8765`) with UI-liveness-gated watchdog pings.
+  - **Stock Mode Escape Hatch & Kiosk Pinning Protection**: Stock Tonal UI (`com.tonal.apps.machineclient2.beta`) and `com.tonal.tonallauncher` enter Android `LockTaskMode` (`START_RETURN_LOCK_TASK_MODE_VIOLATION = 5`), trapping the user in full-screen immersive mode. Swonal Kiosk provides a persistent `StockOverlayService` floating pill (`TYPE_SYSTEM_ERROR`, `shown=true`, layer 231000) with `RootShell` that broadcasts `com.tonal.apps.machineclient2.EXIT_KIOSK`, terminates stock processes, and restores `com.swonal.kiosk/.ui.MainActivity` along with `BootReceiver` handling.
 - **`packages/device-assets`**
   - Tracked APKs (< 100 MB GitHub limit):
     - `termux-android5-v0.119.0-beta.3.apk` (`77.87 MB`, Android 5/6 universal Termux)
@@ -54,19 +60,19 @@ Context, hardware constraints, design decisions, and operational playbooks for c
 
 ## 4. Wireless ADB & `scrcpy` Playbook
 
-- Local ADB keys live in `tonal_keys/` (`adbkey`, `adbkey.pub`), which is `.gitignore`d.
+- Local ADB keys can live in `tonal_keys/` (`adbkey`, `adbkey.pub`), which is `.gitignore`d.
 - **Do not run `adb kill-server` on default port `5037`** if other local/USB devices are active. Isolate the Tonal connection on port `5038`:
   ```sh
   export ANDROID_ADB_SERVER_PORT=5038
-  export ADB_VENDOR_KEYS=/home/brombomb/dev/swonal-ui/tonal_keys/adbkey
+  export ADB_VENDOR_KEYS="$(pwd)/tonal_keys/adbkey"
 
-  adb connect 192.168.0.140:5555
-  scrcpy -s 192.168.0.140:5555 --no-audio --max-fps 30 --video-bit-rate 4M -m 1080
+  adb connect <TONAL_IP>:5555
+  scrcpy -s <TONAL_IP>:5555 --no-audio --max-fps 30 --video-bit-rate 4M -m 1080
   ```
 - Android `adbd` over TCP (`5555`) only allows **one** client at a time; a second host connecting gets `protocol fault` / `offline`.
 - Open Android Settings / Developer Options via ADB if needed:
   ```sh
-  ANDROID_ADB_SERVER_PORT=5038 adb -s 192.168.0.140:5555 shell am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS
+  ANDROID_ADB_SERVER_PORT=5038 adb -s <TONAL_IP>:5555 shell am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS
   ```
 
 ---
@@ -97,14 +103,18 @@ Run after every change before committing or restarting the server:
 
 ```sh
 # Server + Client tests, typecheck, and production bundle
-cd /home/brombomb/dev/swonal-ui/packages/server-app
+cd packages/server-app
 npm test && npm run typecheck && npm run build
 
 # Python daemon tests
-cd /home/brombomb/dev/swonal-ui/packages/tonal-daemon
+cd ../tonal-daemon
 .venv/bin/pytest
 
+# Native Android Kiosk unit tests & debug APK build
+cd ../android-kiosk
+./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+
 # Installer / boot script syntax check
-cd /home/brombomb/dev/swonal-ui
+cd ../..
 bash -n scripts/install-device.sh && sh -n packages/tonal-daemon/start-daemon.sh
 ```

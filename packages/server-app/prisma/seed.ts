@@ -67,8 +67,10 @@ const SEED_EXERCISES = [
 ];
 
 export const DEFAULT_USERS = {
-  JERI_ID: '11111111-1111-4111-8111-111111111111',
-  ROB_ID: '22222222-2222-4222-8222-222222222222',
+  USER_ONE_ID: '11111111-1111-4111-8111-111111111111',
+  USER_TWO_ID: '22222222-2222-4222-8222-222222222222',
+  ALEX_ID: '11111111-1111-4111-8111-111111111111',
+  TAYLOR_ID: '22222222-2222-4222-8222-222222222222',
 };
 
 export function resolveExerciseMediaUrl(name: string, muscleGroup: string): string {
@@ -112,13 +114,13 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     exerciseMap.set(ex.name, record.id);
   }
 
-  // Upsert Household Profiles: Jeri & Rob
-  const jeri = await prisma.user.upsert({
-    where: { id: DEFAULT_USERS.JERI_ID },
+  // Upsert Household Profiles: Alex & Taylor
+  const alex = await prisma.user.upsert({
+    where: { id: DEFAULT_USERS.USER_ONE_ID },
     update: {},
     create: {
-      id: DEFAULT_USERS.JERI_ID,
-      name: 'Jeri',
+      id: DEFAULT_USERS.USER_ONE_ID,
+      name: 'Alex',
       avatarColor: '#FF007A',
       preferredMusicProvider: 'spotify',
       themeMode: 'dark',
@@ -127,12 +129,12 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  const rob = await prisma.user.upsert({
-    where: { id: DEFAULT_USERS.ROB_ID },
+  const taylor = await prisma.user.upsert({
+    where: { id: DEFAULT_USERS.USER_TWO_ID },
     update: {},
     create: {
-      id: DEFAULT_USERS.ROB_ID,
-      name: 'Rob',
+      id: DEFAULT_USERS.USER_TWO_ID,
+      name: 'Taylor',
       avatarColor: '#00F0FF',
       preferredMusicProvider: 'spotify',
       themeMode: 'dark',
@@ -142,7 +144,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
   });
 
   // Seed Music Integrations
-  for (const user of [jeri, rob]) {
+  for (const user of [alex, taylor]) {
     await prisma.musicIntegration.upsert({
       where: { userId_provider: { userId: user.id, provider: 'spotify' } },
       update: {},
@@ -156,7 +158,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
   }
 
   // Seed Personal Records (canonical pounds)
-  const jeriPRs: Array<[string, number, number]> = [
+  const alexPRs: Array<[string, number, number]> = [
     ['Bench Press', 65, 85],
     ['Incline Bench Press', 55, 70],
     ['Cable Fly', 30, 38],
@@ -171,7 +173,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     ['Pallof Press', 20, 26],
   ];
 
-  const robPRs: Array<[string, number, number]> = [
+  const taylorPRs: Array<[string, number, number]> = [
     ['Bench Press', 135, 175],
     ['Incline Bench Press', 110, 142],
     ['Cable Fly', 45, 58],
@@ -186,24 +188,24 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     ['Pallof Press', 35, 44],
   ];
 
-  for (const [exName, maxW, est1rm] of jeriPRs) {
+  for (const [exName, maxW, est1rm] of alexPRs) {
     const exerciseId = exerciseMap.get(exName);
     if (exerciseId) {
       await prisma.personalRecord.upsert({
-        where: { userId_exerciseId: { userId: jeri.id, exerciseId } },
+        where: { userId_exerciseId: { userId: alex.id, exerciseId } },
         update: {},
-        create: { userId: jeri.id, exerciseId, maxWeightLb: maxW, oneRepMaxEst: est1rm },
+        create: { userId: alex.id, exerciseId, maxWeightLb: maxW, oneRepMaxEst: est1rm },
       });
     }
   }
 
-  for (const [exName, maxW, est1rm] of robPRs) {
+  for (const [exName, maxW, est1rm] of taylorPRs) {
     const exerciseId = exerciseMap.get(exName);
     if (exerciseId) {
       await prisma.personalRecord.upsert({
-        where: { userId_exerciseId: { userId: rob.id, exerciseId } },
+        where: { userId_exerciseId: { userId: taylor.id, exerciseId } },
         update: {},
-        create: { userId: rob.id, exerciseId, maxWeightLb: maxW, oneRepMaxEst: est1rm },
+        create: { userId: taylor.id, exerciseId, maxWeightLb: maxW, oneRepMaxEst: est1rm },
       });
     }
   }
@@ -216,7 +218,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     await prisma.workoutTemplate.createMany({
       data: [
         {
-          userId: jeri.id,
+          userId: alex.id,
           name: 'Upper Body Sculpt & Eccentric',
           description: 'Balanced chest, back, and shoulder superset routine with eccentric overload.',
           blocksJson: JSON.stringify([
@@ -246,7 +248,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
           ]),
         },
         {
-          userId: jeri.id,
+          userId: alex.id,
           name: 'Glutes & Posterior Power',
           description: 'Lower body strength block with smart bar hinge and split squats.',
           blocksJson: JSON.stringify([
@@ -275,7 +277,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
           ]),
         },
         {
-          userId: rob.id,
+          userId: taylor.id,
           name: 'Heavy Push / Pull Hypertrophy',
           description: 'Smart Bar compound presses paired with heavy lat pulldowns and chains.',
           blocksJson: JSON.stringify([
@@ -312,7 +314,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
           ]),
         },
         {
-          userId: rob.id,
+          userId: taylor.id,
           name: 'Athletic Lower & Core',
           description: 'Squats, RDLs, and anti-rotation core work.',
           blocksJson: JSON.stringify([
@@ -340,9 +342,9 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
   // Seed initial completed sessions for strength history
   const existingSessions = await prisma.workoutSession.count();
   if (existingSessions === 0) {
-    const jeriSession = await prisma.workoutSession.create({
+    const alexSession = await prisma.workoutSession.create({
       data: {
-        userId: jeri.id,
+        userId: alex.id,
         startedAt: new Date(Date.now() - 1000 * 60 * 60 * 48),
         completedAt: new Date(Date.now() - 1000 * 60 * 60 * 47),
         totalVolume: 2150,
@@ -391,7 +393,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
 
     await prisma.workoutSession.create({
       data: {
-        userId: rob.id,
+        userId: taylor.id,
         startedAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
         completedAt: new Date(Date.now() - 1000 * 60 * 60 * 23),
         totalVolume: 4800,
@@ -438,7 +440,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
       },
     });
 
-    console.log(`Seeded sample workout sessions (including ${jeriSession.id}).`);
+    console.log(`Seeded sample workout sessions (including ${alexSession.id}).`);
   }
 
   console.log('Database seed complete.');

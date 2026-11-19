@@ -2,13 +2,56 @@ import fs from 'fs';
 import path from 'path';
 import { getPublicBaseUrl } from '../config';
 
-interface RuntimeSettingsData {
+export interface PersistedAiCoachConfig {
+  provider: 'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama';
+  model: string;
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+export interface PersistedHomeAssistantConfig {
+  mqttBrokerUrl?: string;
+  mqttUsername?: string;
+  mqttPassword?: string;
+  mqttTopicPrefix?: string;
+  mqttDiscoveryEnabled?: boolean;
+  webhookUrl?: string;
+  webhookToken?: string;
+  haUrl?: string;
+  haToken?: string;
+}
+
+export interface PersistedMusicProvidersConfig {
+  plexamp?: {
+    plexampUrl?: string;
+    plexServerUrl?: string;
+    plexToken?: string;
+  };
+  youtube_music?: {
+    apiUrl?: string;
+    authToken?: string;
+    haEntityId?: string;
+  };
+  apple_music?: {
+    developerToken?: string;
+    musicUserToken?: string;
+    haEntityId?: string;
+  };
+  amazon_music?: {
+    haEntityId?: string;
+  };
+}
+
+export interface RuntimeSettingsData {
   publicUrlOverride?: string | null;
   authPasscodeHash?: string | null;
   authTrustLocalhost?: boolean;
   apiToken?: string | null;
   favoritePlaylistsByUser?: Record<string, string[]>;
   demoPipByUser?: Record<string, boolean>;
+  aiCoach?: PersistedAiCoachConfig;
+  homeAssistant?: PersistedHomeAssistantConfig;
+  musicProviders?: PersistedMusicProvidersConfig;
 }
 
 function resolveSettingsFilePath(): string {
@@ -57,7 +100,12 @@ function writeSettingsFile(data: RuntimeSettingsData): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort permission hardening on non-POSIX filesystems
+  }
   cachedFilePath = filePath;
   cachedSettings = data;
 }

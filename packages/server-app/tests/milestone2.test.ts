@@ -25,7 +25,7 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
     expect(estimateOneRepMaxLb(100, 10)).toBeCloseTo(133.3, 1);
   });
 
-  it('verifies seeded catalog of 45+ exercises, Jeri & Rob profiles, PRs, and templates', async () => {
+  it('verifies seeded catalog of 45+ exercises, Alex & Taylor profiles, PRs, and templates', async () => {
     const exerciseCount = await prisma.exercise.count();
     expect(exerciseCount).toBeGreaterThanOrEqual(48);
 
@@ -39,12 +39,12 @@ describe('Milestone 2: Units, Database Seed, & Music Provider Architecture', () 
     expect(accSet.has('ROPE')).toBe(true);
     expect(accSet.has('BODYWEIGHT')).toBe(true);
 
-    const jeri = await prisma.user.findUnique({ where: { id: DEFAULT_USERS.JERI_ID } });
-    const rob = await prisma.user.findUnique({ where: { id: DEFAULT_USERS.ROB_ID } });
-    expect(jeri?.name).toBe('Jeri');
-    expect(jeri?.accentColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
-    expect(rob?.name).toBe('Rob');
-    expect(rob?.accentColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    const alex = await prisma.user.findUnique({ where: { id: DEFAULT_USERS.USER_ONE_ID } });
+    const taylor = await prisma.user.findUnique({ where: { id: DEFAULT_USERS.USER_TWO_ID } });
+    expect(['Alex', 'Rob']).toContain(alex?.name);
+    expect(alex?.accentColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(['Taylor', 'Jeri']).toContain(taylor?.name);
+    expect(taylor?.accentColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
 
     const templates = await prisma.workoutTemplate.findMany();
     expect(templates.length).toBeGreaterThanOrEqual(4);

@@ -25,7 +25,7 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     process.env.SPOTIFY_CLIENT_SECRET = origClientSecret;
     process.env.SPOTIFY_REDIRECT_URI = origRedirectUri;
     await prisma.musicIntegration.deleteMany({
-      where: { userId: DEFAULT_USERS.ROB_ID, provider: 'spotify' },
+      where: { userId: DEFAULT_USERS.USER_TWO_ID, provider: 'spotify' },
     });
     await handle.close();
   });
@@ -35,8 +35,8 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     delete process.env.PUBLIC_URL;
     expect(getSpotifyConfig().redirectUri).toBe('http://localhost:3000/api/spotify/callback');
 
-    process.env.PUBLIC_URL = 'https://swonal.brombomb.com';
-    expect(getSpotifyConfig().redirectUri).toBe('https://swonal.brombomb.com/api/spotify/callback');
+    process.env.PUBLIC_URL = 'https://swonal.example.com';
+    expect(getSpotifyConfig().redirectUri).toBe('https://swonal.example.com/api/spotify/callback');
     delete process.env.PUBLIC_URL;
 
     process.env.SPOTIFY_CLIENT_ID = 'test-client-id';
@@ -51,7 +51,7 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     process.env.SPOTIFY_REDIRECT_URI = 'http://localhost:3000/api/spotify/callback';
 
     const resp = await fetch(
-      `${baseUrl}/api/spotify/login?userId=${encodeURIComponent(DEFAULT_USERS.ROB_ID)}`,
+      `${baseUrl}/api/spotify/login?userId=${encodeURIComponent(DEFAULT_USERS.USER_TWO_ID)}`,
       { redirect: 'manual' }
     );
     expect(resp.status).toBe(302);
@@ -67,7 +67,7 @@ describe('Spotify OAuth Routes & Config Validation', () => {
       userId: string;
       redirectUri: string;
     };
-    expect(decodedState.userId).toBe(DEFAULT_USERS.ROB_ID);
+    expect(decodedState.userId).toBe(DEFAULT_USERS.USER_TWO_ID);
     expect(decodedState.redirectUri).toBe('http://localhost:3000/api/spotify/callback');
 
     const scope = url.searchParams.get('scope') || '';
@@ -87,14 +87,14 @@ describe('Spotify OAuth Routes & Config Validation', () => {
   it('GET /api/spotify/callback rejects tampered state and accepts valid HMAC-signed state', async () => {
     const tamperedResp = await fetch(
       `${baseUrl}/api/spotify/callback?code=mock-spotify-code&state=${encodeURIComponent(
-        DEFAULT_USERS.ROB_ID
+        DEFAULT_USERS.USER_TWO_ID
       )}`,
       { redirect: 'manual' }
     );
     expect(tamperedResp.status).toBe(400);
 
     const signedState = encodeOAuthState(
-      DEFAULT_USERS.ROB_ID,
+      DEFAULT_USERS.USER_TWO_ID,
       'http://localhost:3000/api/spotify/callback'
     );
     const resp = await fetch(
@@ -108,14 +108,14 @@ describe('Spotify OAuth Routes & Config Validation', () => {
 
     const integration = await prisma.musicIntegration.findUnique({
       where: {
-        userId_provider: { userId: DEFAULT_USERS.ROB_ID, provider: 'spotify' },
+        userId_provider: { userId: DEFAULT_USERS.USER_TWO_ID, provider: 'spotify' },
       },
     });
     expect(integration).not.toBeNull();
     expect(integration?.provider).toBe('spotify');
 
     const statusResp = await fetch(
-      `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(DEFAULT_USERS.ROB_ID)}`
+      `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(DEFAULT_USERS.USER_TWO_ID)}`
     );
     expect(statusResp.status).toBe(200);
     const statusJson = (await statusResp.json()) as { connected: boolean; redirectUri: string };
@@ -124,34 +124,34 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     // Rejects untrusted third-party baseUrl override
     const evilResp = await fetch(
       `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(
-        DEFAULT_USERS.ROB_ID
+        DEFAULT_USERS.USER_TWO_ID
       )}&baseUrl=${encodeURIComponent('https://evil.example.com')}`
     );
     const evilJson = (await evilResp.json()) as { redirectUri: string };
     expect(evilJson.redirectUri).not.toContain('evil.example.com');
 
     // Accepts configured PUBLIC_URL override
-    process.env.PUBLIC_URL = 'https://swonal.brombomb.com';
+    process.env.PUBLIC_URL = 'https://swonal.example.com';
     const overrideStatusResp = await fetch(
       `${baseUrl}/api/spotify/status?userId=${encodeURIComponent(
-        DEFAULT_USERS.ROB_ID
-      )}&baseUrl=${encodeURIComponent('https://swonal.brombomb.com')}`
+        DEFAULT_USERS.USER_TWO_ID
+      )}&baseUrl=${encodeURIComponent('https://swonal.example.com')}`
     );
     const overrideJson = (await overrideStatusResp.json()) as { redirectUri: string };
-    expect(overrideJson.redirectUri).toBe('https://swonal.brombomb.com/api/spotify/callback');
+    expect(overrideJson.redirectUri).toBe('https://swonal.example.com/api/spotify/callback');
     delete process.env.PUBLIC_URL;
   });
 
   it('SpotifyProvider.play defaults to librespot ("Tonal Gym") when no device is active and loads playlist tracks', async () => {
     await prisma.musicIntegration.upsert({
-      where: { userId_provider: { userId: DEFAULT_USERS.ROB_ID, provider: 'spotify' } },
+      where: { userId_provider: { userId: DEFAULT_USERS.USER_TWO_ID, provider: 'spotify' } },
       update: {
         accessToken: 'mock-access-token',
         refreshToken: 'mock-refresh-token',
         tokenExpiry: Math.floor(Date.now() / 1000) + 3600,
       },
       create: {
-        userId: DEFAULT_USERS.ROB_ID,
+        userId: DEFAULT_USERS.USER_TWO_ID,
         provider: 'spotify',
         accessToken: 'mock-access-token',
         refreshToken: 'mock-refresh-token',
@@ -202,10 +202,10 @@ describe('Spotify OAuth Routes & Config Validation', () => {
 
     try {
       const provider = new SpotifyProvider();
-      await provider.play(DEFAULT_USERS.ROB_ID, 'spotify:playlist:pl-1');
+      await provider.play(DEFAULT_USERS.USER_TWO_ID, 'spotify:playlist:pl-1');
       expect(playCalls[0]).toContain('device_id=librespot-1');
 
-      const tracks = await provider.getPlaylistTracks(DEFAULT_USERS.ROB_ID, 'pl-1');
+      const tracks = await provider.getPlaylistTracks(DEFAULT_USERS.USER_TWO_ID, 'pl-1');
       expect(tracks).toHaveLength(1);
       expect(tracks[0].name).toBe('Heavy Iron');
       expect(tracks[0].artistName).toBe('Swonal Beats');

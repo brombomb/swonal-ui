@@ -1,11 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { CompanionView } from './components/CompanionView';
-import { HistoryView } from './components/HistoryView';
-import { KioskView } from './components/KioskView';
-import { SettingsView } from './components/SettingsView';
-import { AdminView } from './components/AdminView';
 import { useSwonalState } from './hooks/useSwonalState';
+
+const CompanionView = lazy(() => import('./components/CompanionView').then(m => ({ default: m.CompanionView })));
+const HistoryView = lazy(() => import('./components/HistoryView').then(m => ({ default: m.HistoryView })));
+const KioskView = lazy(() => import('./components/KioskView').then(m => ({ default: m.KioskView })));
+const SettingsView = lazy(() => import('./components/SettingsView').then(m => ({ default: m.SettingsView })));
+const AdminView = lazy(() => import('./components/AdminView').then(m => ({ default: m.AdminView })));
+
+const RouteLoadingFallback = () => (
+  <div className="swonal-canvas min-h-screen flex flex-col items-center justify-center gap-3 text-sm font-bold opacity-70">
+    <div className="w-8 h-8 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin" />
+    <span>Loading View...</span>
+  </div>
+);
 
 function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
   const swonal = useSwonalState();
@@ -33,39 +41,36 @@ function AuthenticatedApp({ onAuthLock }: { onAuthLock: () => void }) {
     return () => window.removeEventListener('resize', updateScale);
   }, [isCompanion, isSettings, isAdmin, isHistory]);
 
+  let content: React.ReactNode;
   if (isHistory) {
-    return <HistoryView swonal={swonal} />;
-  }
-
-  if (isAdmin) {
-    return <AdminView swonal={swonal} />;
-  }
-
-  if (isSettings) {
-    return <SettingsView swonal={swonal} onAuthLock={onAuthLock} />;
-  }
-
-  if (isCompanion) {
-    return <CompanionView swonal={swonal} />;
-  }
-
-  return (
-    <div
-      className="w-screen h-screen flex items-center justify-center overflow-hidden"
-      style={{ backgroundColor: 'var(--bg-canvas)' }}
-    >
+    content = <HistoryView swonal={swonal} />;
+  } else if (isAdmin) {
+    content = <AdminView swonal={swonal} />;
+  } else if (isSettings) {
+    content = <SettingsView swonal={swonal} onAuthLock={onAuthLock} />;
+  } else if (isCompanion) {
+    content = <CompanionView swonal={swonal} />;
+  } else {
+    content = (
       <div
-        style={{
-          width: 1080,
-          height: 1920,
-          transform: `scale(${scale})`,
-          transformOrigin: 'center center',
-        }}
+        className="w-screen h-screen flex items-center justify-center overflow-hidden"
+        style={{ backgroundColor: 'var(--bg-canvas)' }}
       >
-        <KioskView swonal={swonal} />
+        <div
+          style={{
+            width: 1080,
+            height: 1920,
+            transform: `scale(${scale})`,
+            transformOrigin: 'center center',
+          }}
+        >
+          <KioskView swonal={swonal} />
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return <Suspense fallback={<RouteLoadingFallback />}>{content}</Suspense>;
 }
 
 export function App() {

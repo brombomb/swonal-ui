@@ -34,9 +34,9 @@ export interface SharedSessionState {
 
 class SessionCoordinator extends EventEmitter {
   private state: SharedSessionState = {
-    activeUserId: DEFAULT_USERS.JERI_ID,
+    activeUserId: DEFAULT_USERS.USER_ONE_ID,
     partnerModeEnabled: false,
-    partnerUserIds: [DEFAULT_USERS.JERI_ID, DEFAULT_USERS.ROB_ID],
+    partnerUserIds: [DEFAULT_USERS.USER_ONE_ID, DEFAULT_USERS.USER_TWO_ID],
     activePartnerIndex: 0,
     activeSessionId: null,
     activeExerciseId: null,

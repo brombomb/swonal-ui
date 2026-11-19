@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SwonalKiosk" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">#06090E</item>
+        <item name="android:statusBarColor">#06090E</item>
+        <item name="android:navigationBarColor">#06090E</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="colorPrimary">#00F0FF</item>
+        <item name="colorSecondary">#00F0FF</item>
+    </style>
+
+    <style name="Theme.SwonalKiosk.Dialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.78</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+</resources>

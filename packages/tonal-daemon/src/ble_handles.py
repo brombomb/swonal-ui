@@ -1,4 +1,5 @@
 """Bleak GATT client for Tonal Smart Handles and Smart Bar button events."""
+from __future__ import annotations
 
 import asyncio
 import inspect
@@ -6,7 +7,10 @@ import logging
 import time
 from typing import Any, Callable, Optional
 
-from bleak import BleakClient
+try:
+    from bleak import BleakClient
+except ImportError:
+    BleakClient = None
 
 logger = logging.getLogger("tonal-daemon.ble")
 
@@ -60,6 +64,9 @@ class BLEHandleManager:
             self._tasks.append(task)
 
     async def _connect_and_listen(self, mac: str) -> None:
+        if BleakClient is None:
+            logger.warning("bleak not installed; skipping BLE hardware connection to %s", mac)
+            return
         uuid = self.config.get(
             "gatt_characteristic_uuid", "00002a37-0000-1000-8000-00805f9b34fb"
         )

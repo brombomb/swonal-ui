@@ -19,6 +19,39 @@ export function createMusicRouter(broadcastToClients: (msg: Record<string, unkno
     res.json(musicRegistry.list());
   });
 
+  router.get('/config', (_req, res) => {
+    res.json(musicRegistry.getPublicConfigs());
+  });
+
+  router.post('/:provider/config', (req, res, next) => {
+    try {
+      const configs = musicRegistry.updateProviderConfig(
+        req.params.provider,
+        (req.body ?? {}) as Record<string, unknown>
+      );
+      broadcastToClients({ type: 'music_providers_updated' });
+      res.json({
+        configs,
+        providers: musicRegistry.list(),
+      });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      void next;
+    }
+  });
+
+  router.post('/:provider/test', async (req, res) => {
+    try {
+      const result = await musicRegistry.testProviderConnection(req.params.provider);
+      res.json(result);
+    } catch (err) {
+      res.json({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   router.get('/:provider/auth', async (req, res, next) => {
     try {
       const provider = musicRegistry.get(req.params.provider);

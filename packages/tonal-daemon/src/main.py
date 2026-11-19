@@ -1,4 +1,5 @@
 """FastAPI entry point and WebSocket telemetry/command hub (:8765) for tonal-daemon."""
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -12,7 +13,11 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 from src.ble_handles import BLEHandleManager
 from src.mode_switcher import ModeSwitcher
@@ -61,10 +66,13 @@ def load_config(path: Optional[str] = None) -> dict:
     candidates.extend([BASE_DIR / "config.yaml", BASE_DIR / "config.example.yaml"])
 
     for candidate in candidates:
-        if candidate.exists():
-            with open(candidate, "r", encoding="utf-8") as handle:
-                cfg = yaml.safe_load(handle) or {}
-                break
+        if candidate.exists() and yaml is not None:
+            try:
+                with open(candidate, "r", encoding="utf-8") as handle:
+                    cfg = yaml.safe_load(handle) or {}
+                    break
+            except Exception as e:
+                logger.warning(f"Failed to parse config with yaml: {e}")
     else:
         cfg = {
             "daemon": {"host": "0.0.0.0", "port": 8765, "mock_mode": False, "watchdog_timeout_sec": 5.0},
@@ -214,28 +222,43 @@ async def websocket_endpoint(websocket: WebSocket):
                         json.dumps({"type": "error", "message": str(exc)})
                     )
             elif msg_type == "set_arm_positions":
-                motor.set_arm_positions(
-                    height_left=int(data.get("height_left", 4)),
-                    height_right=int(data.get("height_right", 4)),
-                    rot_left=int(data.get("rot_left", 2)),
-                    rot_right=int(data.get("rot_right", 2)),
-                    angle_left=int(data.get("angle_left", 1)),
-                    angle_right=int(data.get("angle_right", 1)),
-                )
+                if not motor.mock_mode:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": "Simulated arm overrides are disabled on live hardware"})
+                    )
+                else:
+                    motor.set_arm_positions(
+                        height_left=int(data.get("height_left", 4)),
+                        height_right=int(data.get("height_right", 4)),
+                        rot_left=int(data.get("rot_left", 2)),
+                        rot_right=int(data.get("rot_right", 2)),
+                        angle_left=int(data.get("angle_left", 1)),
+                        angle_right=int(data.get("angle_right", 1)),
+                    )
             elif msg_type == "reset_reps":
                 motor.reset_reps()
             elif msg_type == "simulate_ble":
-                try:
-                    await ble.simulate_action(str(data["action"]))
-                except (ValueError, KeyError) as exc:
+                if not motor.mock_mode:
                     await websocket.send_text(
-                        json.dumps({"type": "error", "message": str(exc)})
+                        json.dumps({"type": "error", "message": "Mock BLE simulation is disabled on live hardware"})
                     )
+                else:
+                    try:
+                        await ble.simulate_action(str(data["action"]))
+                    except (ValueError, KeyError) as exc:
+                        await websocket.send_text(
+                            json.dumps({"type": "error", "message": str(exc)})
+                        )
             elif msg_type == "simulate_bar_tilt":
-                motor.trigger_bar_tilt(
-                    delta=float(data.get("delta", 45.0)),
-                    duration_sec=float(data.get("duration_sec", 0.6)),
-                )
+                if not motor.mock_mode:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": "Mock bar tilt simulation is disabled on live hardware"})
+                    )
+                else:
+                    motor.trigger_bar_tilt(
+                        delta=float(data.get("delta", 45.0)),
+                        duration_sec=float(data.get("duration_sec", 0.6)),
+                    )
     except WebSocketDisconnect:
         if websocket in active_websockets:
             active_websockets.remove(websocket)
@@ -261,8 +284,32 @@ async def route_mode_custom():
     return res
 
 
+def _require_mock_mode() -> None:
+    if motor is None:
+        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    if not motor.mock_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="Mock simulation endpoints are disabled on live hardware",
+        )
+
+
+@app.post("/api/motor/disable")
+async def route_motor_disable():
+    """Dedicated safety-critical disengage endpoint (works in both live hardware and mock mode)."""
+    if motor is None:
+        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    await motor.disable_resistance()
+    return {
+        "status": "ok",
+        "weight_enabled": motor.weight_enabled,
+        "state": motor.state,
+    }
+
+
 @app.post("/api/mock/ble-event")
 async def route_mock_ble_event(req: MockBleEventRequest):
+    _require_mock_mode()
     if ble is None:
         raise HTTPException(status_code=503, detail="BLE manager unavailable")
     try:
@@ -274,8 +321,7 @@ async def route_mock_ble_event(req: MockBleEventRequest):
 
 @app.post("/api/mock/bar-tilt")
 async def route_mock_bar_tilt(req: MockBarTiltRequest):
-    if motor is None:
-        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    _require_mock_mode()
     if req.auto_enable:
         motor.set_accessory("BAR")
         if not motor.weight_enabled:
@@ -292,8 +338,7 @@ async def route_mock_bar_tilt(req: MockBarTiltRequest):
 
 @app.post("/api/mock/arm-positions")
 async def route_mock_arm_positions(req: MockArmPositionsRequest):
-    if motor is None:
-        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    _require_mock_mode()
     if req.accessory:
         try:
             motor.set_accessory(req.accessory)

@@ -27,7 +27,8 @@ export const KioskCableBar: React.FC<KioskCableBarProps> = React.memo(
         puckRef.current.style.transform = `translate3d(0, ${-offsetPx.toFixed(1)}px, 0)`;
       }
       if (trailRef.current) {
-        trailRef.current.style.transform = `scaleY(${(travelPct / 100).toFixed(4)})`;
+        const trailFillPx = travelPct > 0 ? offsetPx + 29 : 0;
+        trailRef.current.style.transform = `scaleY(${(trailFillPx / 496).toFixed(4)})`;
         trailRef.current.style.opacity = travelPct > 0 ? '0.3' : '0';
       }
       if (loadRef.current) {
@@ -53,6 +54,7 @@ export const KioskCableBar: React.FC<KioskCableBarProps> = React.memo(
 
     const initialPct = Math.max(0, Math.min((initialCable.position / 200) * 100, 100));
     const initialOffsetPx = (initialPct / 100) * INNER_TRACK_TRAVEL_PX;
+    const initialTrailFillPx = initialPct > 0 ? initialOffsetPx + 29 : 0;
 
     return (
       <div className="w-32 flex flex-col items-center gap-3 shrink-0">
@@ -67,7 +69,7 @@ export const KioskCableBar: React.FC<KioskCableBarProps> = React.memo(
               style={{
                 backgroundColor: 'var(--accent-primary)',
                 opacity: initialPct > 0 ? 0.3 : 0,
-                transform: `scaleY(${(initialPct / 100).toFixed(4)})`,
+                transform: `scaleY(${(initialTrailFillPx / 496).toFixed(4)})`,
                 willChange: 'transform',
               }}
             />

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext for local LAN / loopback daemon while trusting both system CAs and bundled modern roots (ISRG Root X1/X2, GTS, DigiCert) -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/swonal_extra_roots" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

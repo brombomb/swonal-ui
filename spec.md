@@ -958,7 +958,7 @@ export const WorkoutStage: React.FC<{ ws: WebSocket | null; daemonIp: string }> 
             JD
           </div>
           <div>
-            <h2 className="text-xl font-semibold">Jeri Doe</h2>
+            <h2 className="text-xl font-semibold">Alex Doe</h2>
             <p className="text-xs text-slate-400">Custom Workout Session</p>
           </div>
         </div>
@@ -1115,7 +1115,7 @@ export const WorkoutStage: React.FC<{ ws: WebSocket | null; daemonIp: string }> 
   * **Light Mode (Daylight Studio — Peloton/Apple Fitness+ Daylight Aesthetic):** `#F4F6F9` cool alabaster canvas, `#FFFFFF` pure white elevated cards with subtle ambient shadows (`0 8px 24px rgba(15, 20, 28, 0.06)`), `#E2E8F0` interactive surfaces, and deep slate `#0F172A` high-contrast typography for sunlit gym rooms.  
 * **Per-User Customizable Accent Color:**  
   * Each user profile stores a custom `--accent-primary` hex color (with preset athletic swatches like Electric Cyan `#00F0FF`, Volt Lime `#CCFF00`, Blaze Orange `#FF5500`, Hyper Pink `#FF007A`, and Ultra Violet `#8B5CF6`, plus a custom hex picker).  
-  * Automatically derives `--accent-glow` (`rgba(r, g, b, 0.35)`) and `--accent-muted` (`rgba(r, g, b, 0.15)`) in CSS so the central 360px weight dial, active cable ROM bars, and buttons adapt instantly when switching between users (e.g., Jeri vs. Rob).  
+  * Automatically derives `--accent-glow` (`rgba(r, g, b, 0.35)`) and `--accent-muted` (`rgba(r, g, b, 0.15)`) in CSS so the central 360px weight dial, active cable ROM bars, and buttons adapt instantly when switching between users (e.g., Alex vs. Taylor).  
 * **Imperial (lbs) & Metric (kg) Unit System:**  
   * User-selectable per profile (`LB` or `KG`) with a one-tap unit toggle in the top profile bar.  
   * Hardware-bound serial commands and database records remain in canonical `lbs` (`5–200 lbs`), while the UI dial, \+/- step buttons (`1 lb` / `5 lb` in Imperial; `0.5 kg` / `2.5 kg` in Metric), volume totals, and PR charts convert seamlessly.
@@ -1275,7 +1275,7 @@ mcpServer.tool(
 ## **4.7 Multi-User Household Profile Switcher & Partner Workout Mode (Must-Have)**
 
 * **Netflix/Peloton-Style Household Lock/Home Screen & Top-Bar Quick Switcher:**  
-  * Supports multiple household profiles (e.g., Jeri, Rob, guests) with a single tap from the top status bar or home screen avatar grid.  
+  * Supports multiple household profiles (e.g., Alex, Taylor, guests) with a single tap from the top status bar or home screen avatar grid.  
   * Switching users immediately hot-swaps:  
     * 1\. Active CSS theme (`themeMode`: Dark vs. Light) and `--accent-primary` color variables.  
     * 2\. Preferred `weightUnit` (`LB` vs. `KG`).  
@@ -1283,7 +1283,7 @@ mcpServer.tool(
     * 4\. Historical 1RM / `PersonalRecord` lookup so target weights on the dial automatically recalculate to that user's strength history.  
 * **Partner / Co-Lifting Mode ("Work In" Mode):**  
   * Allows 2+ household users to attach to a single `WorkoutSession`.  
-  * As Set 1 finishes for User A (e.g., Jeri at 35 lbs), `swonal-ui` automatically switches the active profile to User B (e.g., Rob at 75 lbs) for Set 1, sends the new `set_weight` command to `tonal-daemon`, updates the accent color on the dial, and logs each set to the respective user's `SetLog` and `PersonalRecord` tables.
+  * As Set 1 finishes for User A (e.g., Alex at 35 lbs), `swonal-ui` automatically switches the active profile to User B (e.g., Taylor at 75 lbs) for Set 1, sends the new `set_weight` command to `tonal-daemon`, updates the accent color on the dial, and logs each set to the respective user's `SetLog` and `PersonalRecord` tables.
 
 ## **4.8 Mobile Companion Web View & QR Code Remote (Must-Have)**
 

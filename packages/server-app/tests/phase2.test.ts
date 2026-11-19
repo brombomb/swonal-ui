@@ -44,12 +44,12 @@ describe('Phase 2 Nice-to-Have Features', () => {
     // Exercise Amazon Music & Plexamp transport + ducking
     for (const pid of ['amazon_music', 'plexamp']) {
       const p = musicRegistry.get(pid);
-      await p.play(DEFAULT_USERS.JERI_ID);
-      const st = await p.getPlaybackState(DEFAULT_USERS.JERI_ID);
+      await p.play(DEFAULT_USERS.USER_ONE_ID);
+      const st = await p.getPlaybackState(DEFAULT_USERS.USER_ONE_ID);
       expect(st.isPlaying).toBe(true);
-      await p.nextTrack(DEFAULT_USERS.JERI_ID);
-      await p.duckVolume?.(DEFAULT_USERS.JERI_ID, 250, 15);
-      const ducked = await p.getPlaybackState(DEFAULT_USERS.JERI_ID);
+      await p.nextTrack(DEFAULT_USERS.USER_ONE_ID);
+      await p.duckVolume?.(DEFAULT_USERS.USER_ONE_ID, 250, 15);
+      const ducked = await p.getPlaybackState(DEFAULT_USERS.USER_ONE_ID);
       expect(ducked.volumePct).toBeLessThanOrEqual(15);
     }
   });
@@ -114,17 +114,17 @@ describe('Phase 2 Nice-to-Have Features', () => {
     const exRes = await fetch(`${baseUrl}/api/exercises`);
     const exercises = (await exRes.json()) as Array<{ id: string }>;
     const overloadRes = await fetch(
-      `${baseUrl}/api/overload/${DEFAULT_USERS.JERI_ID}/${exercises[0].id}`
+      `${baseUrl}/api/overload/${DEFAULT_USERS.USER_ONE_ID}/${exercises[0].id}`
     );
     expect(overloadRes.status).toBe(200);
     const overload = (await overloadRes.json()) as { recommendedWeightLb: number };
     expect(overload.recommendedWeightLb).toBeGreaterThanOrEqual(5);
 
-    const csvRes = await fetch(`${baseUrl}/api/export/sessions.csv?userId=${DEFAULT_USERS.JERI_ID}`);
+    const csvRes = await fetch(`${baseUrl}/api/export/sessions.csv?userId=${DEFAULT_USERS.USER_ONE_ID}`);
     expect(csvRes.status).toBe(200);
     expect(await csvRes.text()).toContain('SessionId,Routine,StartedAt,Exercise');
 
-    const jsonRes = await fetch(`${baseUrl}/api/export/sessions.json?userId=${DEFAULT_USERS.JERI_ID}`);
+    const jsonRes = await fetch(`${baseUrl}/api/export/sessions.json?userId=${DEFAULT_USERS.USER_ONE_ID}`);
     expect(jsonRes.status).toBe(200);
     const exported = (await jsonRes.json()) as { activityType: string; sessions: unknown[] };
     expect(exported.activityType).toBe('TraditionalStrengthTraining');
@@ -144,7 +144,7 @@ describe('Phase 2 Nice-to-Have Features', () => {
     const askRes = await fetch(`${baseUrl}/api/coach/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: DEFAULT_USERS.JERI_ID, prompt: 'Add 5 pounds' }),
+      body: JSON.stringify({ userId: DEFAULT_USERS.USER_ONE_ID, prompt: 'Add 5 pounds' }),
     });
     expect(askRes.status).toBe(200);
     const coach = (await askRes.json()) as {

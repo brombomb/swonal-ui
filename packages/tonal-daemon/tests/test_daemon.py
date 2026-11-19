@@ -11,7 +11,15 @@ import pytest
 from src.ble_handles import BLEHandleManager
 import src.main as daemon_main
 from src.mode_switcher import ModeSwitcher
-from src.motor_bridge import MotorBridge
+from src.motor_bridge import (
+    MSG_ARM_POSITION,
+    MSG_CART_POSITION,
+    MSG_COLUMN_ROTATION,
+    MotorBridge,
+    decode_arm_position,
+    decode_cart_position,
+    decode_column_rotation,
+)
 
 
 def make_test_config(mock_mode: bool = True, watchdog_timeout_sec: float = 5.0) -> dict:
@@ -295,8 +303,150 @@ def test_fastapi_rest_and_websocket_integration(monkeypatch):
 
         cal_resp = client.get("/api/calibration")
         assert cal_resp.status_code == 200
-        assert cal_resp.json()["zero_offsets"] == {"left": 0.0, "right": 0.0}
+        cal_body = cal_resp.json()
+        assert cal_body["zero_offsets"] == {"left": 0.0, "right": 0.0}
+        assert isinstance(cal_body["bar_tilt_dwell_ms"], int)
+        assert cal_body["bar_tilt_dwell_ms"] == 250
 
         zero_resp = client.post("/api/calibration/zero")
         assert zero_resp.status_code == 200
         assert zero_resp.json()["status"] == "calibrated"
+
+        # Dedicated safety-critical /api/motor/disable endpoint works in mock mode
+        asyncio.run(daemon_main.motor.enable_resistance())
+        assert daemon_main.motor.weight_enabled is True
+        dis_resp = client.post("/api/motor/disable")
+        assert dis_resp.status_code == 200
+        assert dis_resp.json()["weight_enabled"] is False
+        assert daemon_main.motor.weight_enabled is False
+
+
+def test_mock_endpoints_rejected_on_live_hardware_and_motor_disable_works(monkeypatch):
+    monkeypatch.setenv("MOCK_TONAL", "true")
+    daemon_main._cli_mock_override = True
+
+    with TestClient(daemon_main.app) as client:
+        # Simulate live hardware mode (mock_mode = False, ble = None)
+        daemon_main.motor.mock_mode = False
+        orig_ble = daemon_main.ble
+        daemon_main.ble = None
+        try:
+            assert client.post("/api/mock/ble-event", json={"action": "toggle_weight"}).status_code == 403
+            bar_tilt = client.post("/api/mock/bar-tilt", json={"auto_enable": True, "delta": 48.0})
+            assert bar_tilt.status_code == 403
+            assert daemon_main.motor.weight_enabled is False
+            assert client.post("/api/mock/arm-positions", json={"height_left": 2}).status_code == 403
+
+            # Dedicated /api/motor/disable STILL works when mock_mode=False and ble=None
+            daemon_main.motor.weight_enabled = True
+            daemon_main.motor.state = "ACTIVE_WEIGHT_ON"
+            dis_resp = client.post("/api/motor/disable")
+            assert dis_resp.status_code == 200
+            assert dis_resp.json()["weight_enabled"] is False
+            assert daemon_main.motor.weight_enabled is False
+        finally:
+            daemon_main.ble = orig_ble
+            daemon_main.motor.mock_mode = True
+
+
+@pytest.mark.asyncio
+async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
+    # 1. Verify raw 0x1020 / 0x1021 / 0x1025 decoders match swolectl wire format
+    assert decode_cart_position(bytes([3, 5])) == (3, 5)
+    assert decode_column_rotation(bytes([2, 0, 1, 1])) == (2, False, 1, True)
+    # 0x1025: telescope=2, angle=1, side=0 (left), rot_locked=1 (bit 20), both_locked=1 (bit 21)
+    left_locked_word = (2) | (1 << 8) | (0 << 16) | (1 << 20) | (1 << 21)
+    left_arm = decode_arm_position(left_locked_word.to_bytes(4, "little"))
+    assert left_arm["side"] == "left"
+    assert left_arm["angle"] == 1
+    assert left_arm["is_rotation_locked"] is True
+    assert left_arm["is_rotation_and_telescope_locked"] is True
+
+    # Right arm unlocked (bit 21 = 0)
+    right_unlocked_word = (2) | (2 << 8) | (1 << 16) | (1 << 20)
+    right_arm = decode_arm_position(right_unlocked_word.to_bytes(4, "little"))
+    assert right_arm["side"] == "right"
+    assert right_arm["angle"] == 2
+    assert right_arm["is_rotation_and_telescope_locked"] is False
+
+    # 2. Verify MotorBridge reads live swolectl.Controller attributes (sync API, no read_telemetry_frame)
+    class FakeSwolectlController:
+        def __init__(self):
+            self.brought_up = False
+            self.closed = False
+            self.last_announcement = SimpleNamespace(firmware_version="5.2.18.0")
+            self.cart_position = SimpleNamespace(left=1, right=1)
+            self.column_rotation = SimpleNamespace(
+                left_position=2,
+                left_unlocked=False,
+                right_position=2,
+                right_unlocked=False,
+            )
+            self.arm_positions = {
+                "left": SimpleNamespace(
+                    angle=1,
+                    is_rotation_locked=True,
+                    is_rotation_and_telescope_locked=True,
+                ),
+                "right": SimpleNamespace(
+                    angle=1,
+                    is_rotation_locked=True,
+                    is_rotation_and_telescope_locked=True,
+                ),
+            }
+            self.telemetry = SimpleNamespace(
+                left_cable_position=12.4,
+                right_cable_position=12.6,
+                left_cable_speed=5.2,
+                right_cable_speed=5.1,
+                applied_resistance_lb=45.0,
+                rep_count=3,
+                device_enabled=True,
+            )
+
+        def bring_up(self):
+            self.brought_up = True
+
+        def enable_resistance(self):
+            self.telemetry.device_enabled = True
+
+        def disable_resistance(self):
+            self.telemetry.device_enabled = False
+
+        def close(self):
+            self.closed = True
+
+    ctrl = FakeSwolectlController()
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=ctrl)
+    await bridge.initialize()
+    assert ctrl.brought_up is True
+    assert bridge.state == "IDLE_WEIGHT_OFF"
+
+    frame = bridge._build_frame_from_swolectl()
+    assert frame.arm_positions.height == {"left": 1, "right": 1}
+    assert frame.arm_positions.rotation == {
+        "left": 2,
+        "right": 2,
+        "left_unlocked": False,
+        "right_unlocked": False,
+    }
+    assert frame.arm_positions.angle == {"left": 1, "right": 1}
+    assert frame.rep_count == 3
+    assert frame.applied_resistance_lb == 45.0
+
+    # Simulate physical user unlocking right arm telescope/rotation pin
+    ctrl.arm_positions["right"].is_rotation_and_telescope_locked = False
+    frame_unlk = bridge._build_frame_from_swolectl()
+    assert frame_unlk.arm_positions.rotation["left_unlocked"] is False
+    assert frame_unlk.arm_positions.rotation["right_unlocked"] is True
+
+    # Simulate raw packet updates
+    bridge.update_hardware_arm_packet(MSG_CART_POSITION, bytes([4, 4]))
+    bridge.update_hardware_arm_packet(MSG_COLUMN_ROTATION, bytes([3, 1, 3, 0]))
+    bridge.update_hardware_arm_packet(MSG_ARM_POSITION, left_locked_word.to_bytes(4, "little"))
+    assert bridge._hardware_arm_positions.height == {"left": 4, "right": 4}
+    assert bridge._hardware_arm_positions.rotation["left_unlocked"] is True
+    assert bridge._hardware_arm_positions.rotation["right_unlocked"] is False
+
+    await bridge.release_port()
+    assert ctrl.closed is True

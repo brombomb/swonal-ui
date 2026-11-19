@@ -58,7 +58,7 @@ Use the existing web UI as the **authoritative visual design spec** (`packages/s
 - **Deliverables**:
   - Gradle module `packages/android-kiosk` (`minSdk = 23`, `compileSdk = 34`, `abiFilters "arm64-v8a"`).
   - `SwonalRepository`:
-    - Configurable server URL (default `https://swonal.brombomb.com` or LAN `http://<LAN_IP>:3000`).
+    - Configurable server URL (default `http://192.168.1.100:3000` or LAN `http://<LAN_IP>:3000`).
     - Initial bootstrap via `GET /api/state` and `GET /api/daemon/health`.
     - Persistent `OkHttp` `/ws` WebSocket listener parsing `telemetry`, `session_state`, `daemon_status`, `workout_queued`, `safety_event`, `music_updated`, and `users_updated` / `templates_updated`.
   - Unit tests (`JUnit5` / `MockWebServer`) verifying telemetry JSON parsing and canonical `LB` <-> `KG` unit conversion (`1 lb = 0.45359237 kg`, velocity `cm/s` <-> `in/s` via `/ 2.54`).
@@ -76,7 +76,7 @@ Use the existing web UI as the **authoritative visual design spec** (`packages/s
     - `SymmetrySliderView` (with center notch tick) and `VelocityGaugeView` (live velocity + `% Velocity Drop` + `Enable Spotter` alert).
     - `Completed Reps`, `Complete & Log Set`, Dynamic Modes (`Standard`, `Spotter`, `Chains`, `Eccentric`, `Burnout`), and Rest Timer overlay.
   - **Music Dock**: Track/artist display, play/pause/prev/next, custom volume slider, and chime mute toggle.
-- **Exit Criteria**: Full workout session runs end-to-end on Tonal V1 (`192.168.0.140:5555`) at 60fps with zero browser dependency.
+- **Exit Criteria**: Full workout session runs end-to-end on Tonal V1 (`<tonal-ip>:5555`) at 60fps with zero browser dependency.
 
 ### Phase 2 — Pickers, Modals & Launcher Mode
 - **Deliverables**:
@@ -95,4 +95,4 @@ Use the existing web UI as the **authoritative visual design spec** (`packages/s
 ### Phase 4 — Low-Frequency Screens & Parity Verification
 - **Deliverables**:
   - Keep `/history`, `/settings`, `/admin`, and `/companion` on `server-app` (either rendered in an on-demand browser/activity or ported to native RecyclerView/MPAndroidChart screens if desired).
-  - End-to-end verification on `192.168.0.140:5555`: live 30Hz pull test, PR celebration + `SoundPool` chime, Spotify dock playback, and `adb logcat` check for zero ANRs/crashes.
+  - End-to-end verification on `<tonal-ip>:5555`: live 30Hz pull test, PR celebration + `SoundPool` chime, Spotify dock playback, and `adb logcat` check for zero ANRs/crashes.

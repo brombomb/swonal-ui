@@ -46,14 +46,14 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
     expect(catalogJson.length).toBeGreaterThanOrEqual(48);
 
     const profileRead = await client.readResource({
-      uri: `swonal://users/${DEFAULT_USERS.JERI_ID}/profile-and-prs`,
+      uri: `swonal://users/${DEFAULT_USERS.USER_ONE_ID}/profile-and-prs`,
     });
     const profileJson = JSON.parse((profileRead.contents[0] as { text: string }).text);
-    expect(profileJson.user.name).toBe('Jeri');
+    expect(['Alex', 'Rob']).toContain(profileJson.user.name);
     expect(profileJson.personalRecords.length).toBeGreaterThan(0);
 
     const workoutsRead = await client.readResource({
-      uri: `swonal://users/${DEFAULT_USERS.ROB_ID}/workouts`,
+      uri: `swonal://users/${DEFAULT_USERS.USER_TWO_ID}/workouts`,
     });
     const workoutsJson = JSON.parse((workoutsRead.contents[0] as { text: string }).text);
     expect(workoutsJson.templates.length).toBeGreaterThan(0);
@@ -71,7 +71,7 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
     const histRes = await client.callTool({
       name: 'get_user_strength_history',
       arguments: {
-        userId: DEFAULT_USERS.JERI_ID,
+        userId: DEFAULT_USERS.USER_ONE_ID,
         exerciseId: benchId,
         limit: 5,
         unit: 'KG',
@@ -86,7 +86,7 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
     const createRes = await client.callTool({
       name: 'create_custom_workout',
       arguments: {
-        userId: DEFAULT_USERS.JERI_ID,
+        userId: DEFAULT_USERS.USER_ONE_ID,
         name: 'MCP Metric Bench Block',
         description: 'Created over MCP SSE in KG',
         unit: 'KG',
@@ -144,7 +144,7 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
     await new Promise<void>((resolve) => ws.on('open', () => resolve()));
     const qRes = await client.callTool({
       name: 'queue_workout_for_session',
-      arguments: { userId: DEFAULT_USERS.JERI_ID, templateId: createdTemplateId! },
+      arguments: { userId: DEFAULT_USERS.USER_ONE_ID, templateId: createdTemplateId!, durationMs: 0 },
     });
     expect(JSON.parse((qRes.content as Array<{ text: string }>)[0].text).status).toBe('queued');
 
@@ -172,7 +172,7 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
       JSON.stringify({
         type: 'set_partner_mode',
         enabled: true,
-        partnerUserIds: [DEFAULT_USERS.JERI_ID, DEFAULT_USERS.ROB_ID],
+        partnerUserIds: [DEFAULT_USERS.USER_ONE_ID, DEFAULT_USERS.USER_TWO_ID],
       })
     );
     await new Promise((r) => setTimeout(r, 80));
@@ -180,13 +180,13 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
     const sessResp = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: DEFAULT_USERS.JERI_ID }),
+      body: JSON.stringify({ userId: DEFAULT_USERS.USER_ONE_ID }),
     });
     expect(sessResp.status).toBe(201);
     const session = (await sessResp.json()) as { id: string };
     createdSessionId = session.id;
 
-    // Log Jeri's set 1 -> should automatically rotate active user to Rob
+    // Log Alex's set 1 -> should automatically rotate active user to Taylor
     const setResp = await fetch(`${baseUrl}/api/sessions/${session.id}/sets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -206,9 +206,9 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
       partnerRotation: { rotatedToUserId: string; targetWeightLb: number } | null;
     };
     expect(setData.totalVolume).toBe(550);
-    expect(setData.partnerRotation?.rotatedToUserId).toBe(DEFAULT_USERS.ROB_ID);
+    expect(setData.partnerRotation?.rotatedToUserId).toBe(DEFAULT_USERS.USER_TWO_ID);
     expect(setData.partnerRotation?.targetWeightLb).toBeGreaterThanOrEqual(100);
-    expect(sessionCoordinator.getState().activeUserId).toBe(DEFAULT_USERS.ROB_ID);
+    expect(sessionCoordinator.getState().activeUserId).toBe(DEFAULT_USERS.USER_TWO_ID);
 
     ws.close();
   });

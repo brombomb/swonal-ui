@@ -21,7 +21,12 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
-import { AiCoachPublicConfig, HomeAssistantBusStatus } from '../types';
+import {
+  AiCoachPublicConfig,
+  HomeAssistantBusStatus,
+  HomeAssistantMediaPlayer,
+  MusicProviderConfigs,
+} from '../types';
 import { getContrastTextColor } from '../utils/units';
 
 interface SettingsViewProps {
@@ -46,6 +51,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
 
+  type SettingsTab = 'users' | 'music' | 'ai' | 'network' | 'security';
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab') as SettingsTab;
+    if (['users', 'music', 'ai', 'network', 'security'].includes(tab)) return tab;
+    return 'users';
+  });
+
+  const handleTabChange = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.replaceState(null, '', url.toString());
+  };
+
   // Spotify status & Redirect URI
   const [spotifyStatus, setSpotifyStatus] = useState<{
     configured: boolean;
@@ -55,6 +76,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   } | null>(null);
   const [copiedRedirect, setCopiedRedirect] = useState(false);
   const [spotifyExpanded, setSpotifyExpanded] = useState(false);
+
+  // Non-Spotify Music Provider Configs (Plexamp, YouTube Music, Apple Music, Amazon Music)
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [providerConfigs, setProviderConfigs] = useState<MusicProviderConfigs | null>(null);
+  const [providerConfiguredOverrides, setProviderConfiguredOverrides] = useState<Record<string, boolean>>({});
+  const [providerMsg, setProviderMsg] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [haMediaPlayers, setHaMediaPlayers] = useState<HomeAssistantMediaPlayer[]>([]);
+
+  // Drafts per music provider
+  const [plexampUrlDraft, setPlexampUrlDraft] = useState('');
+  const [plexServerUrlDraft, setPlexServerUrlDraft] = useState('');
+  const [plexTokenDraft, setPlexTokenDraft] = useState('');
+  const [ytmApiUrlDraft, setYtmApiUrlDraft] = useState('');
+  const [ytmAuthTokenDraft, setYtmAuthTokenDraft] = useState('');
+  const [ytmHaEntityDraft, setYtmHaEntityDraft] = useState('');
+  const [appleDevTokenDraft, setAppleDevTokenDraft] = useState('');
+  const [appleUserTokenDraft, setAppleUserTokenDraft] = useState('');
+  const [appleHaEntityDraft, setAppleHaEntityDraft] = useState('');
+  const [amazonHaEntityDraft, setAmazonHaEntityDraft] = useState('');
 
   // User Management
   const [newUserName, setNewUserName] = useState('');
@@ -95,6 +135,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   const [byokApiKey, setByokApiKey] = useState('');
   const [byokBaseUrl, setByokBaseUrl] = useState('');
   const [coachSavedMsg, setCoachSavedMsg] = useState<string | null>(null);
+  const [coachTestResult, setCoachTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [coachTesting, setCoachTesting] = useState(false);
 
   // Hardware & Home Assistant
   const [calibrationStatus, setCalibrationStatus] = useState<{
@@ -103,6 +145,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
     expected_board?: string;
   } | null>(null);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
+  const [haMqttBrokerDraft, setHaMqttBrokerDraft] = useState('');
+  const [haMqttUserDraft, setHaMqttUserDraft] = useState('');
+  const [haMqttPassDraft, setHaMqttPassDraft] = useState('');
+  const [haMqttTopicDraft, setHaMqttTopicDraft] = useState('swonal');
+  const [haMqttDiscoveryDraft, setHaMqttDiscoveryDraft] = useState(true);
+  const [haWebhookUrlDraft, setHaWebhookUrlDraft] = useState('');
+  const [haWebhookTokenDraft, setHaWebhookTokenDraft] = useState('');
+  const [haCoreUrlDraft, setHaCoreUrlDraft] = useState('');
+  const [haCoreTokenDraft, setHaCoreTokenDraft] = useState('');
   const [diagMsg, setDiagMsg] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -176,8 +227,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
     void fetch('/api/integrations/ha/status')
       .then((r) => (r.ok ? r.json() : null))
-      .then((ha) => {
-        if (ha) setHaStatus(ha);
+      .then((ha: HomeAssistantBusStatus | null) => {
+        if (ha) {
+          setHaStatus(ha);
+          setHaMqttBrokerDraft(ha.mqttBrokerUrl ?? '');
+          setHaMqttUserDraft(ha.mqttUsername ?? '');
+          setHaMqttTopicDraft(ha.mqttTopicPrefix || 'swonal');
+          setHaMqttDiscoveryDraft(ha.mqttDiscoveryEnabled ?? true);
+          setHaWebhookUrlDraft(ha.webhookUrl ?? '');
+          setHaCoreUrlDraft(ha.haUrl ?? '');
+          if (ha.haRestConfigured) {
+            void fetch('/api/integrations/ha/media-players')
+              .then((res) => (res.ok ? res.json() : null))
+              .then((mp: { players?: HomeAssistantMediaPlayer[] } | null) => {
+                if (mp?.players) setHaMediaPlayers(mp.players);
+              })
+              .catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+
+    void fetch('/api/music/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfgs: MusicProviderConfigs | null) => {
+        if (cfgs) {
+          setProviderConfigs(cfgs);
+          setPlexampUrlDraft(cfgs.plexamp.plexampUrl);
+          setPlexServerUrlDraft(cfgs.plexamp.plexServerUrl);
+          setYtmApiUrlDraft(cfgs.youtube_music.apiUrl);
+          setYtmHaEntityDraft(cfgs.youtube_music.haEntityId);
+          setAppleHaEntityDraft(cfgs.apple_music.haEntityId);
+          setAmazonHaEntityDraft(cfgs.amazon_music.haEntityId);
+        }
       })
       .catch(() => {});
   }, []);
@@ -219,6 +301,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
   const saveCoachConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCoachTestResult(null);
     const res = await fetch('/api/coach/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -232,9 +315,161 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
     if (res.ok) {
       const cfg = (await res.json()) as AiCoachPublicConfig;
       setCoachConfig(cfg);
+      setByokModel(cfg.model);
       setByokApiKey('');
-      setCoachSavedMsg('Saved AI Voice Coach configuration.');
+      setCoachSavedMsg('Saved AI Voice Coach configuration (persisted across restarts).');
+      setTimeout(() => setCoachSavedMsg(null), 3500);
+    } else {
+      const err = (await res.json().catch(() => null)) as { error?: string } | null;
+      setCoachTestResult({ ok: false, text: err?.error ?? 'Failed to save AI Coach config' });
+    }
+  };
+
+  const clearCoachApiKey = async () => {
+    const res = await fetch('/api/coach/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clearApiKey: true }),
+    });
+    if (res.ok) {
+      setCoachConfig((await res.json()) as AiCoachPublicConfig);
+      setCoachSavedMsg('Cleared saved API key.');
       setTimeout(() => setCoachSavedMsg(null), 3000);
+    }
+  };
+
+  const testCoachConnection = async () => {
+    setCoachTesting(true);
+    setCoachTestResult(null);
+    try {
+      const res = await fetch('/api/coach/test', { method: 'POST' });
+      const data = (await res.json()) as {
+        ok: boolean;
+        latencyMs?: number;
+        reply?: string;
+        error?: string;
+      };
+      if (data.ok) {
+        setCoachTestResult({
+          ok: true,
+          text: `Connected (${data.latencyMs ?? 0}ms): ${data.reply ?? 'Ready'}`,
+        });
+      } else {
+        setCoachTestResult({
+          ok: false,
+          text: data.error ?? 'Connection test failed',
+        });
+      }
+    } catch (err) {
+      setCoachTestResult({
+        ok: false,
+        text: err instanceof Error ? err.message : 'Request failed',
+      });
+    } finally {
+      setCoachTesting(false);
+    }
+  };
+
+  const saveMusicProviderConfig = async (
+    providerId: string,
+    payload: Record<string, unknown>
+  ) => {
+    const res = await fetch(`/api/music/${encodeURIComponent(providerId)}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = (await res.json().catch(() => null)) as {
+      configs?: MusicProviderConfigs;
+      providers?: Array<{ id: string; configured: boolean }>;
+      error?: string;
+    } | null;
+    if (res.ok && data?.configs) {
+      setProviderConfigs(data.configs);
+      if (data.providers) {
+        const map: Record<string, boolean> = {};
+        data.providers.forEach((p) => {
+          map[p.id] = p.configured;
+        });
+        setProviderConfiguredOverrides(map);
+      }
+      setPlexTokenDraft('');
+      setYtmAuthTokenDraft('');
+      setAppleDevTokenDraft('');
+      setAppleUserTokenDraft('');
+      setProviderMsg((prev) => ({
+        ...prev,
+        [providerId]: { ok: true, text: 'Configuration saved.' },
+      }));
+    } else {
+      setProviderMsg((prev) => ({
+        ...prev,
+        [providerId]: { ok: false, text: data?.error ?? 'Failed to save configuration.' },
+      }));
+    }
+  };
+
+  const testMusicProvider = async (providerId: string) => {
+    setProviderMsg((prev) => ({
+      ...prev,
+      [providerId]: { ok: true, text: 'Testing connection...' },
+    }));
+    try {
+      const res = await fetch(`/api/music/${encodeURIComponent(providerId)}/test`, {
+        method: 'POST',
+      });
+      const data = (await res.json()) as { ok: boolean; message?: string };
+      setProviderMsg((prev) => ({
+        ...prev,
+        [providerId]: {
+          ok: Boolean(data.ok),
+          text: data.message ?? (data.ok ? 'Connected' : 'Connection failed'),
+        },
+      }));
+    } catch (err) {
+      setProviderMsg((prev) => ({
+        ...prev,
+        [providerId]: {
+          ok: false,
+          text: err instanceof Error ? err.message : 'Test request failed',
+        },
+      }));
+    }
+  };
+
+  const saveHaConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/integrations/ha/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mqttBrokerUrl: haMqttBrokerDraft,
+        mqttUsername: haMqttUserDraft,
+        mqttPassword: haMqttPassDraft || undefined,
+        mqttTopicPrefix: haMqttTopicDraft || 'swonal',
+        mqttDiscoveryEnabled: haMqttDiscoveryDraft,
+        webhookUrl: haWebhookUrlDraft,
+        webhookToken: haWebhookTokenDraft || undefined,
+        haUrl: haCoreUrlDraft,
+        haToken: haCoreTokenDraft || undefined,
+      }),
+    });
+    if (res.ok) {
+      const updated = (await res.json()) as HomeAssistantBusStatus;
+      setHaStatus(updated);
+      setHaMqttPassDraft('');
+      setHaWebhookTokenDraft('');
+      setHaCoreTokenDraft('');
+      setDiagMsg('Saved Home Assistant configuration & reconnected.');
+      setTimeout(() => setDiagMsg(null), 3500);
+      if (updated.haRestConfigured) {
+        void fetch('/api/integrations/ha/media-players')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((mp: { players?: HomeAssistantMediaPlayer[] } | null) => {
+            if (mp?.players) setHaMediaPlayers(mp.players);
+          })
+          .catch(() => {});
+      }
     }
   };
 
@@ -254,8 +489,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
       body: JSON.stringify({ event: 'swonal_settings_test', userId: activeUser?.id }),
     });
     if (res.ok) {
-      setDiagMsg('Sent Home Assistant test event.');
-      setTimeout(() => setDiagMsg(null), 3000);
+      const payload = (await res.json()) as {
+        event?: { mqttDelivered?: boolean; webhookDelivered?: boolean };
+        bus?: HomeAssistantBusStatus;
+      };
+      if (payload.bus) setHaStatus(payload.bus);
+      const parts: string[] = [];
+      if (payload.event?.mqttDelivered) parts.push('MQTT delivered');
+      if (payload.event?.webhookDelivered) parts.push('Webhook delivered');
+      setDiagMsg(
+        parts.length > 0
+          ? `Test event published (${parts.join(' + ')}).`
+          : 'Test event recorded (configure MQTT Broker or Webhook URL to deliver externally).'
+      );
+      setTimeout(() => setDiagMsg(null), 4000);
     }
   };
 
@@ -367,146 +614,368 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
         </div>
       </header>
 
+      {/* Tab Navigation */}
+      <nav
+        aria-label="Settings navigation"
+        className="sticky top-[57px] z-20 backdrop-blur-xl border-b px-4 py-2"
+        style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-surface)' }}
+      >
+        <div className="max-w-3xl mx-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {(
+            [
+              { id: 'users', label: 'Users', icon: Users },
+              { id: 'music', label: 'Music', icon: Music },
+              { id: 'ai', label: 'AI', icon: Bot },
+              { id: 'network', label: 'Network', icon: Globe },
+              { id: 'security', label: 'Security', icon: ShieldCheck },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabChange(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                  active
+                    ? 'shadow-md border'
+                    : 'elevated-pill opacity-75 hover:opacity-100 hover:bg-[var(--bg-muted)]'
+                }`}
+                style={
+                  active
+                    ? {
+                        backgroundColor: 'var(--accent-primary)',
+                        color: accentTextColor,
+                        borderColor: 'transparent',
+                      }
+                    : undefined
+                }
+              >
+                <Icon size={15} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
       <main className="relative z-10 max-w-3xl mx-auto px-4 pt-6 space-y-6">
-        {/* 1. Music Providers & Integrations */}
-        <section className="surface-card rounded-3xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        {/* USERS TAB */}
+        {activeTab === 'users' && (
+          <section className="surface-card rounded-3xl p-6 space-y-4">
             <div className="flex items-center gap-2.5">
-              <Music size={22} style={{ color: 'var(--accent-primary)' }} />
+              <Users size={22} style={{ color: 'var(--accent-primary)' }} />
               <div>
-                <h2 className="text-xl font-black">Music Providers &amp; Integrations</h2>
+                <h2 className="text-xl font-black">Household Lifters &amp; Profiles</h2>
                 <p className="text-xs opacity-70">
-                  Connect your music account per profile ({activeUser?.name}) and choose your default player.
+                  Add new lifters, switch active profile, customize units and accent colors, or remove profiles.
                 </p>
               </div>
             </div>
-          </div>
 
-          <div className="space-y-3">
-            {musicProviders.map((prov) => {
-              const isSelected = prov.id === activeProviderId;
-              const isSpotify = prov.id === 'spotify';
-              const isSpotifyLinked = Boolean(
-                isSpotify && (spotifyStatus?.hasOAuthToken || musicState.isConnected)
-              );
-
-              return (
-                <div
-                  key={prov.id}
-                  className="elevated-pill rounded-2xl p-4 space-y-3 border"
-                  style={
-                    isSelected
-                      ? { borderColor: 'var(--accent-primary)' }
-                      : { borderColor: 'var(--border-subtle)' }
-                  }
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <span className="font-black text-base">{prov.displayName}</span>
-                      {!isSpotify && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35">
-                          Not Yet Implemented
-                        </span>
-                      )}
-                      {prov.configured ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                          Configured
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-500/20 text-slate-400">
-                          Not Configured
-                        </span>
-                      )}
-                      {isSpotifyLinked && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35">
-                          Spotify Connected
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {isSpotify && isSpotifyLinked && (
-                        <button
-                          type="button"
-                          onClick={() => setSpotifyExpanded((v) => !v)}
-                          className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
-                        >
-                          {spotifyExpanded ? 'Minimize' : 'Manage'}
-                        </button>
-                      )}
-                      {isSpotify && (!isSpotifyLinked || spotifyExpanded) && (
-                        <a
-                          href={(() => {
-                            const p = new URLSearchParams();
-                            if (activeUser?.id) p.set('userId', activeUser.id);
-                            if (baseUrlOverride) p.set('baseUrl', baseUrlOverride);
-                            const qs = p.toString();
-                            return `/api/spotify/login${qs ? `?${qs}` : ''}`;
-                          })()}
-                          className="px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
-                        >
-                          <Music size={14} />
-                          <span>{isSpotifyLinked ? 'Reconnect Spotify' : 'Connect Spotify'}</span>
-                        </a>
-                      )}
+            {/* Active User Switcher & Units */}
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-widest font-bold opacity-70">Active Lifter</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {users.map((u) => {
+                  const isCurrent = u.id === activeUser?.id;
+                  return (
+                    <div
+                      key={u.id}
+                      className={`rounded-2xl p-4 border flex items-center justify-between ${
+                        isCurrent ? 'border-2' : 'elevated-pill opacity-85'
+                      }`}
+                      style={
+                        isCurrent
+                          ? {
+                              borderColor: 'var(--accent-primary)',
+                              backgroundColor: 'var(--accent-muted)',
+                            }
+                          : undefined
+                      }
+                    >
                       <button
                         type="button"
-                        onClick={() => {
-                          if (activeUser) {
-                            void updateUserPreferences(activeUser.id, {
-                              preferredMusicProvider: prov.id,
-                            });
-                          }
-                        }}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold transition elevated-pill"
-                        style={
-                          isSelected
-                            ? {
-                                backgroundColor: 'var(--accent-primary)',
-                                color: accentTextColor,
-                              }
-                            : undefined
-                        }
+                        onClick={() => void switchUser(u.id)}
+                        className="flex items-center gap-3 text-left flex-1"
                       >
-                        {isSelected ? 'Default Provider' : 'Set Default'}
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0"
+                          style={{
+                            backgroundColor: u.accentColor || u.avatarColor || '#00F0FF',
+                            color: getContrastTextColor(u.accentColor || u.avatarColor || '#00F0FF'),
+                          }}
+                        >
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-bold text-sm">{u.name}</p>
+                          <p className="text-xs opacity-65">
+                            {u.weightUnit} • {u.themeMode}
+                          </p>
+                        </div>
                       </button>
-                    </div>
-                  </div>
 
-                  {isSpotify && spotifyStatus && (!isSpotifyLinked || spotifyExpanded) && (
-                    <div className="surface-card rounded-xl p-3 space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold opacity-75">
-                          Spotify OAuth Redirect URI (must match Spotify Developer Dashboard):
-                        </span>
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        {/* Unit Toggle */}
                         <button
                           type="button"
-                          onClick={copyRedirectUri}
-                          className="elevated-pill px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 hover:opacity-90"
+                          onClick={() =>
+                            void updateUserPreferences(u.id, {
+                              weightUnit: u.weightUnit === 'LB' ? 'KG' : 'LB',
+                            })
+                          }
+                          className="px-2 py-1 rounded-lg text-[11px] font-bold border border-[var(--border-subtle)] hover:border-[var(--accent-primary)] transition-colors"
+                          title="Toggle units (LB/KG)"
                         >
-                          {copiedRedirect ? <Check size={12} /> : <Copy size={12} />}
-                          <span>{copiedRedirect ? 'Copied' : 'Copy'}</span>
+                          {u.weightUnit}
                         </button>
-                      </div>
-                      <p className="font-mono text-[11px] break-all opacity-90">
-                        {spotifyStatus.redirectUri}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
 
-        {/* 2. Network, Base URL Override & Companion QR */}
+                        {/* Accent Color Picker */}
+                        <label
+                          className="w-7 h-7 rounded-lg border border-[var(--border-subtle)] cursor-pointer flex items-center justify-center overflow-hidden hover:opacity-85"
+                          title="Custom Accent Color"
+                        >
+                          <input
+                            type="color"
+                            value={u.accentColor || '#00F0FF'}
+                            onChange={(e) =>
+                              void updateUserPreferences(u.id, {
+                                accentColor: e.target.value,
+                              })
+                            }
+                            className="opacity-0 w-0 h-0 absolute pointer-events-none"
+                          />
+                          <div
+                            className="w-4 h-4 rounded-full border border-black/20"
+                            style={{ backgroundColor: u.accentColor || '#00F0FF' }}
+                          />
+                        </label>
+
+                        {/* Delete User (Prevent deleting sole user) */}
+                        {users.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Remove lifter "${u.name}"? Historical workouts will remain.`)) {
+                                void deleteUser(u.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Remove lifter"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Create User Form */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newUserName.trim()) return;
+                try {
+                  await createUser(newUserName.trim(), newUserUnit, newUserAccent);
+                  setNewUserName('');
+                  setUserMgmtMsg(`Lifter "${newUserName.trim()}" added successfully!`);
+                  setTimeout(() => setUserMgmtMsg(null), 3500);
+                } catch (err) {
+                  setUserMgmtMsg(err instanceof Error ? err.message : 'Failed to create user');
+                }
+              }}
+              className="elevated-pill rounded-2xl p-4 space-y-3"
+            >
+              <p className="text-xs uppercase tracking-widest font-bold opacity-70">Add New Lifter</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <input
+                  type="text"
+                  placeholder="Lifter Name"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  className="surface-card px-3 py-2 rounded-xl text-sm border font-medium focus:outline-none focus:border-[var(--accent-primary)]"
+                  style={{ borderColor: 'var(--border-subtle)' }}
+                  required
+                />
+                <select
+                  value={newUserUnit}
+                  onChange={(e) => setNewUserUnit(e.target.value as 'LB' | 'KG')}
+                  className="surface-card px-3 py-2 rounded-xl text-sm border font-medium focus:outline-none focus:border-[var(--accent-primary)]"
+                  style={{ borderColor: 'var(--border-subtle)' }}
+                >
+                  <option value="LB">Pounds (LB)</option>
+                  <option value="KG">Kilograms (KG)</option>
+                </select>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 surface-card px-3 py-2 rounded-xl border flex-1 cursor-pointer">
+                    <span className="text-xs opacity-75 font-medium">Accent:</span>
+                    <input
+                      type="color"
+                      value={newUserAccent}
+                      onChange={(e) => setNewUserAccent(e.target.value)}
+                      className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
+                    />
+                  </label>
+                </div>
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 w-full sm:w-auto"
+                style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+              >
+                <Plus size={15} />
+                <span>Create Lifter Profile</span>
+              </button>
+            </form>
+            {userMgmtMsg && <p className="text-xs font-bold text-emerald-400">{userMgmtMsg}</p>}
+          </section>
+        )}
+
+        {/* AI TAB */}
+        {activeTab === 'ai' && (
+          <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <Bot size={22} style={{ color: 'var(--accent-primary)' }} />
+              <div>
+                <h2 className="text-xl font-black">AI Voice Coach (BYOK)</h2>
+                <p className="text-xs opacity-70">
+                  Bring your own OpenAI, Anthropic, Gemini, or local Ollama model — persisted in protected server settings (`0600`).
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/35 shrink-0">
+              {coachConfig?.provider === 'local'
+                ? 'Local Heuristic Ready'
+                : coachConfig?.provider === 'ollama'
+                  ? 'Ollama Configured'
+                  : coachConfig?.hasApiKey
+                    ? `${coachConfig.provider.toUpperCase()} Ready`
+                    : `${(coachConfig?.provider ?? 'local').toUpperCase()} • Key Needed`}
+            </span>
+          </div>
+
+          <form onSubmit={saveCoachConfig} className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="space-y-1 text-xs font-bold">
+                <span className="opacity-70 uppercase">Provider</span>
+                <select
+                  value={byokProvider}
+                  onChange={(e) => {
+                    const next = e.target.value as
+                      | 'local'
+                      | 'openai'
+                      | 'anthropic'
+                      | 'gemini'
+                      | 'ollama';
+                    setByokProvider(next);
+                    const defModel = coachConfig?.defaultModels?.[next];
+                    if (defModel) setByokModel(defModel);
+                  }}
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-bold outline-none"
+                >
+                  <option value="local">Built-in Local Heuristic Coach (No Key)</option>
+                  <option value="openai">OpenAI (GPT-4o-mini)</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="ollama">Local Ollama</option>
+                </select>
+              </label>
+
+              <label className="space-y-1 text-xs font-bold">
+                <span className="opacity-70 uppercase">Model Name</span>
+                <input
+                  type="text"
+                  value={byokModel}
+                  onChange={(e) => setByokModel(e.target.value)}
+                  placeholder="e.g. gpt-4o-mini, claude-3-5-haiku-latest"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="space-y-1 text-xs font-bold">
+                <span className="opacity-70 uppercase flex items-center gap-1">
+                  <Key size={12} /> API Key {coachConfig?.hasApiKey ? `(Saved: ${coachConfig.keyHint})` : ''}
+                </span>
+                <input
+                  type="password"
+                  value={byokApiKey}
+                  onChange={(e) => setByokApiKey(e.target.value)}
+                  placeholder="sk-... (optional for local/ollama)"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
+
+              <label className="space-y-1 text-xs font-bold">
+                <span className="opacity-70 uppercase">Base URL (Ollama / Custom)</span>
+                <input
+                  type="text"
+                  value={byokBaseUrl}
+                  onChange={(e) => setByokBaseUrl(e.target.value)}
+                  placeholder="http://localhost:11434"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="space-y-0.5 text-xs font-bold">
+                {coachSavedMsg && <p className="text-emerald-400">{coachSavedMsg}</p>}
+                {coachTestResult && (
+                  <p className={coachTestResult.ok ? 'text-emerald-400' : 'text-rose-400'}>
+                    {coachTestResult.text}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {coachConfig?.hasApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => void clearCoachApiKey()}
+                    className="elevated-pill px-3.5 py-2.5 rounded-xl text-xs font-bold hover:opacity-90"
+                  >
+                    Clear Key
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={coachTesting}
+                  onClick={() => void testCoachConnection()}
+                  className="elevated-pill px-4 py-2.5 rounded-xl text-xs font-bold hover:opacity-90 disabled:opacity-50"
+                >
+                  {coachTesting ? 'Testing...' : 'Test Connection'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl font-black text-sm"
+                  style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                >
+                  Save AI Coach Config
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+        )}
+
+        {/* NETWORK TAB */}
+        {activeTab === 'network' && (
+          <>
+            {/* 2. Network, Base URL Override & Companion QR */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex items-center gap-2.5">
             <Globe size={22} style={{ color: 'var(--accent-primary)' }} />
             <div>
               <h2 className="text-xl font-black">Network &amp; Base URL Override</h2>
               <p className="text-xs opacity-70">
-                Override the host used for the Companion QR code (e.g. https://swonal.brombomb.com).
+                Override the host used for the Companion QR code (e.g. https://swonal.example.com).
               </p>
             </div>
           </div>
@@ -516,7 +985,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               type="text"
               value={baseUrlDraft}
               onChange={(e) => setBaseUrlDraft(e.target.value)}
-              placeholder="https://swonal.brombomb.com"
+              placeholder="https://swonal.example.com"
               className="flex-1 min-w-[240px] elevated-pill px-4 py-3 rounded-xl text-sm font-mono outline-none"
             />
             <button
@@ -557,96 +1026,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           </div>
         </section>
 
-        {/* 3. AI Voice Coach (BYOK) */}
-        <section className="surface-card rounded-3xl p-6 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5">
-              <Bot size={22} style={{ color: 'var(--accent-primary)' }} />
-              <div>
-                <h2 className="text-xl font-black">AI Voice Coach (BYOK)</h2>
-                <p className="text-xs opacity-70">
-                  Bring your own OpenAI, Anthropic, Gemini, or local Ollama key — keys stay in memory only.
-                </p>
-              </div>
-            </div>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0">
-              Not Yet Implemented
-            </span>
-          </div>
-
-          <form onSubmit={saveCoachConfig} className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="space-y-1 text-xs font-bold">
-                <span className="opacity-70 uppercase">Provider</span>
-                <select
-                  value={byokProvider}
-                  onChange={(e) =>
-                    setByokProvider(
-                      e.target.value as 'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama'
-                    )
-                  }
-                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-bold outline-none"
-                >
-                  <option value="local">Built-in Local Heuristic Coach (No Key)</option>
-                  <option value="openai">OpenAI (GPT-4o-mini)</option>
-                  <option value="anthropic">Anthropic (Claude)</option>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="ollama">Local Ollama</option>
-                </select>
-              </label>
-
-              <label className="space-y-1 text-xs font-bold">
-                <span className="opacity-70 uppercase">Model Name</span>
-                <input
-                  type="text"
-                  value={byokModel}
-                  onChange={(e) => setByokModel(e.target.value)}
-                  placeholder="e.g. gpt-4o-mini, claude-3-5-sonnet-latest"
-                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
-                />
-              </label>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="space-y-1 text-xs font-bold">
-                <span className="opacity-70 uppercase flex items-center gap-1">
-                  <Key size={12} /> API Key {coachConfig?.hasApiKey ? `(Active: ${coachConfig.keyHint})` : ''}
-                </span>
-                <input
-                  type="password"
-                  value={byokApiKey}
-                  onChange={(e) => setByokApiKey(e.target.value)}
-                  placeholder="sk-... (optional for local/ollama)"
-                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
-                />
-              </label>
-
-              <label className="space-y-1 text-xs font-bold">
-                <span className="opacity-70 uppercase">Base URL (Ollama / Custom)</span>
-                <input
-                  type="text"
-                  value={byokBaseUrl}
-                  onChange={(e) => setByokBaseUrl(e.target.value)}
-                  placeholder="http://localhost:11434"
-                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
-                />
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-xs font-bold text-emerald-400">{coachSavedMsg ?? ''}</span>
-              <button
-                type="submit"
-                className="px-5 py-2.5 rounded-xl font-black text-sm"
-                style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
-              >
-                Save AI Coach Config
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* 4. Model Context Protocol (MCP) Server */}
+            {/* 4. Model Context Protocol (MCP) Server */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex items-center gap-2.5">
             <Server size={22} style={{ color: 'var(--accent-primary)' }} />
@@ -757,7 +1137,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           </div>
         </section>
 
-        {/* 5. Home Assistant Event Bus */}
+            {/* 5. Home Assistant Event Bus & Media Bridge */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -765,12 +1145,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-xl font-black">Home Assistant Event Bus</h2>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35">
-                    Not Yet Implemented
-                  </span>
+                  {haStatus?.mqttConnected ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/35">
+                      MQTT Connected{haStatus.discoveryPublished ? ' • Discovery Active' : ''}
+                    </span>
+                  ) : haStatus?.mqttConfigured ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                      MQTT Connecting
+                    </span>
+                  ) : null}
+                  {haStatus?.webhookConfigured && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/35">
+                      Webhook Active
+                    </span>
+                  )}
+                  {haStatus?.haRestConfigured && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/35">
+                      HA Media Bridge Ready
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs opacity-70">
-                  MQTT &amp; Webhook automation diagnostics (hardware calibration lives in Admin).
+                  Publish live gym telemetry, MQTT Auto-Discovery sensors, workout webhooks, and link Home Assistant media players.
                 </p>
               </div>
             </div>
@@ -783,198 +1179,153 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             </a>
           </div>
 
-          <div className="elevated-pill rounded-2xl p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase font-bold opacity-65">MQTT / Webhook Status</p>
-              <p className="font-black text-sm">
-                {haStatus?.mqttConfigured || haStatus?.webhookConfigured
-                  ? 'Configured'
-                  : 'Not Configured'}
-              </p>
-              <p className="text-xs opacity-70 mt-1">
-                Topic: {haStatus?.mqttTopicPrefix ?? 'swonal'}
-              </p>
+          <form onSubmit={saveHaConfig} className="space-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">MQTT Broker URL</span>
+                <input
+                  type="text"
+                  value={haMqttBrokerDraft}
+                  onChange={(e) => setHaMqttBrokerDraft(e.target.value)}
+                  placeholder="mqtt://192.168.1.10:1883"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-mono outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">MQTT Topic Prefix</span>
+                <input
+                  type="text"
+                  value={haMqttTopicDraft}
+                  onChange={(e) => setHaMqttTopicDraft(e.target.value)}
+                  placeholder="swonal"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-mono outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">MQTT Username</span>
+                <input
+                  type="text"
+                  value={haMqttUserDraft}
+                  onChange={(e) => setHaMqttUserDraft(e.target.value)}
+                  placeholder="Optional broker user"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">
+                  MQTT Password {haStatus?.hasMqttPassword ? '(Saved)' : ''}
+                </span>
+                <input
+                  type="password"
+                  value={haMqttPassDraft}
+                  onChange={(e) => setHaMqttPassDraft(e.target.value)}
+                  placeholder="Leave blank to keep saved password"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">Webhook URL</span>
+                <input
+                  type="text"
+                  value={haWebhookUrlDraft}
+                  onChange={(e) => setHaWebhookUrlDraft(e.target.value)}
+                  placeholder="http://homeassistant.local:8123/api/webhook/swonal"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-mono outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">
+                  Webhook Bearer Token {haStatus?.hasWebhookToken ? '(Saved)' : ''}
+                </span>
+                <input
+                  type="password"
+                  value={haWebhookTokenDraft}
+                  onChange={(e) => setHaWebhookTokenDraft(e.target.value)}
+                  placeholder="Optional Authorization token"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">Home Assistant Core URL (for Speakers)</span>
+                <input
+                  type="text"
+                  value={haCoreUrlDraft}
+                  onChange={(e) => setHaCoreUrlDraft(e.target.value)}
+                  placeholder="http://homeassistant.local:8123"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-mono outline-none"
+                />
+              </label>
+              <label className="space-y-1 font-bold">
+                <span className="opacity-70 uppercase">
+                  HA Long-Lived Access Token {haStatus?.hasHaToken ? '(Saved)' : ''}
+                </span>
+                <input
+                  type="password"
+                  value={haCoreTokenDraft}
+                  onChange={(e) => setHaCoreTokenDraft(e.target.value)}
+                  placeholder="Leave blank to keep saved token"
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl outline-none"
+                />
+              </label>
             </div>
-            <button
-              type="button"
-              onClick={() => void triggerHaTest()}
-              className="surface-card px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-90"
-            >
-              Test Event
-            </button>
-          </div>
-          {diagMsg && <p className="text-xs font-bold text-emerald-400">{diagMsg}</p>}
-        </section>
 
-        {/* 5. Session Data & Backups */}
-        <section className="surface-card rounded-3xl p-6 space-y-3">
-          <div className="flex items-center gap-2.5">
-            <Database size={22} style={{ color: 'var(--accent-primary)' }} />
-            <h2 className="text-xl font-black">Session Data &amp; Backups</h2>
-          </div>
+            <label className="flex items-center gap-2 font-bold cursor-pointer select-none pt-1">
+              <input
+                type="checkbox"
+                checked={haMqttDiscoveryDraft}
+                onChange={(e) => setHaMqttDiscoveryDraft(e.target.checked)}
+              />
+              <span>Publish Home Assistant MQTT Auto-Discovery sensors (`homeassistant/sensor/swonal_*`)</span>
+            </label>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <a
-              href={`/api/export/sessions.csv?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
-              className="elevated-pill py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
-            >
-              <Download size={15} />
-              <span>Export Sessions CSV</span>
-            </a>
-            <a
-              href={`/api/export/sessions.json?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
-              className="elevated-pill py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
-            >
-              <Download size={15} />
-              <span>Export Sessions JSON</span>
-            </a>
-            <a
-              href="/api/admin/backup/db"
-              className="elevated-pill py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
-            >
-              <Database size={15} />
-              <span>Backup SQLite DB</span>
-            </a>
-          </div>
-        </section>
-
-        {/* 6. Household Lifters & User Management */}
-        <section className="surface-card rounded-3xl p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <Users size={22} style={{ color: 'var(--accent-primary)' }} />
-            <div>
-              <h2 className="text-xl font-black">Household Lifters &amp; Profiles</h2>
-              <p className="text-xs opacity-70">
-                Add new lifters, switch active profile, customize units and accent colors, or remove profiles.
+            {haStatus?.lastMqttError && (
+              <p className="text-xs font-bold text-rose-400">
+                MQTT Error: {haStatus.lastMqttError}
               </p>
-            </div>
-          </div>
+            )}
 
-          <div className="space-y-2.5">
-            {users.map((u) => {
-              const isCurrent = u.id === activeUser?.id;
-              return (
-                <div
-                  key={u.id}
-                  className="elevated-pill rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border"
-                  style={
-                    isCurrent
-                      ? { borderColor: 'var(--accent-primary)' }
-                      : { borderColor: 'var(--border-subtle)' }
-                  }
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <span className="text-xs font-bold text-emerald-400">{diagMsg ?? ''}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void triggerHaTest()}
+                  className="elevated-pill px-4 py-2.5 rounded-xl font-bold hover:opacity-90"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <input
-                      type="color"
-                      aria-label={`${u.name} accent color`}
-                      value={u.accentColor}
-                      onChange={(e) =>
-                        void updateUserPreferences(u.id, {
-                          accentColor: e.target.value,
-                          avatarColor: e.target.value,
-                        })
-                      }
-                      className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0 shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <p className="font-black text-sm truncate">{u.name}</p>
-                      <p className="text-[11px] opacity-65">
-                        {u.weightUnit} · {u.themeMode}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void updateUserPreferences(u.id, {
-                          weightUnit: u.weightUnit === 'LB' ? 'KG' : 'LB',
-                        })
-                      }
-                      className="surface-card px-3 py-1.5 rounded-xl text-xs font-bold"
-                    >
-                      {u.weightUnit}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => switchUser(u.id)}
-                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold"
-                      style={
-                        isCurrent
-                          ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
-                          : undefined
-                      }
-                    >
-                      {isCurrent ? 'Active' : 'Switch'}
-                    </button>
-                    {users.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const res = await deleteUser(u.id);
-                          setUserMgmtMsg(
-                            res.ok ? `Removed ${u.name}` : res.error || 'Unable to remove user'
-                          );
-                          setTimeout(() => setUserMgmtMsg(null), 3000);
-                        }}
-                        aria-label={`Delete ${u.name}`}
-                        className="p-2 rounded-xl bg-red-500/15 text-red-400 hover:bg-red-500/25"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!newUserName.trim()) return;
-              await createUser(newUserName.trim(), newUserAccent, newUserUnit);
-              setUserMgmtMsg(`Added lifter ${newUserName.trim()}`);
-              setNewUserName('');
-              setTimeout(() => setUserMgmtMsg(null), 3000);
-            }}
-            className="flex flex-wrap items-center gap-2 pt-1"
-          >
-            <input
-              type="text"
-              value={newUserName}
-              onChange={(e) => setNewUserName(e.target.value)}
-              placeholder="New lifter name (e.g. Alex)"
-              className="flex-1 min-w-[180px] elevated-pill px-4 py-2.5 rounded-xl text-sm outline-none"
-            />
-            <select
-              value={newUserUnit}
-              onChange={(e) => setNewUserUnit(e.target.value as 'LB' | 'KG')}
-              className="elevated-pill px-3 py-2.5 rounded-xl text-xs font-bold outline-none"
-            >
-              <option value="LB">LB</option>
-              <option value="KG">KG</option>
-            </select>
-            <input
-              type="color"
-              value={newUserAccent}
-              onChange={(e) => setNewUserAccent(e.target.value)}
-              className="w-11 h-10 rounded-xl elevated-pill p-1 cursor-pointer"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5"
-              style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
-            >
-              <Plus size={15} />
-              <span>Add Lifter</span>
-            </button>
+                  Send Test Event
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl font-black text-sm"
+                  style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                >
+                  Save &amp; Reconnect
+                </button>
+              </div>
+            </div>
           </form>
-          {userMgmtMsg && <p className="text-xs font-bold text-emerald-400">{userMgmtMsg}</p>}
-        </section>
 
-        {/* 7. Security & Internet Access Lock */}
+          {haStatus && haStatus.recentEvents.length > 0 && (
+            <div className="elevated-pill rounded-2xl p-3.5 space-y-1.5 text-[11px] font-mono">
+              <p className="uppercase font-bold opacity-60">Recent Dispatched Events</p>
+              {haStatus.recentEvents.slice(0, 4).map((ev) => (
+                <div key={ev.id} className="flex items-center justify-between gap-2 opacity-85">
+                  <span className="truncate">{ev.topic}</span>
+                  <span className="shrink-0">
+                    MQTT:{ev.mqttDelivered ? 'OK' : '—'} • Hook:{ev.webhookDelivered ? 'OK' : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+          </>
+        )}
+
+        {/* SECURITY TAB */}
+        {activeTab === 'security' && (
+          <>
+            {/* 7. Security & Internet Access Lock */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -1122,6 +1473,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
           {authMsg && <p className="text-xs font-bold text-emerald-400">{authMsg}</p>}
         </section>
+
+            {/* 5. Session Data & Backups */}
+        <section className="surface-card rounded-3xl p-6 space-y-3">
+          <div className="flex items-center gap-2.5">
+            <Database size={22} style={{ color: 'var(--accent-primary)' }} />
+            <h2 className="text-xl font-black">Session Data &amp; Backups</h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <a
+              href={`/api/export/sessions.csv?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+              className="elevated-pill py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
+            >
+              <Download size={15} />
+              <span>Export Sessions CSV</span>
+            </a>
+            <a
+              href={`/api/export/sessions.json?userId=${encodeURIComponent(activeUser?.id ?? '')}`}
+              className="elevated-pill py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
+            >
+              <Download size={15} />
+              <span>Export Sessions JSON</span>
+            </a>
+            <a
+              href="/api/admin/backup/db"
+              className="elevated-pill py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90"
+            >
+              <Database size={15} />
+              <span>Backup SQLite DB</span>
+            </a>
+          </div>
+        </section>
+          </>
+        )}
+      
       </main>
     </div>
   );

@@ -1,8 +1,9 @@
 """Hardware emulation engine for offline development and automated testing."""
+from __future__ import annotations
 
 import math
 import time
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union
 
 
 class MockMotorSimulator:
@@ -13,7 +14,7 @@ class MockMotorSimulator:
         self.max_weight = max_weight
         self.rep_progress = 0.0
         self.sim_time = 0.0
-        self.arm_positions: Dict[str, Dict[str, int | bool]] = {
+        self.arm_positions: Dict[str, Dict[str, Union[int, bool]]] = {
             "height": {"left": 4, "right": 4},
             "rotation": {
                 "left": 2,

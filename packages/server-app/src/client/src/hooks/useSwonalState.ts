@@ -518,14 +518,27 @@ export function useSwonalState() {
     return () => clearInterval(timer);
   }, [sessionState.restTimerEndsAt, sendWs]);
 
-  // Periodic music progress refresh when playing
+  const refreshPlaybackState = useCallback(async (userId: string, providerId: string) => {
+    if (!userId) return;
+    const qs = `userId=${encodeURIComponent(userId)}`;
+    try {
+      const resp = await fetch(`/api/music/${encodeURIComponent(providerId)}/state?${qs}`);
+      if (resp.ok) {
+        setMusicState(await resp.json());
+      }
+    } catch {
+      // Ignore transient network errors during periodic state polling
+    }
+  }, []);
+
+  // Periodic music progress refresh when playing (only poll playback state, not playlists/devices)
   useEffect(() => {
     if (!musicState.isPlaying || !activeUser?.id) return;
     const iv = setInterval(() => {
-      void refreshMusic(activeUser.id, activeProviderId);
+      void refreshPlaybackState(activeUser.id, activeProviderId);
     }, 2000);
     return () => clearInterval(iv);
-  }, [musicState.isPlaying, activeUser?.id, activeProviderId, refreshMusic]);
+  }, [musicState.isPlaying, activeUser?.id, activeProviderId, refreshPlaybackState]);
 
   // Keep latest callbacks/IDs in refs so WebSocket stays connected without tearing down on user switch
   const activeUserIdRef = useRef<string | undefined>(activeUser?.id);
@@ -1323,7 +1336,7 @@ export function useSwonalState() {
         setWebPlayerEnabled(false);
         const msg = (payload as { message?: string })?.message || 'Authentication failed';
         setMusicError(
-          `Web Player: ${msg}. Your browser is likely blocking Spotify DRM or third-party requests (sdk.scdn.co / dealer.g2.spotify.com) — disable tracking protection & enable DRM for this site, or use Tonal Gym (librespot) / the Spotify app.`
+          `Web Player: ${msg}. Your browser is likely blocking Spotify DRM or third-party requests (sdk.scdn.co / dealer.g2.spotify.com) — disable tracking protection & enable DRM for this site, or use Tonal Speakers / the Spotify app.`
         );
       });
       player.addListener('account_error', handleSdkError);

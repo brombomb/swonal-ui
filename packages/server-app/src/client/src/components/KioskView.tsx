@@ -273,12 +273,19 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   });
 
   useEffect(() => {
-    void fetch('/api/daemon/health')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((h: { mock?: boolean } | null) => {
-        if (h) setIsMockMode(Boolean(h.mock));
-      })
-      .catch(() => {});
+    const checkHealth = () => {
+      void fetch('/api/daemon/health')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((h: { mock?: boolean; mock_mode?: boolean } | null) => {
+          if (h && (h.mock_mode !== undefined || h.mock !== undefined)) {
+            setIsMockMode(Boolean(h.mock_mode ?? h.mock));
+          }
+        })
+        .catch(() => {});
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

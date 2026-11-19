@@ -219,10 +219,52 @@ export interface HomeAssistantEventRecord {
 export interface HomeAssistantBusStatus {
   mqttConfigured: boolean;
   mqttConnected: boolean;
+  mqttBrokerUrl?: string;
+  mqttUsername?: string;
+  hasMqttPassword?: boolean;
   mqttTopicPrefix: string;
+  mqttDiscoveryEnabled?: boolean;
+  discoveryPublished?: boolean;
   lastMqttError: string | null;
   webhookConfigured: boolean;
+  webhookUrl?: string;
+  hasWebhookToken?: boolean;
+  haRestConfigured?: boolean;
+  haUrl?: string;
+  hasHaToken?: boolean;
   recentEvents: HomeAssistantEventRecord[];
+}
+
+export interface HomeAssistantMediaPlayer {
+  entityId: string;
+  friendlyName: string;
+  state: string;
+  volumePct: number | null;
+}
+
+export interface MusicProviderConfigs {
+  plexamp: {
+    plexampUrl: string;
+    plexServerUrl: string;
+    hasPlexToken: boolean;
+    configured: boolean;
+  };
+  youtube_music: {
+    apiUrl: string;
+    hasAuthToken: boolean;
+    haEntityId: string;
+    configured: boolean;
+  };
+  apple_music: {
+    hasDeveloperToken: boolean;
+    hasMusicUserToken: boolean;
+    haEntityId: string;
+    configured: boolean;
+  };
+  amazon_music: {
+    haEntityId: string;
+    configured: boolean;
+  };
 }
 
 export interface OverloadSuggestion {
@@ -256,6 +298,7 @@ export interface AiCoachPublicConfig {
   hasApiKey: boolean;
   keyHint: string | null;
   baseUrl: string | null;
+  defaultModels?: Record<string, string>;
   supportedProviders: Array<{ id: string; label: string }>;
 }
 

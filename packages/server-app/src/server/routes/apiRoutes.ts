@@ -555,6 +555,13 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       });
       sessionCoordinator.setActiveSession(null, null);
       sessionCoordinator.setRestTimer(null);
+      void homeAssistantBus.publishSessionEvent('workout_completed', {
+        userId: completed.userId,
+        sessionId: completed.id,
+        routineName: completed.template?.name ?? 'Free Lift',
+        totalVolumeLb: completed.totalVolume,
+        setsCount: completed.setLogs.length,
+      });
       res.json(completed);
     } catch (err) {
       next(err);
@@ -574,9 +581,42 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     }
   });
 
-  // Home Assistant / MQTT Event Bus Diagnostics
+  // Home Assistant / MQTT Event Bus Diagnostics & Configuration
   router.get('/integrations/ha/status', (_req, res) => {
     res.json(homeAssistantBus.getStatus());
+  });
+
+  router.post('/integrations/ha/config', async (req, res, next) => {
+    try {
+      const schema = z.object({
+        mqttBrokerUrl: z.string().max(300).optional(),
+        mqttUsername: z.string().max(120).optional(),
+        mqttPassword: z.string().max(200).optional(),
+        mqttTopicPrefix: z.string().max(120).optional(),
+        mqttDiscoveryEnabled: z.boolean().optional(),
+        webhookUrl: z.string().max(400).optional(),
+        webhookToken: z.string().max(300).optional(),
+        haUrl: z.string().max(300).optional(),
+        haToken: z.string().max(500).optional(),
+      });
+      const parsed = schema.parse(req.body ?? {});
+      await homeAssistantBus.setConfig(parsed);
+      res.json(homeAssistantBus.getStatus());
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/integrations/ha/media-players', async (_req, res) => {
+    try {
+      const players = await homeAssistantBus.listMediaPlayers();
+      res.json({ players });
+    } catch (err) {
+      res.status(502).json({
+        players: [],
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   router.post('/integrations/ha/test', async (req, res, next) => {
@@ -781,10 +821,20 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         model: z.string().max(120).optional(),
         apiKey: z.string().max(300).optional(),
         baseUrl: z.string().max(300).optional(),
+        clearApiKey: z.boolean().optional(),
       });
       const parsed = schema.parse(req.body);
       aiCoachService.setConfig(parsed);
       res.json(aiCoachService.getPublicConfig());
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/coach/test', async (_req, res, next) => {
+    try {
+      const result = await aiCoachService.testConnection();
+      res.json(result);
     } catch (err) {
       next(err);
     }
