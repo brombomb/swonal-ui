@@ -181,6 +181,14 @@ class SwonalRepository(
     private val _vbtFlow = MutableStateFlow(VbtMetrics())
     val vbtFlow: StateFlow<VbtMetrics> = _vbtFlow.asStateFlow()
 
+    private val initialCachedUsers: List<User> = runCatching {
+        prefs.cachedUsersJson?.let { SwonalJson.decodeFromString<List<User>>(it) }
+    }.getOrNull().orEmpty()
+
+    private val initialCachedExercises: List<Exercise> = runCatching {
+        prefs.cachedExercisesJson?.let { SwonalJson.decodeFromString<List<Exercise>>(it) }
+    }.getOrNull().orEmpty()
+
     private val _uiStateFlow = MutableStateFlow(
         KioskUiState(
             serverUrl = prefs.serverUrl,
@@ -188,7 +196,10 @@ class SwonalRepository(
             authRequired = prefs.lastKnownAuthEnabled,
             telemetryDisplayMode = prefs.telemetryDisplayMode,
             soundMuted = prefs.soundMuted,
-            developerMode = prefs.developerMode
+            developerMode = prefs.developerMode,
+            users = initialCachedUsers,
+            exercises = initialCachedExercises,
+            activeExerciseId = initialCachedExercises.firstOrNull()?.id
         )
     )
     val uiStateFlow: StateFlow<KioskUiState> = _uiStateFlow.asStateFlow()
@@ -349,11 +360,18 @@ class SwonalRepository(
                 it.copy(
                     authChecking = false,
                     authRequired = stayLocked,
-                    authError = if (stayLocked) "Server unreachable — enter passcode once online" else null
+                    authError = if (stayLocked) "Server unreachable — connecting..." else null
                 )
             }
             if (!stayLocked) {
                 startServerWsLoop()
+            }
+            // Auto-retry bootstrap in background so app syncs when Wi-Fi/server finishes booting
+            scope.launch {
+                delay(3000L)
+                if (started.get() && (_uiStateFlow.value.authRequired || _uiStateFlow.value.users.isEmpty())) {
+                    bootstrapAndConnect()
+                }
             }
             return
         }
@@ -415,6 +433,14 @@ class SwonalRepository(
                 val activeUid = _uiStateFlow.value.activeUser?.id
                 if (activeUid != null) {
                     refreshUserScopedData(activeUid)
+                }
+                runCatching {
+                    if (state.users.isNotEmpty()) {
+                        prefs.cachedUsersJson = SwonalJson.encodeToString(state.users)
+                    }
+                    if (state.exercises.isNotEmpty()) {
+                        prefs.cachedExercisesJson = SwonalJson.encodeToString(state.exercises)
+                    }
                 }
             }
             .onFailure { err ->

@@ -154,7 +154,8 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 ```
 
 #### What the Automated Installer Configures:
-- **Native Kiosk App**: Deploys `com.swonal.kiosk` pre-configured to your server.
+- **Native Kiosk App**: Deploys `com.swonal.kiosk` with automatic LAN IP host detection (or custom `--server-url`), offline user profile and exercise catalog caching, and auto-reconnecting background synchronization.
+- **Embedded Web View Engine**: Integrates GeckoView with in-process software WebRender tuned specifically for MediaTek MT8173 / Mali-T860 stability on Android 6.0 (API 23), enabling instant in-app Application Settings and Swocial feeds without web view crashes.
 - **Persistent Wireless ADB**: Configures `/data/adb/service.d/00-swonal-adbd.sh` to extract the Wi-Fi IP and keep port `5555` alive across all reboots.
 - **Hardware Serial Protection**: Restricts `/dev/ttyACM0` strictly to `0600 root:root` and stops stock Tonal MCB services from locking the motor controller.
 - **Magisk Root Pre-Grant**: Automatically pre-grants permanent superuser rights (`policy=2`, `notification=0`) to eliminate notification toasts.

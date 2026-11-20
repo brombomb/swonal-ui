@@ -86,6 +86,18 @@ class SwonalPreferences(context: Context) {
             prefs.edit().putBoolean(KEY_DEV_MODE, value).apply()
         }
 
+    var cachedUsersJson: String?
+        get() = prefs.getString(KEY_CACHED_USERS, null)
+        set(value) {
+            prefs.edit().putString(KEY_CACHED_USERS, value).apply()
+        }
+
+    var cachedExercisesJson: String?
+        get() = prefs.getString(KEY_CACHED_EXERCISES, null)
+        set(value) {
+            prefs.edit().putString(KEY_CACHED_EXERCISES, value).apply()
+        }
+
     fun clearCredentials() {
         prefs.edit()
             .remove(KEY_API_TOKEN)
@@ -170,6 +182,8 @@ class SwonalPreferences(context: Context) {
         private const val KEY_TELEMETRY_MODE = "telemetry_display_mode"
         private const val KEY_SOUND_MUTED = "sound_muted"
         private const val KEY_DEV_MODE = "developer_mode"
+        private const val KEY_CACHED_USERS = "cached_users_json"
+        private const val KEY_CACHED_EXERCISES = "cached_exercises_json"
 
         fun normalizeBaseUrl(raw: String, fallback: String = DEFAULT_SERVER_URL): String {
             val trimmed = raw.trim().removeSuffix("/")

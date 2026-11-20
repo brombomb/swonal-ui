@@ -44,11 +44,13 @@ class SwonalWebActivity : AppCompatActivity() {
 
         fun warmup(appContext: Context) {
             if (sharedRuntime != null) return
-            Thread {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
                 try {
                     getOrCreateRuntime(appContext.applicationContext, isDark = true)
-                } catch (_: Exception) {}
-            }.start()
+                } catch (e: Exception) {
+                    android.util.Log.w("SwonalWeb", "Gecko runtime warmup ignored: ${e.message}")
+                }
+            }
         }
 
         private fun getOrCreateRuntime(appContext: Context, isDark: Boolean): GeckoRuntime {
@@ -63,12 +65,28 @@ class SwonalWebActivity : AppCompatActivity() {
             }
             synchronized(this) {
                 sharedRuntime?.let { return it }
+
+                // Safe fallback configuration for MediaTek MT8173 / Mali-T860 on Android 6.0 (API 23)
+                // Disabling isolated GPU process avoids SIGSEGV in GeckoChildProcessServices$gpu on legacy GLES drivers
+                val configFile = java.io.File(appContext.filesDir, "geckoview-config.yaml")
+                runCatching {
+                    configFile.writeText(
+                        """
+                        prefs:
+                          layers.gpu-process.enabled: false
+                          gfx.webrender.software: true
+                          media.rdd-process.enabled: false
+                        """.trimIndent()
+                    )
+                }
+
                 val settings = GeckoRuntimeSettings.Builder()
                     .preferredColorScheme(
                         if (isDark) GeckoRuntimeSettings.COLOR_SCHEME_DARK
                         else GeckoRuntimeSettings.COLOR_SCHEME_LIGHT
                     )
                     .consoleOutput(false)
+                    .configFilePath(configFile.absolutePath)
                     .build()
                 return GeckoRuntime.create(appContext.applicationContext, settings).also {
                     sharedRuntime = it

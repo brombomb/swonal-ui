@@ -24,6 +24,11 @@ class SwonalApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        if (!isMainProcess()) {
+            // Child processes (e.g. GeckoView :gpu or :tab* services) must NOT run
+            // app-level singletons, sounds, repository loops, or GeckoRuntime.
+            return
+        }
         prefs = SwonalPreferences(this)
         tlsConfig = SwonalTlsFactory.create(this)
         soundEngine = SwonalSoundEngine(this).apply {
@@ -43,6 +48,19 @@ class SwonalApp : Application(), ImageLoaderFactory {
                 audioMgr.setStreamVolume(android.media.AudioManager.STREAM_SYSTEM, systemTarget, 0)
             }
         }
+    }
+
+    private fun isMainProcess(): Boolean {
+        val cmdlineName = runCatching {
+            java.io.File("/proc/self/cmdline").readText().replace("\u0000", "").trim()
+        }.getOrNull()
+        if (!cmdlineName.isNullOrEmpty()) {
+            return cmdlineName == packageName
+        }
+        val pid = android.os.Process.myPid()
+        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val proc = am?.runningAppProcesses?.firstOrNull { it.pid == pid }
+        return proc?.processName == null || proc.processName == packageName
     }
 
     /**
