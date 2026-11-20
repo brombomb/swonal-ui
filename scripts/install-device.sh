@@ -4,7 +4,10 @@ set -euo pipefail
 # Swonal All-in-One Tonal Device Installer
 # Installs: Native Swonal Kiosk APK, Termux (Android 5/6), optional Bromite 108 APK, librespot, and tonal-daemon (assumes Magisk is already installed)
 # Usage:
-#   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url http://192.168.1.100:3000] [--apk-dir packages/device-assets] [--kiosk-apk path/to/swonal-kiosk.apk] [--allow-debug] [--allow-downgrade] [--use-bromite]
+#   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url http://192.168.1.100:3000] [--apk-dir packages/device-assets] [--kiosk-apk path/to/swonal-kiosk.apk] [--sync|--fast] [--clean-disk] [--skip-apks] [--skip-librespot] [--skip-daemon]
+# Options:
+#   --sync, --fast, --incremental   Incrementally push only modified daemon files (via adb push --sync) and restart service
+#   --clean-disk                    Purge temporary files, caches, and truncate oversized logs on device
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -16,6 +19,7 @@ USE_BROMITE=0
 ALLOW_DEBUG=0
 ALLOW_DOWNGRADE=0
 CLEAN_DISK=0
+SYNC_ONLY=0
 SKIP_APKS=0
 SKIP_LIBRESPOT=0
 SKIP_DAEMON=0
@@ -65,6 +69,12 @@ while [[ $# -gt 0 ]]; do
       CLEAN_DISK=1
       shift
       ;;
+    --sync|--fast|--incremental)
+      SYNC_ONLY=1
+      SKIP_APKS=1
+      SKIP_LIBRESPOT=1
+      shift
+      ;;
     --skip-apks)
       SKIP_APKS=1
       shift
@@ -78,7 +88,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      sed -n '3,10p' "$0"
+      sed -n '4,10p' "$0"
       exit 0
       ;;
     *)
@@ -453,18 +463,38 @@ EOF
     fi
   '"
 
-  TMP_TAR="$(mktemp --suffix=.tar)"
-  tar -cf "${TMP_TAR}" \
-    --exclude='.venv' --exclude='.pytest_cache' --exclude='__pycache__' \
-    -C "${ROOT_DIR}/packages/tonal-daemon" .
-  "${ADB[@]}" push "${TMP_TAR}" /data/local/tmp/tonal-daemon.tar
-  rm -f "${TMP_TAR}"
-  "${ADB[@]}" shell "su -c 'tar --no-same-owner -xf /data/local/tmp/tonal-daemon.tar -C /data/swonal/packages/tonal-daemon && rm -f /data/local/tmp/tonal-daemon.tar && chown -R 0:0 /data/swonal/packages/tonal-daemon && chmod -R go-w /data/swonal/packages/tonal-daemon'"
-  "${ADB[@]}" push "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/98-swonal-daemon.sh
-  "${ADB[@]}" shell "su -c 'mv /data/local/tmp/98-swonal-daemon.sh /data/adb/service.d/98-swonal-daemon.sh && chown 0:0 /data/adb/service.d/98-swonal-daemon.sh && chmod 0700 /data/adb/service.d/98-swonal-daemon.sh'"
-  echo "  [termux] Installing tonal-daemon & swolectl Python dependencies in Termux..."
-  run_in_termux "pkg install -y python git && pip install --no-cache-dir -e /data/swonal/packages/tonal-daemon && apt-get clean 2>/dev/null || true && rm -rf /data/data/com.termux/files/home/.cache /data/data/com.termux/files/usr/var/cache/apt/archives/*.deb /data/data/com.termux/files/usr/tmp/* 2>/dev/null || true" || \
-    echo "  [warn] Open Termux once on the Tonal screen to finish bootstrap, then run: pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon"
+  echo "  [sync] Incrementally syncing tonal-daemon (only modified files)..."
+  "${ADB[@]}" shell "mkdir -p /data/local/tmp/daemon-sync/src"
+  "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/src/"* /data/local/tmp/daemon-sync/src/
+  "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/pyproject.toml" /data/local/tmp/daemon-sync/pyproject.toml
+  "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/daemon-sync/start-daemon.sh
+
+  "${ADB[@]}" shell "su -c '
+    mkdir -p /data/swonal/packages/tonal-daemon/src /data/adb/service.d
+    cp -u /data/local/tmp/daemon-sync/pyproject.toml /data/swonal/packages/tonal-daemon/ 2>/dev/null || cp /data/local/tmp/daemon-sync/pyproject.toml /data/swonal/packages/tonal-daemon/
+    cp -u /data/local/tmp/daemon-sync/start-daemon.sh /data/swonal/packages/tonal-daemon/ 2>/dev/null || cp /data/local/tmp/daemon-sync/start-daemon.sh /data/swonal/packages/tonal-daemon/
+    cp -u -R /data/local/tmp/daemon-sync/src/* /data/swonal/packages/tonal-daemon/src/ 2>/dev/null || cp -R /data/local/tmp/daemon-sync/src/* /data/swonal/packages/tonal-daemon/src/
+    cp /data/local/tmp/daemon-sync/start-daemon.sh /data/adb/service.d/98-swonal-daemon.sh
+    chown -R 0:0 /data/swonal/packages/tonal-daemon /data/adb/service.d/98-swonal-daemon.sh
+    chmod 0700 /data/adb/service.d/98-swonal-daemon.sh
+    chmod -R go-w /data/swonal/packages/tonal-daemon
+    rm -rf /data/local/tmp/daemon-sync
+  '"
+
+  LOCAL_PYPROJECT_HASH="$(sha256sum "${ROOT_DIR}/packages/tonal-daemon/pyproject.toml" | awk '{print $1}')"
+  REMOTE_PYPROJECT_HASH="$("${ADB[@]}" shell "cat /data/swonal/.pyproject.sha256 2>/dev/null" | tr -d '\r\n')"
+
+  if [[ "${LOCAL_PYPROJECT_HASH}" != "${REMOTE_PYPROJECT_HASH}" ]]; then
+    echo "  [termux] pyproject.toml modified. Installing dependencies in Termux..."
+    run_in_termux "pkg install -y python git && pip install --no-cache-dir -e /data/swonal/packages/tonal-daemon && apt-get clean 2>/dev/null || true && rm -rf /data/data/com.termux/files/home/.cache /data/data/com.termux/files/usr/var/cache/apt/archives/*.deb /data/data/com.termux/files/usr/tmp/* 2>/dev/null || true" || \
+      echo "  [warn] Failed to install python dependencies in Termux."
+    "${ADB[@]}" shell "su -c 'echo \"${LOCAL_PYPROJECT_HASH}\" > /data/swonal/.pyproject.sha256'"
+  else
+    echo "  [termux] Dependencies unchanged. Skipping pip install."
+  fi
+
+  echo "  [daemon] Restarting tonal-daemon..."
+  "${ADB[@]}" shell "su -c 'pkill -f \"src.main\" || true; sh /data/adb/service.d/98-swonal-daemon.sh'" || true
 fi
 
 # Final cleanup of any staging debris

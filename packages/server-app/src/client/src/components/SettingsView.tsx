@@ -1,16 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import {
   ArrowLeft,
   Bot,
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Database,
   Download,
+  Dumbbell,
   Globe,
   Key,
   Lock,
   Music,
+  Play,
   Plus,
   QrCode,
   Radio,
@@ -51,6 +55,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
     updateUserPreferences,
     createUser,
     deleteUser,
+    templates,
+    exercises,
+    refreshBootstrap,
   } = swonal;
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
@@ -168,6 +175,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   const [coachSavedMsg, setCoachSavedMsg] = useState<string | null>(null);
   const [coachTestResult, setCoachTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [coachTesting, setCoachTesting] = useState(false);
+
+  // Saved Workout Programs (Per-Lifter)
+  const [selectedUserProgramFilter, setSelectedUserProgramFilter] = useState<string>('ALL');
+  const [programActionMsg, setProgramActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [expandedProgramId, setExpandedProgramId] = useState<string | null>(null);
+  const [sharingProgramId, setSharingProgramId] = useState<string | null>(null);
+  const [queueingProgramId, setQueueingProgramId] = useState<string | null>(null);
+  const [deletingProgramId, setDeletingProgramId] = useState<string | null>(null);
+
+  const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e.name])), [exercises]);
 
   // Hardware & Home Assistant
   const [calibrationStatus, setCalibrationStatus] = useState<{
@@ -411,6 +428,76 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
       setFriendsMsg({ ok: false, text: 'Sync timed out or relays unreachable' });
     } finally {
       setFriendsSyncing(false);
+    }
+  };
+
+  const handleQueueProgram = async (templateId: string, templateName: string, userId: string) => {
+    setQueueingProgramId(templateId);
+    setProgramActionMsg(null);
+    try {
+      const resp = await fetch(`/api/templates/${encodeURIComponent(templateId)}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      if (resp.ok) {
+        setProgramActionMsg({ ok: true, text: `Queued "${templateName}" to Tonal Kiosk!` });
+        setTimeout(() => setProgramActionMsg(null), 3500);
+      } else {
+        const err = await resp.json().catch(() => null);
+        setProgramActionMsg({ ok: false, text: err?.error || 'Failed to queue program to Tonal' });
+      }
+    } catch (err: any) {
+      setProgramActionMsg({ ok: false, text: err.message || 'Network error queueing program' });
+    } finally {
+      setQueueingProgramId(null);
+    }
+  };
+
+  const handleShareProgramToSwocial = async (templateId: string, templateName: string, userId: string) => {
+    setSharingProgramId(templateId);
+    setProgramActionMsg(null);
+    try {
+      const resp = await fetch(
+        `/api/friends/share-routine/${encodeURIComponent(userId)}/${encodeURIComponent(templateId)}`,
+        { method: 'POST' }
+      );
+      if (resp.ok) {
+        setProgramActionMsg({ ok: true, text: `Shared "${templateName}" to Swocial feed!` });
+        setTimeout(() => setProgramActionMsg(null), 3500);
+      } else {
+        const err = await resp.json().catch(() => null);
+        setProgramActionMsg({ ok: false, text: err?.error || 'Failed to share to Swocial' });
+      }
+    } catch (err: any) {
+      setProgramActionMsg({ ok: false, text: err.message || 'Network error sharing to Swocial' });
+    } finally {
+      setSharingProgramId(null);
+    }
+  };
+
+  const handleDeleteProgram = async (templateId: string, templateName: string) => {
+    if (!window.confirm(`Are you sure you want to delete the saved program "${templateName}"?`)) {
+      return;
+    }
+    setDeletingProgramId(templateId);
+    setProgramActionMsg(null);
+    try {
+      const resp = await fetch(`/api/templates/${encodeURIComponent(templateId)}`, {
+        method: 'DELETE',
+      });
+      if (resp.ok) {
+        await refreshBootstrap();
+        setProgramActionMsg({ ok: true, text: `Deleted program "${templateName}".` });
+        setTimeout(() => setProgramActionMsg(null), 3000);
+      } else {
+        const err = await resp.json().catch(() => null);
+        setProgramActionMsg({ ok: false, text: err?.error || 'Failed to delete program' });
+      }
+    } catch (err: any) {
+      setProgramActionMsg({ ok: false, text: err.message || 'Network error deleting program' });
+    } finally {
+      setDeletingProgramId(null);
     }
   };
 
@@ -813,7 +900,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
       <main className="relative z-10 max-w-3xl mx-auto px-4 pt-6 space-y-6">
         {/* USERS TAB */}
         {activeTab === 'users' && (
-          <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="space-y-6">
+            <section className="surface-card rounded-3xl p-6 space-y-4">
             <div className="flex items-center gap-2.5">
               <Users size={22} style={{ color: 'var(--accent-primary)' }} />
               <div>
@@ -984,6 +1072,278 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             </form>
             {userMgmtMsg && <p className="text-xs font-bold text-emerald-400">{userMgmtMsg}</p>}
           </section>
+
+          {/* Saved Workout Programs (Per-Lifter) */}
+          <section className="surface-card rounded-3xl p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Dumbbell size={22} style={{ color: 'var(--accent-primary)' }} />
+                <div>
+                  <h2 className="text-xl font-black">Saved Workout Programs &amp; Routines</h2>
+                  <p className="text-xs opacity-70">
+                    View, queue to Tonal, share to Swocial, or manage custom routines per lifter.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action feedback message */}
+            {programActionMsg && (
+              <div
+                className={`p-3 rounded-xl text-xs font-bold ${
+                  programActionMsg.ok
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}
+              >
+                {programActionMsg.text}
+              </div>
+            )}
+
+            {/* Lifter filter pill tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+              <button
+                type="button"
+                onClick={() => setSelectedUserProgramFilter('ALL')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                  selectedUserProgramFilter === 'ALL'
+                    ? 'shadow-sm border'
+                    : 'elevated-pill opacity-75 hover:opacity-100'
+                }`}
+                style={
+                  selectedUserProgramFilter === 'ALL'
+                    ? {
+                        backgroundColor: 'var(--accent-primary)',
+                        color: accentTextColor,
+                        borderColor: 'transparent',
+                      }
+                    : undefined
+                }
+              >
+                All Lifters ({templates.length})
+              </button>
+              {users.map((u) => {
+                const userCount = templates.filter((t) => t.userId === u.id).length;
+                const isSelected = selectedUserProgramFilter === u.id;
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setSelectedUserProgramFilter(u.id)}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                      isSelected
+                        ? 'shadow-sm border'
+                        : 'elevated-pill opacity-75 hover:opacity-100'
+                    }`}
+                    style={
+                      isSelected
+                        ? {
+                            backgroundColor: 'var(--accent-primary)',
+                            color: accentTextColor,
+                            borderColor: 'transparent',
+                          }
+                        : undefined
+                    }
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: u.accentColor || u.avatarColor || '#00F0FF' }}
+                    />
+                    <span>{u.name}</span>
+                    <span className="opacity-70 text-[11px]">({userCount})</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Workout Programs List */}
+            {(() => {
+              const filtered =
+                selectedUserProgramFilter === 'ALL'
+                  ? templates
+                  : templates.filter((t) => t.userId === selectedUserProgramFilter);
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="elevated-pill rounded-2xl p-8 text-center space-y-2 opacity-80">
+                    <Dumbbell size={32} className="mx-auto opacity-40 mb-1" />
+                    <p className="text-sm font-bold">No saved workout programs found</p>
+                    <p className="text-xs opacity-70 max-w-sm mx-auto">
+                      {selectedUserProgramFilter === 'ALL'
+                        ? 'No workout routines have been created in this household yet. Build custom routines in the Companion app or ask the AI Voice Coach!'
+                        : 'This lifter has not saved any workout routines yet. Build routines in Companion or switch lifter filter.'}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {filtered.map((tmpl) => {
+                    const owner = users.find((u) => u.id === tmpl.userId);
+                    const isExpanded = expandedProgramId === tmpl.id;
+                    const isSharing = sharingProgramId === tmpl.id;
+                    const isQueueing = queueingProgramId === tmpl.id;
+                    const isDeleting = deletingProgramId === tmpl.id;
+                    const totalMovements = (tmpl.blocks || []).reduce(
+                      (sum, b) => sum + (b.items?.length || 0),
+                      0
+                    );
+
+                    return (
+                      <div
+                        key={tmpl.id}
+                        className="elevated-pill rounded-2xl p-4 transition-all space-y-3 border border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/40"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-[200px] flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-base font-black tracking-tight">{tmpl.name}</h3>
+                              {owner && (
+                                <span
+                                  className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5"
+                                  style={{
+                                    backgroundColor: `${owner.accentColor || '#00F0FF'}25`,
+                                    color: owner.accentColor || '#00F0FF',
+                                  }}
+                                >
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full"
+                                    style={{ backgroundColor: owner.accentColor || '#00F0FF' }}
+                                  />
+                                  {owner.name}
+                                </span>
+                              )}
+                            </div>
+                            {tmpl.description && (
+                              <p className="text-xs opacity-75 line-clamp-2">{tmpl.description}</p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] font-medium opacity-65">
+                              <span>{(tmpl.blocks || []).length} Blocks</span>
+                              <span>•</span>
+                              <span>{totalMovements} Movements</span>
+                              {tmpl.createdAt && (
+                                <>
+                                  <span>•</span>
+                                  <span>
+                                    Created{' '}
+                                    {new Date(tmpl.createdAt).toLocaleDateString(undefined, {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                    })}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => void handleQueueProgram(tmpl.id, tmpl.name, tmpl.userId)}
+                              disabled={isQueueing}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-opacity hover:opacity-90 disabled:opacity-50"
+                              style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                              title="Queue workout directly on Tonal Kiosk screen"
+                            >
+                              <Play size={13} fill="currentColor" />
+                              <span>{isQueueing ? 'Queueing...' : 'Queue on Tonal'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleShareProgramToSwocial(tmpl.id, tmpl.name, tmpl.userId)}
+                              disabled={isSharing}
+                              className="surface-card px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 hover:border-[var(--accent-primary)] transition-colors disabled:opacity-50"
+                              style={{ borderColor: 'var(--border-subtle)' }}
+                              title="Share routine template with friends on Swocial"
+                            >
+                              <Share2 size={13} />
+                              <span>{isSharing ? 'Sharing...' : 'Share to Swocial'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setExpandedProgramId(isExpanded ? null : tmpl.id)}
+                              className="surface-card px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 hover:border-[var(--accent-primary)] transition-colors"
+                              style={{ borderColor: 'var(--border-subtle)' }}
+                              title={isExpanded ? 'Hide routine details' : 'View exercise list'}
+                            >
+                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                              <span>{isExpanded ? 'Less' : 'Details'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteProgram(tmpl.id, tmpl.name)}
+                              disabled={isDeleting}
+                              className="p-1.5 rounded-xl text-rose-400 hover:bg-rose-500/15 transition-colors disabled:opacity-50"
+                              title="Delete routine template"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Expanded Details: Block and Exercise breakdown */}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-[var(--border-subtle)] space-y-3">
+                            {(tmpl.blocks || []).map((block, bIdx) => (
+                              <div
+                                key={bIdx}
+                                className="surface-card rounded-xl p-3 border border-[var(--border-subtle)] space-y-2 text-xs"
+                              >
+                                <div className="flex items-center justify-between font-bold opacity-80 pb-1 border-b border-[var(--border-subtle)]">
+                                  <span className="uppercase tracking-wider text-[10px]">
+                                    Block {bIdx + 1} ({block.blockType || 'STANDARD'})
+                                  </span>
+                                  {block.restSeconds ? (
+                                    <span className="text-[10px] font-mono opacity-70">
+                                      Rest: {block.restSeconds}s
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="space-y-1.5">
+                                  {(block.items || []).map((item, iIdx) => {
+                                    const exerciseName =
+                                      exerciseMap.get(item.exerciseId) || item.exerciseId;
+                                    return (
+                                      <div
+                                        key={iIdx}
+                                        className="flex items-center justify-between py-1 px-2 rounded-lg bg-[var(--bg-muted)]/50"
+                                      >
+                                        <div className="font-semibold text-xs truncate max-w-[65%]">
+                                          {exerciseName}
+                                        </div>
+                                        <div className="font-mono text-[11px] opacity-80 flex items-center gap-2">
+                                          <span>
+                                            {item.sets} × {item.targetReps} reps
+                                          </span>
+                                          <span>@ {item.targetWeightLb} lb</span>
+                                          {item.mode && item.mode !== 'STANDARD' && (
+                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]">
+                                              {item.mode}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </section>
+        </div>
         )}
 
         {/* SWOCIAL TAB */}
@@ -1198,7 +1558,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
         {/* AI TAB */}
         {activeTab === 'ai' && (
-          <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="space-y-6">
+            <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5">
               <Bot size={22} style={{ color: 'var(--accent-primary)' }} />
@@ -1323,70 +1684,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             </div>
           </form>
         </section>
-        )}
 
-        {/* NETWORK TAB */}
-        {activeTab === 'network' && (
-          <>
-            {/* 2. Network, Base URL Override & Companion QR */}
-        <section className="surface-card rounded-3xl p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <Globe size={22} style={{ color: 'var(--accent-primary)' }} />
-            <div>
-              <h2 className="text-xl font-black">Network &amp; Base URL Override</h2>
-              <p className="text-xs opacity-70">
-                Override the host used for the Companion QR code (e.g. https://swonal.example.com).
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={saveBaseUrlOverride} className="flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              value={baseUrlDraft}
-              onChange={(e) => setBaseUrlDraft(e.target.value)}
-              placeholder="https://swonal.example.com"
-              className="flex-1 min-w-[240px] elevated-pill px-4 py-3 rounded-xl text-sm font-mono outline-none"
-            />
-            <button
-              type="submit"
-              className="px-5 py-3 rounded-xl font-black text-sm"
-              style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
-            >
-              Save URL
-            </button>
-            {baseUrlOverride && (
-              <button
-                type="button"
-                onClick={() => void persistPublicUrl(null)}
-                className="elevated-pill px-4 py-3 rounded-xl text-xs font-bold"
-              >
-                Reset
-              </button>
-            )}
-          </form>
-
-          {baseUrlSavedMsg && (
-            <p className="text-xs font-bold text-emerald-400">{baseUrlSavedMsg}</p>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="elevated-pill rounded-2xl p-3.5 space-y-1">
-              <p className="uppercase font-bold opacity-60">Effective Public URL</p>
-              <p className="font-mono font-bold break-all">
-                {networkInfo?.publicUrl || baseUrlOverride || 'Not set (using LAN IP / request host)'}
-              </p>
-            </div>
-            <div className="elevated-pill rounded-2xl p-3.5 space-y-1">
-              <p className="uppercase font-bold opacity-60">Detected LAN IPs</p>
-              <p className="font-mono font-bold">
-                {networkInfo?.ips.length ? networkInfo.ips.join(', ') : 'Detecting...'}
-              </p>
-            </div>
-          </div>
-        </section>
-
-            {/* 4. Model Context Protocol (MCP) Server */}
+        {/* Model Context Protocol (MCP) Server */}
         <section className="surface-card rounded-3xl p-6 space-y-4">
           <div className="flex items-center gap-2.5">
             <Server size={22} style={{ color: 'var(--accent-primary)' }} />
@@ -1494,6 +1793,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               <code className="font-mono">swonal://users/&lt;userId&gt;/profile-and-prs</code> and{' '}
               <code className="font-mono">swonal://users/&lt;userId&gt;/workouts</code>.
             </p>
+          </div>
+        </section>
+      </div>
+      )}
+
+        {/* NETWORK TAB */}
+        {activeTab === 'network' && (
+          <div className="space-y-6">
+            {/* 1. Network, Base URL Override & Companion QR */}
+        <section className="surface-card rounded-3xl p-6 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <Globe size={22} style={{ color: 'var(--accent-primary)' }} />
+            <div>
+              <h2 className="text-xl font-black">Network &amp; Base URL Override</h2>
+              <p className="text-xs opacity-70">
+                Override the host used for the Companion QR code (e.g. https://swonal.example.com).
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={saveBaseUrlOverride} className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={baseUrlDraft}
+              onChange={(e) => setBaseUrlDraft(e.target.value)}
+              placeholder="https://swonal.example.com"
+              className="flex-1 min-w-[240px] elevated-pill px-4 py-3 rounded-xl text-sm font-mono outline-none"
+            />
+            <button
+              type="submit"
+              className="px-5 py-3 rounded-xl font-black text-sm"
+              style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+            >
+              Save URL
+            </button>
+            {baseUrlOverride && (
+              <button
+                type="button"
+                onClick={() => void persistPublicUrl(null)}
+                className="elevated-pill px-4 py-3 rounded-xl text-xs font-bold"
+              >
+                Reset
+              </button>
+            )}
+          </form>
+
+          {baseUrlSavedMsg && (
+            <p className="text-xs font-bold text-emerald-400">{baseUrlSavedMsg}</p>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="elevated-pill rounded-2xl p-3.5 space-y-1">
+              <p className="uppercase font-bold opacity-60">Effective Public URL</p>
+              <p className="font-mono font-bold break-all">
+                {networkInfo?.publicUrl || baseUrlOverride || 'Not set (using LAN IP / request host)'}
+              </p>
+            </div>
+            <div className="elevated-pill rounded-2xl p-3.5 space-y-1">
+              <p className="uppercase font-bold opacity-60">Detected LAN IPs</p>
+              <p className="font-mono font-bold">
+                {networkInfo?.ips.length ? networkInfo.ips.join(', ') : 'Detecting...'}
+              </p>
+            </div>
           </div>
         </section>
 
@@ -1679,7 +2041,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             </div>
           )}
         </section>
-          </>
+          </div>
         )}
 
         {/* SECURITY TAB */}

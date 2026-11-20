@@ -160,6 +160,10 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 - **Magisk Root Pre-Grant**: Automatically pre-grants permanent superuser rights (`policy=2`, `notification=0`) to eliminate notification toasts.
 - **Hardware Motor Bridge**: Deploys `tonal-daemon` into Termux and sets up background auto-start services on device boot.
 - **Automated Storage Management**: Automatically purges temporary staging APKs (`/data/local/tmp`), prunes Termux package/pip caches, rotates log files (`<5MB`), and enforces a `--clean-disk` maintenance utility to prevent device storage exhaustion.
+- **Fast Incremental Sync (`--sync` / `--fast`)**: Uses `adb push --sync` to push only modified source files in seconds and compares `pyproject.toml` SHA256 hashes to skip redundant dependency installs:
+  ```bash
+  ./scripts/install-device.sh --target <TONAL_IP>:5555 --sync
+  ```
 
 ---
 
@@ -170,7 +174,7 @@ Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 - **Switching to Stock Tonal & Back**: Tap the quick-action menu at the top right of the screen and choose **"Exit to Stock Tonal"**. The daemon releases `/dev/ttyACM0` and launches stock software with a discreet floating overlay pill. Tapping the pill returns instantly to Swonal Kiosk without rebooting.
 - **Swocial Mobile Remote & Feed**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view your Swocial workout feed, react with motivation (`💪`, `🔥`, `🏆`), or import shared routines with one tap.
 - **Local Fail-Safe Protection**: If Wi-Fi ever drops mid-set, tapping **WEIGHT OFF** bypasses the network entirely via local loopback socket (`127.0.0.1:8765`), dropping cable tension in `<5ms`.
-- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to configure Lifters, Swocial Profile, BYOK AI Coach, Network overrides, and Security/Data backups.
+- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to manage household lifters and per-user saved workout programs (queue routines to Tonal, share to Swocial, view exercise details), peer-to-peer Swocial profiles, AI configuration (BYOK Voice Coach and Model Context Protocol / MCP server setup), Network overrides, and Security/Data backups.
 
 ---
 
