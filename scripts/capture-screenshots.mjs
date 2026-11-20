@@ -74,66 +74,92 @@ async function run() {
     }
     await wait(1000);
 
-    // 1. Kiosk Live (Electric Lime accent #CCFF00)
+    // Helper to safely apply theme override
+    async function applyTheme(color, glow, ink, muted) {
+      await sendCdp(ws, 'Runtime.evaluate', {
+        expression: `
+          (() => {
+            let s = document.getElementById('cdp-theme-override');
+            if (!s) {
+              s = document.createElement('style');
+              s.id = 'cdp-theme-override';
+              document.head.appendChild(s);
+            }
+            s.innerHTML = \`
+              :root {
+                --accent-primary: \${${JSON.stringify(color)}} !important;
+                --accent-glow: \${${JSON.stringify(glow)}} !important;
+                --accent-ink: \${${JSON.stringify(ink)}} !important;
+                --accent-muted: \${${JSON.stringify(muted)}} !important;
+              }
+            \`;
+            document.documentElement.style.setProperty('--accent-primary', ${JSON.stringify(color)}, 'important');
+            document.documentElement.style.setProperty('--accent-glow', ${JSON.stringify(glow)}, 'important');
+            document.documentElement.style.setProperty('--accent-ink', ${JSON.stringify(ink)}, 'important');
+            document.documentElement.style.setProperty('--accent-muted', ${JSON.stringify(muted)}, 'important');
+          })()
+        `,
+      });
+    }
+
+    // 1. Kiosk Live (Electric Lime accent #CCFF00) - Clean stage
     console.log('Capturing kiosk_live.png (Electric Lime)...');
+    await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/' });
+    await wait(1500);
+    await applyTheme('#CCFF00', 'rgba(204, 255, 0, 0.35)', '#CCFF00', 'rgba(204, 255, 0, 0.12)');
     await sendCdp(ws, 'Runtime.evaluate', {
       expression: `
-        document.documentElement.style.setProperty('--accent-primary', '#CCFF00');
-        document.documentElement.style.setProperty('--accent-glow', 'rgba(204, 255, 0, 0.35)');
-        document.documentElement.style.setProperty('--accent-ink', '#CCFF00');
-        document.documentElement.style.setProperty('--accent-muted', 'rgba(204, 255, 0, 0.12)');
+        // Hide PiP visually only for screenshot 1 clean stage without altering DB
+        const pipEl = document.querySelector('button[aria-label="Close Form Demo"]')?.closest('.surface-card');
+        if (pipEl) pipEl.style.display = 'none';
       `,
     });
-    await wait(1000);
+    await wait(800);
     let screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_live.png'), Buffer.from(screenshotData.data, 'base64'));
 
     // 2. Kiosk Exercise Library (Free Lift Catalog active, Vibrant Violet #A855F7)
-    console.log('Capturing kiosk_exercise_library.png (Vibrant Violet, Catalog tab)...');
+    console.log('Capturing kiosk_exercise_library.png (Vibrant Violet, Catalog tab with exercises)...');
+    await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/' });
+    await wait(1500);
+    await applyTheme('#A855F7', 'rgba(168, 85, 247, 0.35)', '#A855F7', 'rgba(168, 85, 247, 0.15)');
     await sendCdp(ws, 'Runtime.evaluate', {
       expression: `
-        document.documentElement.style.setProperty('--accent-primary', '#A855F7');
-        document.documentElement.style.setProperty('--accent-glow', 'rgba(168, 85, 247, 0.35)');
-        document.documentElement.style.setProperty('--accent-ink', '#A855F7');
-        document.documentElement.style.setProperty('--accent-muted', 'rgba(168, 85, 247, 0.15)');
-        
         // Open library dialog
         const libBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Routines & Exercises'));
         if (libBtn) libBtn.click();
       `,
     });
-    await wait(1000);
-    // Click "Free Lift Catalog" tab
+    await wait(600);
+    // Click "Free Lift Catalog" tab and expand categories so exercises are visible
     await sendCdp(ws, 'Runtime.evaluate', {
       expression: `
         const catalogTabBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Free Lift Catalog'));
         if (catalogTabBtn) catalogTabBtn.click();
       `,
     });
-    await wait(1000);
+    await wait(600);
+    await sendCdp(ws, 'Runtime.evaluate', {
+      expression: `
+        const summaries = document.querySelectorAll('details summary');
+        summaries.forEach((s, idx) => {
+          if (idx < 2) s.click();
+        });
+      `,
+    });
+    await wait(800);
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_exercise_library.png'), Buffer.from(screenshotData.data, 'base64'));
 
-    // Close library dialog
-    await sendCdp(ws, 'Runtime.evaluate', {
-      expression: `
-        const closeBtn = document.querySelector('dialog[open] button');
-        if (closeBtn) closeBtn.click();
-      `,
-    });
-    await wait(500);
-
     // 3. Kiosk Arm Guide (Neon Cyan #00F0FF)
-    console.log('Capturing kiosk_arm_guide.png (Neon Cyan)...');
+    console.log('Capturing kiosk_arm_guide.png (Neon Cyan, Arm Guide active)...');
+    await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/' });
+    await wait(1500);
+    await applyTheme('#00F0FF', 'rgba(0, 240, 255, 0.35)', '#00F0FF', 'rgba(0, 240, 255, 0.15)');
     await sendCdp(ws, 'Runtime.evaluate', {
       expression: `
-        document.documentElement.style.setProperty('--accent-primary', '#00F0FF');
-        document.documentElement.style.setProperty('--accent-glow', 'rgba(0, 240, 255, 0.35)');
-        document.documentElement.style.setProperty('--accent-ink', '#00F0FF');
-        document.documentElement.style.setProperty('--accent-muted', 'rgba(0, 240, 255, 0.15)');
-        
-        // Toggle Arm Info
-        const armBtn = document.querySelector('button[aria-label=\"Explain Arm Position Codes\"]');
+        // Toggle Arm Info bubble
+        const armBtn = document.querySelector('button[aria-label="Explain Arm Position Codes"]');
         if (armBtn) armBtn.click();
       `,
     });
@@ -141,26 +167,12 @@ async function run() {
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_arm_guide.png'), Buffer.from(screenshotData.data, 'base64'));
 
-    // Close arm guide
-    await sendCdp(ws, 'Runtime.evaluate', {
-      expression: `
-        const armBtn = document.querySelector('button[aria-label=\"Explain Arm Position Codes\"]');
-        if (armBtn) armBtn.click();
-      `,
-    });
-    await wait(500);
-
     // 4. Kiosk Form Demo (Hot Coral #FF007A)
-    console.log('Capturing kiosk_form_demo.png (Hot Coral)...');
-    await sendCdp(ws, 'Runtime.evaluate', {
-      expression: `
-        document.documentElement.style.setProperty('--accent-primary', '#FF007A');
-        document.documentElement.style.setProperty('--accent-glow', 'rgba(255, 0, 122, 0.35)');
-        document.documentElement.style.setProperty('--accent-ink', '#FF007A');
-        document.documentElement.style.setProperty('--accent-muted', 'rgba(255, 0, 122, 0.15)');
-      `,
-    });
-    await wait(1000);
+    console.log('Capturing kiosk_form_demo.png (Hot Coral, Form Demo PiP on stage)...');
+    await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/' });
+    await wait(1500);
+    await applyTheme('#FF007A', 'rgba(255, 0, 122, 0.35)', '#FF007A', 'rgba(255, 0, 122, 0.15)');
+    await wait(800);
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_form_demo.png'), Buffer.from(screenshotData.data, 'base64'));
 
@@ -168,14 +180,7 @@ async function run() {
     console.log('Capturing kiosk_ai_coach.png (Solar Amber, /settings?tab=ai)...');
     await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/settings?tab=ai' });
     await wait(2500);
-    await sendCdp(ws, 'Runtime.evaluate', {
-      expression: `
-        document.documentElement.style.setProperty('--accent-primary', '#F59E0B');
-        document.documentElement.style.setProperty('--accent-glow', 'rgba(245, 158, 11, 0.35)');
-        document.documentElement.style.setProperty('--accent-ink', '#F59E0B');
-        document.documentElement.style.setProperty('--accent-muted', 'rgba(245, 158, 11, 0.15)');
-      `,
-    });
+    await applyTheme('#F59E0B', 'rgba(245, 158, 11, 0.35)', '#F59E0B', 'rgba(245, 158, 11, 0.15)');
     await wait(1000);
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_ai_coach.png'), Buffer.from(screenshotData.data, 'base64'));
@@ -184,13 +189,9 @@ async function run() {
     console.log('Capturing kiosk_friends_feed.png (Emerald, /companion swocial tab)...');
     await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/companion' });
     await wait(2500);
+    await applyTheme('#10B981', 'rgba(16, 185, 129, 0.35)', '#10B981', 'rgba(16, 185, 129, 0.15)');
     await sendCdp(ws, 'Runtime.evaluate', {
       expression: `
-        document.documentElement.style.setProperty('--accent-primary', '#10B981');
-        document.documentElement.style.setProperty('--accent-glow', 'rgba(16, 185, 129, 0.35)');
-        document.documentElement.style.setProperty('--accent-ink', '#10B981');
-        document.documentElement.style.setProperty('--accent-muted', 'rgba(16, 185, 129, 0.15)');
-        
         // Switch to Swocial tab
         const swocialTabBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && (b.textContent.includes('Swocial') || b.textContent.includes('Friends')));
         if (swocialTabBtn) swocialTabBtn.click();

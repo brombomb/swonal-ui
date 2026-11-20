@@ -32,7 +32,7 @@
 | **Arm Alignment & Sensor Sync** *(Neon Cyan)* | **Form Demo & Biomechanics** *(Hot Coral)* |
 |:---:|:---:|
 | <img src="docs/screenshots/kiosk_arm_guide.png" alt="Arm Alignment Guide" width="420" /> | <img src="docs/screenshots/kiosk_form_demo.png" alt="Form Demo Preview" width="420" /> |
-| *Live hardware readout of arm height, rotation, and angle sensors (`0x1020`/`0x1021`/`0x1025`) matching target exercise configuration.* | *Picture-in-Picture (PiP) animated SVG/video form loop demonstrating proper lifting technique and primary muscle activation.* |
+| *Live arm height, rotation, and angle position indicators matching the target exercise configuration.* | *Picture-in-Picture (PiP) animated form loop demonstrating proper lifting technique and primary muscle activation.* |
 
 | **AI Voice Coach & MCP Agent** *(Solar Amber)* | **Swocial Network & Feed** *(Emerald)* |
 |:---:|:---:|
@@ -154,14 +154,12 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 ```
 
 #### What the Automated Installer Configures:
-- **Native Kiosk App**: Deploys `com.swonal.kiosk` with automatic LAN IP host detection (or custom `--server-url`), offline user profile and exercise catalog caching, and auto-reconnecting background synchronization.
-- **Embedded Web View Engine**: Integrates GeckoView with in-process software WebRender tuned specifically for MediaTek MT8173 / Mali-T860 stability on Android 6.0 (API 23), enabling instant in-app Application Settings and Swocial feeds without web view crashes.
-- **Persistent Wireless ADB**: Configures `/data/adb/service.d/00-swonal-adbd.sh` to extract the Wi-Fi IP and keep port `5555` alive across all reboots.
-- **Hardware Serial Protection**: Restricts `/dev/ttyACM0` strictly to `0600 root:root` and stops stock Tonal MCB services from locking the motor controller.
-- **Magisk Root Pre-Grant**: Automatically pre-grants permanent superuser rights (`policy=2`, `notification=0`) to eliminate notification toasts.
-- **Hardware Motor Bridge**: Deploys `tonal-daemon` into Termux and sets up background auto-start services on device boot.
-- **Automated Storage Management**: Automatically purges temporary staging APKs (`/data/local/tmp`), prunes Termux package/pip caches, rotates log files (`<5MB`), and enforces a `--clean-disk` maintenance utility to prevent device storage exhaustion.
-- **Fast Incremental Sync (`--sync` / `--fast`)**: Uses `adb push --sync` to push only modified source files in seconds and compares `pyproject.toml` SHA256 hashes to skip redundant dependency installs:
+- **Native Fullscreen Kiosk**: Deploys the Swonal Kiosk app with automatic server discovery, offline user and workout caching, and seamless background reconnection.
+- **Embedded Browser Engine**: Prepares the display runtime for high-performance rendering, ensuring smooth UI navigation and settings access without crashes.
+- **Hardware Motor Bridge**: Configures the high-speed background service that controls motor resistance and streams real-time cable telemetry.
+- **Persistent Wireless ADB**: Keeps wireless access active across reboots so you can manage and update your Tonal without cables.
+- **Automatic Storage Maintenance**: Cleans temporary installation files, caches, and logs automatically so your Tonal never runs low on disk space.
+- **Fast Incremental Updates (`--sync`)**: Pushes only changed files in seconds when deploying updates:
   ```bash
   ./scripts/install-device.sh --target <TONAL_IP>:5555 --sync
   ```
@@ -172,15 +170,14 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 
 Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 
-- **Switching to Stock Tonal & Back**: Tap the quick-action menu at the top right of the screen and choose **"Exit to Stock Tonal"**. The daemon releases `/dev/ttyACM0` and launches stock software with a discreet floating overlay pill. Tapping the pill returns instantly to Swonal Kiosk without rebooting.
-- **Swocial Mobile Remote & Feed**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view your Swocial workout feed, react with motivation (`💪`, `🔥`, `🏆`), or import shared routines with one tap.
-- **Local Fail-Safe Protection**: If Wi-Fi ever drops mid-set, tapping **WEIGHT OFF** bypasses the network entirely via local loopback socket (`127.0.0.1:8765`), dropping cable tension in `<5ms`.
-- **Screen Mirroring & Remote Inspection**: Mirror and control the Tonal screen directly from your workstation with one command:
+- **Switching Between Swonal & Stock Tonal**: Tap the menu at the top right of the screen and choose **"Exit to Stock Tonal"**. A floating button allows you to return to Swonal at any time without rebooting.
+- **Phone Companion & Swocial**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view friends' workouts, and share routines.
+- **Hardware Safety**: If the network connection is ever interrupted during a set, pressing the on-screen **WEIGHT OFF** button immediately cuts cable tension locally.
+- **Remote Screen View**: View and control the Tonal display remotely from your computer using:
   ```bash
   ./scripts/scrcpy.sh
   ```
-  *(Or: `scrcpy -s <TONAL_IP>:5555 --no-audio --max-fps 30 -m 1080`)*
-- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to manage household lifters and per-user saved workout programs (queue routines to Tonal, share to Swocial, view exercise details), peer-to-peer Swocial profiles, AI configuration (BYOK Voice Coach and Model Context Protocol / MCP server setup), Network overrides, and Security/Data backups.
+- **Application Settings**: Tap the gear icon to manage lifters and their saved workout programs, customize AI voice coach settings (BYOK & MCP server), and configure network preferences.
 
 ---
 
