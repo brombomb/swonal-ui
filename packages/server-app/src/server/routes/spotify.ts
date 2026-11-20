@@ -276,5 +276,22 @@ export function createSpotifyRouter(
     }
   });
 
+  /**
+   * POST /api/spotify/reset-rate-limit
+   * GET /api/spotify/reset-rate-limit
+   * Clears any active 429 backoff timer on SpotifyProvider.
+   */
+  const handleResetRateLimit = (_req: any, res: any) => {
+    const spotify = musicRegistry.get('spotify') as { resetRateLimit?: () => void };
+    if (typeof spotify?.resetRateLimit === 'function') {
+      spotify.resetRateLimit();
+      res.json({ success: true, message: 'Spotify rate limit reset' });
+    } else {
+      res.status(501).json({ error: 'Spotify provider unavailable' });
+    }
+  };
+  router.post('/reset-rate-limit', handleResetRateLimit);
+  router.get('/reset-rate-limit', handleResetRateLimit);
+
   return router;
 }

@@ -34,10 +34,10 @@
 | <img src="docs/screenshots/kiosk_arm_guide.png" alt="Arm Alignment Guide" width="420" /> | <img src="docs/screenshots/kiosk_form_demo.png" alt="Form Demo Preview" width="420" /> |
 | *Live hardware readout of arm height, rotation, and angle sensors (`0x1020`/`0x1021`/`0x1025`) matching target exercise configuration.* | *Picture-in-Picture (PiP) animated SVG/video form loop demonstrating proper lifting technique and primary muscle activation.* |
 
-| **AI Voice Coach & MCP Agent** *(Solar Amber)* | **Decentralized Friends Feed** *(Emerald)* |
+| **AI Voice Coach & MCP Agent** *(Solar Amber)* | **Decentralized Friends Feed & QR** *(Emerald)* |
 |:---:|:---:|
 | <img src="docs/screenshots/kiosk_ai_coach.png" alt="AI Voice Coach & MCP Dialog" width="420" /> | <img src="docs/screenshots/kiosk_friends_feed.png" alt="Friends Feed" width="420" /> |
-| *Bring-Your-Own-Key AI Voice Coach (OpenAI, Anthropic, Gemini, Ollama) and live MCP server integration for autonomous workout programming.* | *Decentralized peer-to-peer social feed via Nostr: celebrate friend PRs, send reactions (`💪`, `🔥`, `🏆`), and 1-tap import routines.* |
+| *Bring-Your-Own-Key AI Voice Coach (OpenAI, Anthropic, Gemini, Ollama) and live MCP server integration for autonomous workout programming.* | *Decentralized peer-to-peer social network via Nostr: tap "Friends" in the header or phone companion to share your Friend QR code & npub, celebrate friend PRs, send reactions (`💪`, `🔥`, `🏆`), and 1-tap import routines.* |
 
 ---
 

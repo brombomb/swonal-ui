@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   ArrowDown,
   ArrowUp,
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Dumbbell,
   FastForward,
   History,
@@ -15,6 +17,7 @@ import {
   Pause,
   Play,
   Plus,
+  QrCode,
   Radio,
   RefreshCw,
   Rewind,
@@ -135,19 +138,90 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const [friendsFeedSyncing, setFriendsFeedSyncing] = useState(false);
   const [importingRoutineId, setImportingRoutineId] = useState<string | null>(null);
 
-  const loadFriendsFeed = async (userId: string) => {
+  // Friend Identity & Nostr P2P
+  const [nostrIdentity, setNostrIdentity] = useState<{
+    npub: string;
+    pubkeyHex: string;
+    shareWorkouts: boolean;
+    relays: string[];
+  } | null>(null);
+  const [companionFriendQrUrl, setCompanionFriendQrUrl] = useState<string>('');
+  const [showFriendQr, setShowFriendQr] = useState(false);
+  const [copiedFriendNpub, setCopiedFriendNpub] = useState(false);
+  const [companionFriendsList, setCompanionFriendsList] = useState<
+    Array<{ id: string; friendNpub: string; nickname?: string | null }>
+  >([]);
+  const [newFriendCode, setNewFriendCode] = useState('');
+  const [newFriendNick, setNewFriendNick] = useState('');
+  const [addFriendStatus, setAddFriendStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [addingFriend, setAddingFriend] = useState(false);
+  const [showAddFriendForm, setShowAddFriendForm] = useState(false);
+
+  const loadFriendsData = async (userId: string) => {
     if (!userId) return;
     setFriendsFeedLoading(true);
     try {
-      const res = await fetch(`/api/friends/feed/${encodeURIComponent(userId)}?limit=50`);
-      if (res.ok) {
-        setFriendsFeed(await res.json());
+      const [identRes, friendsRes, feedRes] = await Promise.all([
+        fetch(`/api/friends/identity/${encodeURIComponent(userId)}`),
+        fetch(`/api/friends/${encodeURIComponent(userId)}`),
+        fetch(`/api/friends/feed/${encodeURIComponent(userId)}?limit=50`),
+      ]);
+      if (identRes.ok) {
+        const ident = await identRes.json();
+        setNostrIdentity(ident);
+        if (ident.npub) {
+          const qr = await QRCode.toDataURL(ident.npub, {
+            width: 256,
+            margin: 2,
+            color: { dark: '#07090E', light: '#FFFFFF' },
+          });
+          setCompanionFriendQrUrl(qr);
+        }
+      }
+      if (friendsRes.ok) {
+        setCompanionFriendsList(await friendsRes.json());
+      }
+      if (feedRes.ok) {
+        setFriendsFeed(await feedRes.json());
       }
     } catch (err) {
-      console.warn('Failed to load friends feed:', err);
+      console.warn('Failed to load friends data:', err);
     } finally {
       setFriendsFeedLoading(false);
     }
+  };
+
+  const handleCompanionAddFriend = async () => {
+    if (!activeUser?.id || !newFriendCode.trim()) return;
+    setAddingFriend(true);
+    try {
+      const res = await fetch(`/api/friends/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          npub: newFriendCode.trim(),
+          nickname: newFriendNick.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAddFriendStatus({ ok: false, text: data.error || 'Failed to add friend' });
+      } else {
+        setAddFriendStatus({ ok: true, text: 'Friend added! Syncing workouts...' });
+        setNewFriendCode('');
+        setNewFriendNick('');
+        setShowAddFriendForm(false);
+        await syncFriendsFeed(activeUser.id);
+      }
+    } catch {
+      setAddFriendStatus({ ok: false, text: 'Network error adding friend' });
+    } finally {
+      setAddingFriend(false);
+    }
+  };
+
+  const loadFriendsFeed = async (userId: string) => {
+    return loadFriendsData(userId);
   };
 
   const syncFriendsFeed = async (userId: string) => {
@@ -155,7 +229,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     setFriendsFeedSyncing(true);
     try {
       await fetch(`/api/friends/sync/${encodeURIComponent(userId)}`, { method: 'POST' });
-      await loadFriendsFeed(userId);
+      await loadFriendsData(userId);
       setToast('Feed synchronized with Nostr relays');
       setTimeout(() => setToast(null), 3000);
     } catch {
@@ -1560,6 +1634,111 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
         {tab === 'friends' && (
           <div className="space-y-4">
+            {/* My Friend Code & QR Card */}
+            <div className="surface-card rounded-3xl p-5 space-y-3.5 border border-white/10">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Users size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="font-black text-sm uppercase tracking-wide">My Friend Code</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowFriendQr(!showFriendQr)}
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-bold elevated-pill flex items-center gap-1 hover:opacity-90"
+                  >
+                    <QrCode size={13} />
+                    <span>{showFriendQr ? 'Hide QR' : 'Show QR'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!nostrIdentity?.npub}
+                    onClick={() => {
+                      if (nostrIdentity?.npub) {
+                        void navigator.clipboard.writeText(nostrIdentity.npub);
+                        setCopiedFriendNpub(true);
+                        setTimeout(() => setCopiedFriendNpub(false), 2000);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 hover:opacity-90 transition"
+                    style={{
+                      backgroundColor: 'var(--accent-primary)',
+                      color: accentTextColor,
+                    }}
+                  >
+                    {copiedFriendNpub ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{copiedFriendNpub ? 'Copied!' : 'Copy Code'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {nostrIdentity ? (
+                <div className="space-y-3">
+                  <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 font-mono text-xs break-all opacity-85 select-all">
+                    {nostrIdentity.npub}
+                  </div>
+                  {showFriendQr && companionFriendQrUrl && (
+                    <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl">
+                      <img src={companionFriendQrUrl} alt="My Nostr Friend QR Code" className="w-52 h-52" />
+                      <p className="text-slate-900 text-[11px] font-bold mt-2">Scan to connect on Swonal P2P</p>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[11px] opacity-60">
+                    <span>Relays: {nostrIdentity.relays?.length ?? 4} connected</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddFriendForm(!showAddFriendForm)}
+                      className="font-bold underline hover:opacity-100"
+                    >
+                      {showAddFriendForm ? 'Hide Add Friend' : '+ Add Friend via Code'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs opacity-50 py-2">Loading identity...</div>
+              )}
+
+              {/* Inline Add Friend Form */}
+              {showAddFriendForm && (
+                <div className="pt-2 border-t border-white/5 space-y-2.5">
+                  <input
+                    type="text"
+                    placeholder="Friend's npub1... key or hex"
+                    value={newFriendCode}
+                    onChange={(e) => setNewFriendCode(e.target.value)}
+                    className="w-full elevated-pill px-3 py-2 rounded-xl font-mono text-xs focus:outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nickname (optional)"
+                      value={newFriendNick}
+                      onChange={(e) => setNewFriendNick(e.target.value)}
+                      className="flex-1 elevated-pill px-3 py-2 rounded-xl text-xs focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!newFriendCode.trim() || addingFriend}
+                      onClick={() => void handleCompanionAddFriend()}
+                      className="px-4 py-2 rounded-xl text-xs font-bold hover:opacity-90 disabled:opacity-40"
+                      style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                    >
+                      {addingFriend ? 'Adding...' : 'Add'}
+                    </button>
+                  </div>
+                  {addFriendStatus && (
+                    <p
+                      className={`text-xs font-bold ${
+                        addFriendStatus.ok ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {addFriendStatus.text}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Header & Sync */}
             <div className="surface-card rounded-3xl p-5 flex items-center justify-between gap-3">
               <div>

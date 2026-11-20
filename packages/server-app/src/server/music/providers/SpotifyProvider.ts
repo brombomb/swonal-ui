@@ -248,14 +248,18 @@ export class SpotifyProvider implements IMusicProvider {
     return data.access_token;
   }
 
+  public resetRateLimit(): void {
+    this.rateLimitedUntil = 0;
+    console.log('[SpotifyProvider] Rate limit manually reset.');
+  }
+
   private async callSpotifyApi(
     userId: string,
     path: string,
     init: RequestInit = {}
   ): Promise<Response | null> {
     if (Date.now() < this.rateLimitedUntil) {
-      const waitSec = Math.ceil((this.rateLimitedUntil - Date.now()) / 1000);
-      throw new Error(`Spotify API rate-limited (429). Retrying in ${waitSec}s`);
+      return null;
     }
     const token = await this.refreshAuthIfNeeded(userId);
     if (!token) {
@@ -272,9 +276,14 @@ export class SpotifyProvider implements IMusicProvider {
     if (!resp.ok && resp.status !== 204) {
       if (resp.status === 429) {
         const retryHeader = resp.headers.get('retry-after');
-        const retrySec = retryHeader ? parseInt(retryHeader, 10) : 300;
-        this.rateLimitedUntil = Date.now() + (Number.isFinite(retrySec) ? retrySec : 300) * 1000;
-        console.warn(`[SpotifyProvider] 429 Quota Exceeded on ${path}. Backing off for ${retrySec}s.`);
+        const rawSec = retryHeader ? parseInt(retryHeader, 10) : 60;
+        // Cap to 60s max backoff, never lock up for hours
+        const safeSec = Math.min(Math.max(Number.isFinite(rawSec) ? rawSec : 60, 5), 60);
+        this.rateLimitedUntil = Date.now() + safeSec * 1000;
+        console.warn(
+          `[SpotifyProvider] 429 Rate limit on ${path}. Backing off for ${safeSec}s (remote requested ${rawSec}s).`
+        );
+        return null;
       }
       let detail = '';
       try {

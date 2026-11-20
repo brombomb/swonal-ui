@@ -38,9 +38,11 @@ import {
   Activity,
   AlertTriangle,
   Bot,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Database,
   Download,
   Dumbbell,
@@ -185,10 +187,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     transferMusicDevice,
     toggleFavoritePlaylist,
     refreshMusicNow,
+    refreshBootstrap,
   } = swonal;
 
   // Native <dialog> refs
   const qrDialogRef = useRef<HTMLDialogElement>(null);
+  const friendsDialogRef = useRef<HTMLDialogElement>(null);
   const libraryDialogRef = useRef<HTMLDialogElement>(null);
   const profileDialogRef = useRef<HTMLDialogElement>(null);
   const mockDialogRef = useRef<HTMLDialogElement>(null);
@@ -197,6 +201,26 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const diagnosticsDialogRef = useRef<HTMLDialogElement>(null);
   const weightDialogRef = useRef<HTMLDialogElement>(null);
   const [weightInputDraft, setWeightInputDraft] = useState<string>('');
+
+  // Friends & Nostr P2P Modal State
+  const [friendsKioskTab, setFriendsKioskTab] = useState<'mycode' | 'feed' | 'add'>('mycode');
+  const [kioskFriendIdentity, setKioskFriendIdentity] = useState<{
+    npub: string;
+    pubkeyHex: string;
+    shareWorkouts: boolean;
+    relays: string[];
+  } | null>(null);
+  const [kioskFriendQrDataUrl, setKioskFriendQrDataUrl] = useState<string>('');
+  const [kioskCopiedNpub, setKioskCopiedNpub] = useState(false);
+  const [kioskFriendsList, setKioskFriendsList] = useState<
+    Array<{ id: string; friendNpub: string; friendPubkey: string; nickname?: string | null; createdAt: string }>
+  >([]);
+  const [kioskFriendsFeed, setKioskFriendsFeed] = useState<any[]>([]);
+  const [kioskFriendsLoading, setKioskFriendsLoading] = useState(false);
+  const [kioskFriendsSyncing, setKioskFriendsSyncing] = useState(false);
+  const [kioskAddFriendCode, setKioskAddFriendCode] = useState('');
+  const [kioskAddFriendNick, setKioskAddFriendNick] = useState('');
+  const [kioskAddFriendMsg, setKioskAddFriendMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [libraryTab, setLibraryTab] = useState<'routines' | 'exercises'>('routines');
@@ -611,6 +635,116 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     }).then(setQrDataUrl);
   }, [companionUrl]);
 
+  const loadKioskFriendsData = useCallback(async (userId?: string) => {
+    const targetUserId = userId || activeUser?.id;
+    if (!targetUserId) return;
+    setKioskFriendsLoading(true);
+    try {
+      const [identRes, friendsRes, feedRes] = await Promise.all([
+        fetch(`/api/friends/identity/${encodeURIComponent(targetUserId)}`),
+        fetch(`/api/friends/${encodeURIComponent(targetUserId)}`),
+        fetch(`/api/friends/feed/${encodeURIComponent(targetUserId)}?limit=25`),
+      ]);
+      if (identRes.ok) {
+        const identData = await identRes.json();
+        setKioskFriendIdentity(identData);
+        if (identData.npub) {
+          const qr = await QRCode.toDataURL(identData.npub, {
+            width: 280,
+            margin: 2,
+            color: { dark: '#07090E', light: '#FFFFFF' },
+          });
+          setKioskFriendQrDataUrl(qr);
+        }
+      }
+      if (friendsRes.ok) {
+        setKioskFriendsList(await friendsRes.json());
+      }
+      if (feedRes.ok) {
+        setKioskFriendsFeed(await feedRes.json());
+      }
+    } catch (err) {
+      console.warn('Failed to load kiosk friends data:', err);
+    } finally {
+      setKioskFriendsLoading(false);
+    }
+  }, [activeUser?.id]);
+
+  useEffect(() => {
+    if (activeUser?.id) {
+      void loadKioskFriendsData(activeUser.id);
+    }
+  }, [activeUser?.id, loadKioskFriendsData]);
+
+  const handleKioskSyncFriends = async () => {
+    if (!activeUser?.id) return;
+    setKioskFriendsSyncing(true);
+    try {
+      await fetch(`/api/friends/sync/${encodeURIComponent(activeUser.id)}`, { method: 'POST' });
+      await loadKioskFriendsData(activeUser.id);
+    } catch (err) {
+      console.warn('Failed to sync friends feed:', err);
+    } finally {
+      setKioskFriendsSyncing(false);
+    }
+  };
+
+  const handleKioskAddFriend = async () => {
+    if (!activeUser?.id || !kioskAddFriendCode.trim()) return;
+    try {
+      const res = await fetch(`/api/friends/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          npub: kioskAddFriendCode.trim(),
+          nickname: kioskAddFriendNick.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setKioskAddFriendMsg({ ok: false, text: data.error || 'Failed to add friend' });
+      } else {
+        setKioskAddFriendMsg({ ok: true, text: 'Friend added! Syncing workouts...' });
+        setKioskAddFriendCode('');
+        setKioskAddFriendNick('');
+        await handleKioskSyncFriends();
+      }
+    } catch {
+      setKioskAddFriendMsg({ ok: false, text: 'Network error adding friend' });
+    }
+  };
+
+  const handleKioskReact = async (activityId: string, emoji: string) => {
+    if (!activeUser?.id) return;
+    try {
+      await fetch(`/api/friends/react/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activityId, emoji }),
+      });
+      const feedRes = await fetch(`/api/friends/feed/${encodeURIComponent(activeUser.id)}?limit=25`);
+      if (feedRes.ok) setKioskFriendsFeed(await feedRes.json());
+    } catch (err) {
+      console.warn('Failed to react:', err);
+    }
+  };
+
+  const handleKioskToggleShareWorkouts = async (share: boolean) => {
+    if (!activeUser?.id || !kioskFriendIdentity) return;
+    try {
+      const res = await fetch(`/api/friends/identity/${encodeURIComponent(activeUser.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareWorkouts: share }),
+      });
+      if (res.ok) {
+        setKioskFriendIdentity((prev) => (prev ? { ...prev, shareWorkouts: share } : prev));
+      }
+    } catch (err) {
+      console.warn('Failed to update share workouts:', err);
+    }
+  };
+
   const partnerUser = useMemo(() => {
     if (!activeUser || users.length < 2) return null;
     return users.find((u) => u.id !== activeUser.id) ?? null;
@@ -942,6 +1076,19 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <span>Accent Color &amp; Profiles</span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickSettings(false);
+                    void loadKioskFriendsData();
+                    friendsDialogRef.current?.showModal();
+                  }}
+                  className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90"
+                >
+                  <Users size={16} style={{ color: 'var(--accent-ink)' }} />
+                  <span>Friend Code &amp; QR</span>
+                </button>
+
                 <a
                   href="/history"
                   className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90"
@@ -964,6 +1111,20 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
             )}
           </div>
+
+          {/* Friends & P2P Community Modal */}
+          <button
+            type="button"
+            onClick={() => {
+              void loadKioskFriendsData();
+              friendsDialogRef.current?.showModal();
+            }}
+            title="Open Friends & P2P Community"
+            className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
+          >
+            <Users size={18} style={{ color: 'var(--accent-ink)' }} />
+            <span>Friends</span>
+          </button>
 
           {/* Companion QR Remote Modal */}
           <button
@@ -2753,6 +2914,383 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         accentColor={activeUser?.accentColor ?? '#00F0FF'}
         onClose={dismissWorkoutSummary}
       />
+
+      {/* DIALOG: FRIENDS & P2P COMMUNITY */}
+      <dialog
+        ref={friendsDialogRef}
+        closedby="any"
+        aria-labelledby="friends-dialog-title"
+        className="rounded-3xl p-7 max-w-2xl w-full"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-2xl flex items-center justify-center font-black"
+              style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+            >
+              <Users size={20} />
+            </div>
+            <div>
+              <h2 id="friends-dialog-title" className="text-2xl font-black">
+                Friends &amp; P2P Community
+              </h2>
+              <p className="text-xs opacity-70">
+                Decentralized Nostr protocol • No centralized cloud required
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => friendsDialogRef.current?.close()}
+            className="elevated-pill p-2 rounded-xl"
+            aria-label="Close Friends Dialog"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Tab Pills */}
+        <div className="flex gap-2 p-1.5 elevated-pill rounded-2xl mb-5">
+          <button
+            type="button"
+            onClick={() => setFriendsKioskTab('mycode')}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              friendsKioskTab === 'mycode' ? 'font-black' : 'opacity-70 hover:opacity-100'
+            }`}
+            style={
+              friendsKioskTab === 'mycode'
+                ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                : {}
+            }
+          >
+            <QrCode size={14} />
+            <span>My Friend Code</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFriendsKioskTab('feed')}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              friendsKioskTab === 'feed' ? 'font-black' : 'opacity-70 hover:opacity-100'
+            }`}
+            style={
+              friendsKioskTab === 'feed'
+                ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                : {}
+            }
+          >
+            <Activity size={14} />
+            <span>Activity Feed</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFriendsKioskTab('add')}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              friendsKioskTab === 'add' ? 'font-black' : 'opacity-70 hover:opacity-100'
+            }`}
+            style={
+              friendsKioskTab === 'add'
+                ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                : {}
+            }
+          >
+            <Plus size={14} />
+            <span>Add Friend ({kioskFriendsList.length})</span>
+          </button>
+        </div>
+
+        {/* TAB 1: MY FRIEND CODE */}
+        {friendsKioskTab === 'mycode' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl elevated-pill">
+              <div className="bg-white p-3 rounded-2xl shrink-0 flex items-center justify-center shadow-md">
+                {kioskFriendQrDataUrl ? (
+                  <img src={kioskFriendQrDataUrl} alt="Nostr Friend QR Code" className="w-52 h-52" />
+                ) : (
+                  <div className="w-52 h-52 flex items-center justify-center text-xs text-slate-500 font-mono">
+                    Generating QR...
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 space-y-3 min-w-0 text-center sm:text-left">
+                <div>
+                  <h3 className="font-extrabold text-base">Your Decentralized Friend Code</h3>
+                  <p className="text-xs opacity-70 mt-0.5">
+                    Have friends scan this QR with their camera or paste this npub key to connect peer-to-peer.
+                  </p>
+                </div>
+
+                <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 font-mono text-xs break-all opacity-85 select-all">
+                  {kioskFriendIdentity?.npub || 'Loading npub identity...'}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!kioskFriendIdentity?.npub}
+                    onClick={() => {
+                      if (kioskFriendIdentity?.npub) {
+                        void navigator.clipboard.writeText(kioskFriendIdentity.npub);
+                        setKioskCopiedNpub(true);
+                        setTimeout(() => setKioskCopiedNpub(false), 2000);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:opacity-90 transition"
+                    style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                  >
+                    {kioskCopiedNpub ? <Check size={14} /> : <Copy size={14} />}
+                    <span>{kioskCopiedNpub ? 'Copied to Clipboard!' : 'Copy npub Code'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!kioskFriendIdentity}
+                    onClick={() =>
+                      void handleKioskToggleShareWorkouts(!kioskFriendIdentity?.shareWorkouts)
+                    }
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold elevated-pill flex items-center gap-1.5 hover:opacity-90"
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        kioskFriendIdentity?.shareWorkouts ? 'bg-emerald-400' : 'bg-slate-500'
+                      }`}
+                    />
+                    <span>
+                      Auto-Share: {kioskFriendIdentity?.shareWorkouts ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-xs opacity-60 flex items-center justify-between px-1">
+              <span>Configured Relays: {kioskFriendIdentity?.relays?.length ?? 4} active</span>
+              <span>Full key settings in Application Settings → Friends</span>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: ACTIVITY FEED */}
+        {friendsKioskTab === 'feed' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between pb-1">
+              <span className="text-xs opacity-70">
+                Live peer workouts from connected friends
+              </span>
+              <button
+                type="button"
+                disabled={kioskFriendsSyncing}
+                onClick={() => void handleKioskSyncFriends()}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold elevated-pill flex items-center gap-1.5 hover:opacity-90 disabled:opacity-50"
+              >
+                <RefreshCw size={13} className={kioskFriendsSyncing ? 'animate-spin' : ''} />
+                <span>{kioskFriendsSyncing ? 'Syncing...' : 'Sync Relays'}</span>
+              </button>
+            </div>
+
+            <div className="max-h-[380px] overflow-y-auto space-y-3 pr-1">
+              {kioskFriendsFeed.length === 0 ? (
+                <div className="elevated-pill rounded-2xl p-8 text-center space-y-2">
+                  <Users size={32} className="mx-auto opacity-40" />
+                  <p className="text-sm font-extrabold">No friend activity yet</p>
+                  <p className="text-xs opacity-70">
+                    Add friends in the "Add Friend" tab to view workout milestones, PRs, and shared routines.
+                  </p>
+                </div>
+              ) : (
+                kioskFriendsFeed.map((post) => {
+                  const isWorkout = post.kind === 30101;
+                  const isRoutine = post.kind === 30102;
+                  const p = post.payload;
+                  const flexCount = post.reactions.filter((r: any) => r.emoji === '💪').length;
+                  const fireCount = post.reactions.filter((r: any) => r.emoji === '🔥').length;
+                  const trophyCount = post.reactions.filter((r: any) => r.emoji === '🏆').length;
+
+                  return (
+                    <div
+                      key={post.id}
+                      className="elevated-pill rounded-2xl p-4 space-y-3 border border-white/5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs"
+                            style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                          >
+                            {post.authorName.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="font-extrabold text-sm">{post.authorName}</span>
+                            <span className="text-[11px] opacity-60 ml-2 font-mono">
+                              {new Date(post.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-white/10 opacity-80">
+                          {isWorkout ? 'Workout' : isRoutine ? 'Routine' : 'Activity'}
+                        </span>
+                      </div>
+
+                      {isWorkout && (
+                        <div className="bg-black/25 rounded-xl p-3 flex items-center justify-between text-xs font-mono">
+                          <div>
+                            <span className="font-bold text-white block">{p.routineName || 'Free Lift'}</span>
+                            <span className="opacity-70">{p.setCount || 0} sets • {p.totalReps || 0} reps</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-black text-sm block" style={{ color: 'var(--accent-ink)' }}>
+                              {Math.round(p.totalVolume || 0)} {p.unit || 'LB'}
+                            </span>
+                            <span className="opacity-60">{Math.round((p.durationSeconds || 0) / 60)} min</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {isRoutine && (
+                        <div className="bg-black/25 rounded-xl p-3 text-xs space-y-1">
+                          <span className="font-bold text-white block">{p.name}</span>
+                          <p className="opacity-70 line-clamp-1">{p.description || 'Shared routine'}</p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void handleKioskReact(post.id, '💪')}
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold elevated-pill hover:scale-105 active:scale-95 transition flex items-center gap-1"
+                          >
+                            <span>💪</span>
+                            {flexCount > 0 && <span className="text-[10px] opacity-80">{flexCount}</span>}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleKioskReact(post.id, '🔥')}
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold elevated-pill hover:scale-105 active:scale-95 transition flex items-center gap-1"
+                          >
+                            <span>🔥</span>
+                            {fireCount > 0 && <span className="text-[10px] opacity-80">{fireCount}</span>}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleKioskReact(post.id, '🏆')}
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold elevated-pill hover:scale-105 active:scale-95 transition flex items-center gap-1"
+                          >
+                            <span>🏆</span>
+                            {trophyCount > 0 && <span className="text-[10px] opacity-80">{trophyCount}</span>}
+                          </button>
+                        </div>
+
+                        {isRoutine && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!activeUser?.id) return;
+                              const res = await fetch(`/api/friends/import-routine/${encodeURIComponent(activeUser.id)}/${encodeURIComponent(post.id)}`, { method: 'POST' });
+                              if (res.ok) {
+                                void refreshBootstrap();
+                                alert('Routine imported successfully!');
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
+                            style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                          >
+                            <Download size={12} />
+                            <span>Import Routine</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: ADD FRIEND & ROSTER */}
+        {friendsKioskTab === 'add' && (
+          <div className="space-y-4">
+            <div className="elevated-pill rounded-2xl p-4 space-y-3">
+              <h3 className="font-extrabold text-sm">Add a Friend via npub Key</h3>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  placeholder="npub1... or hex public key"
+                  value={kioskAddFriendCode}
+                  onChange={(e) => setKioskAddFriendCode(e.target.value)}
+                  className="w-full elevated-pill px-3 py-2.5 rounded-xl font-mono text-xs focus:outline-none"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Nickname (optional, e.g. Alex)"
+                    value={kioskAddFriendNick}
+                    onChange={(e) => setKioskAddFriendNick(e.target.value)}
+                    className="flex-1 elevated-pill px-3 py-2 rounded-xl text-xs focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={!kioskAddFriendCode.trim()}
+                    onClick={() => void handleKioskAddFriend()}
+                    className="px-4 py-2 rounded-xl text-xs font-bold disabled:opacity-40 hover:opacity-90"
+                    style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                  >
+                    Add Friend
+                  </button>
+                </div>
+              </div>
+
+              {kioskAddFriendMsg && (
+                <p
+                  className={`text-xs font-bold ${
+                    kioskAddFriendMsg.ok ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {kioskAddFriendMsg.text}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs uppercase font-extrabold tracking-wider opacity-70 px-1">
+                Connected Friends ({kioskFriendsList.length})
+              </h4>
+              <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
+                {kioskFriendsList.length === 0 ? (
+                  <p className="text-xs opacity-50 px-1">No friends added yet.</p>
+                ) : (
+                  kioskFriendsList.map((f) => (
+                    <div
+                      key={f.id}
+                      className="elevated-pill rounded-xl p-3 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-extrabold text-xs truncate">
+                          {f.nickname || f.friendNpub.slice(0, 16) + '...'}
+                        </p>
+                        <p className="font-mono text-[10px] opacity-60 truncate">
+                          {f.friendNpub}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!activeUser?.id) return;
+                          await fetch(`/api/friends/${encodeURIComponent(activeUser.id)}/${encodeURIComponent(f.id)}`, { method: 'DELETE' });
+                          await loadKioskFriendsData(activeUser.id);
+                        }}
+                        className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2 py-1"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </dialog>
     </div>
   );
 };

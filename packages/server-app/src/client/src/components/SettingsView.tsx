@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   ArrowLeft,
   Bot,
@@ -11,6 +12,7 @@ import {
   Lock,
   Music,
   Plus,
+  QrCode,
   Radio,
   RefreshCw,
   Server,
@@ -129,6 +131,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   const [friendsSyncing, setFriendsSyncing] = useState(false);
   const [friendsMsg, setFriendsMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [friendsCopiedNpub, setFriendsCopiedNpub] = useState(false);
+  const [settingsFriendQrUrl, setSettingsFriendQrUrl] = useState<string>('');
 
   // Security / Passcode Lock
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -301,7 +304,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
         fetch(`/api/friends/${encodeURIComponent(userId)}`),
       ]);
       if (identRes.ok) {
-        setNostrIdentity(await identRes.json());
+        const ident = await identRes.json();
+        setNostrIdentity(ident);
+        if (ident.npub) {
+          const qr = await QRCode.toDataURL(ident.npub, {
+            width: 256,
+            margin: 2,
+            color: { dark: '#07090E', light: '#FFFFFF' },
+          });
+          setSettingsFriendQrUrl(qr);
+        }
       }
       if (listRes.ok) {
         setFriendsList(await listRes.json());
@@ -1004,32 +1016,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                 <div className="p-8 text-center text-xs opacity-60">Loading Nostr identity...</div>
               ) : nostrIdentity ? (
                 <div className="space-y-4">
-                  <div className="elevated-pill rounded-2xl p-4 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs uppercase font-bold tracking-wider opacity-65">
-                        Your Public Nostr npub (Share this with friends)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (nostrIdentity.npub) {
-                            void navigator.clipboard.writeText(nostrIdentity.npub);
-                            setFriendsCopiedNpub(true);
-                            setTimeout(() => setFriendsCopiedNpub(false), 2000);
-                          }
-                        }}
-                        className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
-                      >
-                        {friendsCopiedNpub ? <Check size={13} /> : <Copy size={13} />}
-                        <span>{friendsCopiedNpub ? 'Copied!' : 'Copy npub'}</span>
-                      </button>
+                  <div className="flex flex-col sm:flex-row items-center gap-5 elevated-pill rounded-2xl p-5">
+                    {settingsFriendQrUrl && (
+                      <div className="bg-white p-3 rounded-2xl shrink-0 flex items-center justify-center shadow-md">
+                        <img src={settingsFriendQrUrl} alt="Nostr Friend QR Code" className="w-40 h-40" />
+                      </div>
+                    )}
+                    <div className="flex-1 space-y-2 min-w-0 w-full">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs uppercase font-bold tracking-wider opacity-65">
+                          Your Public Nostr npub (Share with friends)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (nostrIdentity.npub) {
+                              void navigator.clipboard.writeText(nostrIdentity.npub);
+                              setFriendsCopiedNpub(true);
+                              setTimeout(() => setFriendsCopiedNpub(false), 2000);
+                            }
+                          }}
+                          className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                        >
+                          {friendsCopiedNpub ? <Check size={13} /> : <Copy size={13} />}
+                          <span>{friendsCopiedNpub ? 'Copied!' : 'Copy npub'}</span>
+                        </button>
+                      </div>
+                      <p className="font-mono text-sm font-black break-all text-emerald-400">
+                        {nostrIdentity.npub}
+                      </p>
+                      <p className="font-mono text-[11px] opacity-60 break-all">
+                        Hex: {nostrIdentity.pubkeyHex}
+                      </p>
                     </div>
-                    <p className="font-mono text-sm font-black break-all text-emerald-400">
-                      {nostrIdentity.npub}
-                    </p>
-                    <p className="font-mono text-[11px] opacity-60 break-all">
-                      Hex: {nostrIdentity.pubkeyHex}
-                    </p>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 elevated-pill rounded-2xl p-4">

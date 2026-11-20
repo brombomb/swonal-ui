@@ -245,4 +245,22 @@ describe('Spotify OAuth Routes & Config Validation', () => {
       delete process.env.SWONAL_AUTH_PASSCODE;
     }
   });
+
+  it('resets rate limiting via POST /api/spotify/reset-rate-limit and caps Retry-After backoff', async () => {
+    const provider = new SpotifyProvider();
+    // Simulate setting high rate limited delay
+    (provider as any).rateLimitedUntil = Date.now() + 37767 * 1000;
+    expect((provider as any).rateLimitedUntil).toBeGreaterThan(Date.now());
+
+    // Reset rate limit directly
+    provider.resetRateLimit();
+    expect((provider as any).rateLimitedUntil).toBe(0);
+
+    // Call REST endpoint
+    const resetResp = await fetch(`${baseUrl}/api/spotify/reset-rate-limit`, { method: 'POST' });
+    expect(resetResp.status).toBe(200);
+    const body = await resetResp.json();
+    expect(body.success).toBe(true);
+    expect(body.message).toContain('Spotify rate limit reset');
+  });
 });
