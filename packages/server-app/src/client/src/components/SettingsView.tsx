@@ -53,12 +53,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
 
-  type SettingsTab = 'users' | 'friends' | 'music' | 'ai' | 'network' | 'security';
+  type SettingsTab = 'users' | 'friends' | 'ai' | 'network' | 'security';
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as SettingsTab;
-    if (['users', 'friends', 'music', 'ai', 'network', 'security'].includes(tab)) return tab;
+    if (['users', 'friends', 'ai', 'network', 'security'].includes(tab)) return tab;
     return 'users';
   });
 
@@ -763,7 +763,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             [
               { id: 'users', label: 'Users', icon: Users },
               { id: 'friends', label: 'Friends', icon: Share2 },
-              { id: 'music', label: 'Music', icon: Music },
               { id: 'ai', label: 'AI', icon: Bot },
               { id: 'network', label: 'Network', icon: Globe },
               { id: 'security', label: 'Security', icon: ShieldCheck },
@@ -1176,134 +1175,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               </div>
             </section>
           </div>
-        )}
-
-        {/* MUSIC TAB */}
-        {activeTab === 'music' && (
-          <section className="surface-card rounded-3xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Music size={22} style={{ color: 'var(--accent-primary)' }} />
-                <div>
-                  <h2 className="text-xl font-black">Music Providers &amp; Integrations</h2>
-                  <p className="text-xs opacity-70">
-                    Connect your music account per profile ({activeUser?.name}) and choose your default player.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {musicProviders.map((prov) => {
-                const isSelected = prov.id === activeProviderId;
-                const isSpotify = prov.id === 'spotify';
-                const isSpotifyLinked = Boolean(
-                  isSpotify && (spotifyStatus?.hasOAuthToken || musicState.isConnected)
-                );
-
-                return (
-                  <div
-                    key={prov.id}
-                    className="elevated-pill rounded-2xl p-4 space-y-3 border"
-                    style={
-                      isSelected
-                        ? { borderColor: 'var(--accent-primary)' }
-                        : { borderColor: 'var(--border-subtle)' }
-                    }
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-black text-base">{prov.displayName}</span>
-                        {prov.configured ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                            Configured
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-500/20 text-slate-400">
-                            Not Configured
-                          </span>
-                        )}
-                        {isSpotifyLinked && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35">
-                            Spotify Connected
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {isSpotify && isSpotifyLinked && (
-                          <button
-                            type="button"
-                            onClick={() => setSpotifyExpanded((v) => !v)}
-                            className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
-                          >
-                            {spotifyExpanded ? 'Minimize' : 'Manage'}
-                          </button>
-                        )}
-                        {isSpotify && (!isSpotifyLinked || spotifyExpanded) && (
-                          <a
-                            href={(() => {
-                              const p = new URLSearchParams();
-                              if (activeUser?.id) p.set('userId', activeUser.id);
-                              if (baseUrlOverride) p.set('baseUrl', baseUrlOverride);
-                              const qs = p.toString();
-                              return `/api/spotify/login${qs ? `?${qs}` : ''}`;
-                            })()}
-                            className="px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
-                          >
-                            <Music size={14} />
-                            <span>{isSpotifyLinked ? 'Reconnect Spotify' : 'Connect Spotify'}</span>
-                          </a>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (activeUser) {
-                              void updateUserPreferences(activeUser.id, {
-                                preferredMusicProvider: prov.id,
-                              });
-                            }
-                          }}
-                          className="px-3.5 py-2 rounded-xl text-xs font-bold transition elevated-pill"
-                          style={
-                            isSelected
-                              ? {
-                                  backgroundColor: 'var(--accent-primary)',
-                                  color: accentTextColor,
-                                }
-                              : undefined
-                          }
-                        >
-                          {isSelected ? 'Default Provider' : 'Set Default'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {isSpotify && spotifyStatus && (!isSpotifyLinked || spotifyExpanded) && (
-                      <div className="surface-card rounded-xl p-3 space-y-1.5 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold opacity-75">
-                            Spotify OAuth Redirect URI:
-                          </span>
-                          <button
-                            type="button"
-                            onClick={copyRedirectUri}
-                            className="elevated-pill px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 hover:opacity-90"
-                          >
-                            {copiedRedirect ? <Check size={12} /> : <Copy size={12} />}
-                            <span>{copiedRedirect ? 'Copied' : 'Copy'}</span>
-                          </button>
-                        </div>
-                        <p className="font-mono text-[11px] break-all opacity-90">
-                          {spotifyStatus.redirectUri}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
         )}
 
         {/* AI TAB */}
