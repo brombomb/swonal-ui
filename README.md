@@ -34,10 +34,10 @@
 | <img src="docs/screenshots/kiosk_arm_guide.png" alt="Arm Alignment Guide" width="420" /> | <img src="docs/screenshots/kiosk_form_demo.png" alt="Form Demo Preview" width="420" /> |
 | *Live hardware readout of arm height, rotation, and angle sensors (`0x1020`/`0x1021`/`0x1025`) matching target exercise configuration.* | *Picture-in-Picture (PiP) animated SVG/video form loop demonstrating proper lifting technique and primary muscle activation.* |
 
-| **AI Voice Coach & MCP Agent** *(Solar Amber)* | **Decentralized Friends Feed & QR** *(Emerald)* |
+| **AI Voice Coach & MCP Agent** *(Solar Amber)* | **Swocial Network & Feed** *(Emerald)* |
 |:---:|:---:|
-| <img src="docs/screenshots/kiosk_ai_coach.png" alt="AI Voice Coach & MCP Dialog" width="420" /> | <img src="docs/screenshots/kiosk_friends_feed.png" alt="Friends Feed" width="420" /> |
-| *Bring-Your-Own-Key AI Voice Coach (OpenAI, Anthropic, Gemini, Ollama) and live MCP server integration for autonomous workout programming.* | *Decentralized peer-to-peer social network via Nostr: tap "Friends" in the header or phone companion to share your Friend QR code & npub, celebrate friend PRs, send reactions (`💪`, `🔥`, `🏆`), and 1-tap import routines.* |
+| <img src="docs/screenshots/kiosk_ai_coach.png" alt="AI Voice Coach & MCP Dialog" width="420" /> | <img src="docs/screenshots/kiosk_friends_feed.png" alt="Swocial Feed" width="420" /> |
+| *Bring-Your-Own-Key AI Voice Coach (OpenAI, Anthropic, Gemini, Ollama) and live MCP server integration for autonomous workout programming.* | *Peer-to-peer fitness network: tap "Swocial" in the header or phone companion to share your Swocial QR code, celebrate friend PRs, send reactions (`💪`, `🔥`, `🏆`), and 1-tap import routines.* |
 
 ---
 
@@ -168,9 +168,9 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 
 - **Switching to Stock Tonal & Back**: Tap the quick-action menu at the top right of the screen and choose **"Exit to Stock Tonal"**. The daemon releases `/dev/ttyACM0` and launches stock software with a discreet floating overlay pill. Tapping the pill returns instantly to Swonal Kiosk without rebooting.
-- **Mobile Remote Control & Social Feed**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view your friends' workout feed, react with motivation (`💪`, `🔥`, `🏆`), or import shared routines with one tap.
+- **Swocial Mobile Remote & Feed**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view your Swocial workout feed, react with motivation (`💪`, `🔥`, `🏆`), or import shared routines with one tap.
 - **Local Fail-Safe Protection**: If Wi-Fi ever drops mid-set, tapping **WEIGHT OFF** bypasses the network entirely via local loopback socket (`127.0.0.1:8765`), dropping cable tension in `<5ms`.
-- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to configure Lifters, Friends & P2P Nostr Identity, BYOK AI Coach, Network overrides, and Security/Data backups.
+- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to configure Lifters, Swocial Profile, BYOK AI Coach, Network overrides, and Security/Data backups.
 
 ---
 

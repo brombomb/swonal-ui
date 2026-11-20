@@ -1086,7 +1086,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   className="w-full elevated-pill py-3 px-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90"
                 >
                   <Users size={16} style={{ color: 'var(--accent-ink)' }} />
-                  <span>Friend Code &amp; QR</span>
+                  <span>Swocial</span>
                 </button>
 
                 <a
@@ -1112,18 +1112,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             )}
           </div>
 
-          {/* Friends & P2P Community Modal */}
+          {/* Swocial Modal */}
           <button
             type="button"
             onClick={() => {
               void loadKioskFriendsData();
               friendsDialogRef.current?.showModal();
             }}
-            title="Open Friends & P2P Community"
+            title="Open Swocial"
             className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
           >
             <Users size={18} style={{ color: 'var(--accent-ink)' }} />
-            <span>Friends</span>
+            <span>Swocial</span>
           </button>
 
           {/* Companion QR Remote Modal */}
@@ -2932,10 +2932,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             </div>
             <div>
               <h2 id="friends-dialog-title" className="text-2xl font-black">
-                Friends &amp; P2P Community
+                Swocial
               </h2>
               <p className="text-xs opacity-70">
-                Decentralized Nostr protocol • No centralized cloud required
+                Live workout feed and gym buddy activity
               </p>
             </div>
           </div>
@@ -2943,7 +2943,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             type="button"
             onClick={() => friendsDialogRef.current?.close()}
             className="elevated-pill p-2 rounded-xl"
-            aria-label="Close Friends Dialog"
+            aria-label="Close Swocial Dialog"
           >
             <X size={20} />
           </button>
@@ -2964,7 +2964,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             }
           >
             <QrCode size={14} />
-            <span>My Friend Code</span>
+            <span>My Swocial Code</span>
           </button>
           <button
             type="button"
@@ -2979,7 +2979,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             }
           >
             <Activity size={14} />
-            <span>Activity Feed</span>
+            <span>Feed</span>
           </button>
           <button
             type="button"
@@ -2994,17 +2994,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             }
           >
             <Plus size={14} />
-            <span>Add Friend ({kioskFriendsList.length})</span>
+            <span>Friends ({kioskFriendsList.length})</span>
           </button>
         </div>
 
-        {/* TAB 1: MY FRIEND CODE */}
+        {/* TAB 1: MY SWOCIAL CODE */}
         {friendsKioskTab === 'mycode' && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl elevated-pill">
               <div className="bg-white p-3 rounded-2xl shrink-0 flex items-center justify-center shadow-md">
                 {kioskFriendQrDataUrl ? (
-                  <img src={kioskFriendQrDataUrl} alt="Nostr Friend QR Code" className="w-52 h-52" />
+                  <img src={kioskFriendQrDataUrl} alt="Swocial QR Code" className="w-52 h-52" />
                 ) : (
                   <div className="w-52 h-52 flex items-center justify-center text-xs text-slate-500 font-mono">
                     Generating QR...
@@ -3013,14 +3013,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               </div>
               <div className="flex-1 space-y-3 min-w-0 text-center sm:text-left">
                 <div>
-                  <h3 className="font-extrabold text-base">Your Decentralized Friend Code</h3>
+                  <h3 className="font-extrabold text-base">Your Swocial Code</h3>
                   <p className="text-xs opacity-70 mt-0.5">
-                    Have friends scan this QR with their camera or paste this npub key to connect peer-to-peer.
+                    Have friends scan this QR with their camera or paste this code in Swocial to connect.
                   </p>
                 </div>
 
                 <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 font-mono text-xs break-all opacity-85 select-all">
-                  {kioskFriendIdentity?.npub || 'Loading npub identity...'}
+                  {kioskFriendIdentity?.npub || 'Loading Swocial identity...'}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -3038,7 +3038,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
                   >
                     {kioskCopiedNpub ? <Check size={14} /> : <Copy size={14} />}
-                    <span>{kioskCopiedNpub ? 'Copied to Clipboard!' : 'Copy npub Code'}</span>
+                    <span>{kioskCopiedNpub ? 'Copied to Clipboard!' : 'Copy Swocial Code'}</span>
                   </button>
 
                   <button

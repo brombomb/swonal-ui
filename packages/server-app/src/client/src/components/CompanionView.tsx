@@ -1634,12 +1634,12 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
         {tab === 'friends' && (
           <div className="space-y-4">
-            {/* My Friend Code & QR Card */}
+            {/* My Swocial Code & QR Card */}
             <div className="surface-card rounded-3xl p-5 space-y-3.5 border border-white/10">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Users size={18} style={{ color: 'var(--accent-primary)' }} />
-                  <span className="font-black text-sm uppercase tracking-wide">My Friend Code</span>
+                  <span className="font-black text-sm uppercase tracking-wide">My Swocial Code</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -1679,8 +1679,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   </div>
                   {showFriendQr && companionFriendQrUrl && (
                     <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl">
-                      <img src={companionFriendQrUrl} alt="My Nostr Friend QR Code" className="w-52 h-52" />
-                      <p className="text-slate-900 text-[11px] font-bold mt-2">Scan to connect on Swonal P2P</p>
+                      <img src={companionFriendQrUrl} alt="My Swocial QR Code" className="w-52 h-52" />
+                      <p className="text-slate-900 text-[11px] font-bold mt-2">Scan to connect on Swocial</p>
                     </div>
                   )}
                   <div className="flex items-center justify-between text-[11px] opacity-60">
@@ -1703,7 +1703,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                 <div className="pt-2 border-t border-white/5 space-y-2.5">
                   <input
                     type="text"
-                    placeholder="Friend's npub1... key or hex"
+                    placeholder="Friend's Swocial code or hex"
                     value={newFriendCode}
                     onChange={(e) => setNewFriendCode(e.target.value)}
                     className="w-full elevated-pill px-3 py-2 rounded-xl font-mono text-xs focus:outline-none"
@@ -1744,10 +1744,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               <div>
                 <h2 className="text-lg font-black flex items-center gap-2">
                   <Users size={20} style={{ color: 'var(--accent-primary)' }} />
-                  <span>Friends Feed</span>
+                  <span>Swocial</span>
                 </h2>
                 <p className="text-xs opacity-70">
-                  Decentralized P2P activity from your connected gym buddies.
+                  Live workout activity and high-fives from your gym buddies.
                 </p>
               </div>
               <button
@@ -1993,7 +1993,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             style={{ color: tab === 'friends' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
           >
             <Users size={20} />
-            <span>Friends</span>
+            <span>Swocial</span>
           </button>
         </div>
       </nav>

@@ -774,7 +774,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           {(
             [
               { id: 'users', label: 'Users', icon: Users },
-              { id: 'friends', label: 'Friends', icon: Share2 },
+              { id: 'friends', label: 'Swocial', icon: Share2 },
               { id: 'ai', label: 'AI', icon: Bot },
               { id: 'network', label: 'Network', icon: Globe },
               { id: 'security', label: 'Security', icon: ShieldCheck },
@@ -986,18 +986,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           </section>
         )}
 
-        {/* FRIENDS TAB */}
+        {/* SWOCIAL TAB */}
         {activeTab === 'friends' && (
           <div className="space-y-6">
-            {/* 1. Self-Sovereign Identity */}
+            {/* 1. Swocial Identity */}
             <section className="surface-card rounded-3xl p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <Share2 size={22} style={{ color: 'var(--accent-primary)' }} />
                   <div>
-                    <h2 className="text-xl font-black">Decentralized P2P Identity (Nostr)</h2>
+                    <h2 className="text-xl font-black">Swocial</h2>
                     <p className="text-xs opacity-70">
-                      Self-sovereign secp256k1 identity for {activeUser?.name ?? 'Lifter'}. Share workouts peer-to-peer without centralized servers.
+                      Connect with gym buddies to share workouts, celebrate PRs, and exchange routine templates.
                     </p>
                   </div>
                 </div>
@@ -1013,19 +1013,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               </div>
 
               {friendsLoading ? (
-                <div className="p-8 text-center text-xs opacity-60">Loading Nostr identity...</div>
+                <div className="p-8 text-center text-xs opacity-60">Loading Swocial identity...</div>
               ) : nostrIdentity ? (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-center gap-5 elevated-pill rounded-2xl p-5">
                     {settingsFriendQrUrl && (
                       <div className="bg-white p-3 rounded-2xl shrink-0 flex items-center justify-center shadow-md">
-                        <img src={settingsFriendQrUrl} alt="Nostr Friend QR Code" className="w-40 h-40" />
+                        <img src={settingsFriendQrUrl} alt="Swocial QR Code" className="w-40 h-40" />
                       </div>
                     )}
                     <div className="flex-1 space-y-2 min-w-0 w-full">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs uppercase font-bold tracking-wider opacity-65">
-                          Your Public Nostr npub (Share with friends)
+                          Your Public Swocial Code
                         </span>
                         <button
                           type="button"
