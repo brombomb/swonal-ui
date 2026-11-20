@@ -25,13 +25,13 @@ jobs:
       - name: Build Kiosk APK
         run: |
           cd packages/android-kiosk
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: swonal-kiosk-apk
-          path: packages/android-kiosk/app/build/outputs/apk/debug/app-debug.apk
+          path: packages/android-kiosk/app/build/outputs/apk/release/app-release.apk
 
   build-server:
     name: Build Server App Bundle
@@ -83,7 +83,7 @@ jobs:
 
       - name: Rename APK
         run: |
-          mv release-artifacts/app-debug.apk release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
+          mv release-artifacts/app-release.apk release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
