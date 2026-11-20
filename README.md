@@ -174,6 +174,11 @@ Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 - **Switching to Stock Tonal & Back**: Tap the quick-action menu at the top right of the screen and choose **"Exit to Stock Tonal"**. The daemon releases `/dev/ttyACM0` and launches stock software with a discreet floating overlay pill. Tapping the pill returns instantly to Swonal Kiosk without rebooting.
 - **Swocial Mobile Remote & Feed**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view your Swocial workout feed, react with motivation (`💪`, `🔥`, `🏆`), or import shared routines with one tap.
 - **Local Fail-Safe Protection**: If Wi-Fi ever drops mid-set, tapping **WEIGHT OFF** bypasses the network entirely via local loopback socket (`127.0.0.1:8765`), dropping cable tension in `<5ms`.
+- **Screen Mirroring & Remote Inspection**: Mirror and control the Tonal screen directly from your workstation with one command:
+  ```bash
+  ./scripts/scrcpy.sh
+  ```
+  *(Or: `scrcpy -s <TONAL_IP>:5555 --no-audio --max-fps 30 -m 1080`)*
 - **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to manage household lifters and per-user saved workout programs (queue routines to Tonal, share to Swocial, view exercise details), peer-to-peer Swocial profiles, AI configuration (BYOK Voice Coach and Model Context Protocol / MCP server setup), Network overrides, and Security/Data backups.
 
 ---
