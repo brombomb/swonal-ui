@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { KioskCableBar } from './KioskCableBar';
 
@@ -61,6 +61,7 @@ import {
   Plus,
   QrCode,
   Radio,
+  RefreshCw,
   Rewind,
   Scale,
   Send,

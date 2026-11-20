@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 const SCREENSHOT_DIR = path.resolve('docs/screenshots');
+const tmpDir = fs.mkdtempSync('/tmp/chrome-cap-');
 
 async function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,31 +29,25 @@ async function sendCdp(ws, method, params = {}) {
   });
 }
 
-async function capture() {
+async function run() {
   const chrome = spawn('google-chrome', [
-    '--headless',
+    '--headless=new',
     '--no-sandbox',
     '--disable-gpu',
-    '--remote-debugging-port=9222',
+    '--remote-debugging-port=9240',
     '--window-size=1080,1920',
     '--force-device-scale-factor=1',
+    '--user-data-dir=' + tmpDir,
   ]);
 
   try {
     await wait(2000);
 
-    // Get WebSocket URL from Chrome
-    const targetsRes = await fetch('http://127.0.0.1:9222/json');
+    const targetsRes = await fetch('http://127.0.0.1:9240/json');
     const targets = await targetsRes.json();
-    let pageWsUrl = targets.find((t) => t.type === 'page')?.webSocketDebuggerUrl;
+    const page = targets.find((t) => t.type === 'page');
 
-    if (!pageWsUrl) {
-      const newPageRes = await fetch('http://127.0.0.1:9222/json/new?http://127.0.0.1:3000');
-      const newPage = await newPageRes.json();
-      pageWsUrl = newPage.webSocketDebuggerUrl;
-    }
-
-    const ws = new WebSocket(pageWsUrl);
+    const ws = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((res) => ws.addEventListener('open', res));
 
     await sendCdp(ws, 'Page.enable');
@@ -66,7 +61,18 @@ async function capture() {
 
     console.log('Connected to CDP. Navigating to Swonal Kiosk...');
     await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000' });
-    await wait(3000);
+
+    // Wait until root is mounted
+    let attempts = 0;
+    while (attempts < 20) {
+      await wait(500);
+      const evalRes = await sendCdp(ws, 'Runtime.evaluate', {
+        expression: 'Boolean(document.querySelector(".kiosk-screen") || (document.getElementById("root") && !document.getElementById("initial-loader")))',
+      });
+      if (evalRes.result?.value) break;
+      attempts++;
+    }
+    await wait(1000);
 
     // 1. Kiosk Live (Electric Lime accent #CCFF00)
     console.log('Capturing kiosk_live.png (Electric Lime)...');
@@ -92,7 +98,7 @@ async function capture() {
         document.documentElement.style.setProperty('--accent-muted', 'rgba(168, 85, 247, 0.15)');
         
         // Open library dialog
-        const libBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Workout Library'));
+        const libBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Routines & Exercises'));
         if (libBtn) libBtn.click();
       `,
     });
@@ -127,13 +133,22 @@ async function capture() {
         document.documentElement.style.setProperty('--accent-muted', 'rgba(0, 240, 255, 0.15)');
         
         // Toggle Arm Info
-        const armBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Arm Positions'));
+        const armBtn = document.querySelector('button[aria-label=\"Explain Arm Position Codes\"]');
         if (armBtn) armBtn.click();
       `,
     });
     await wait(1000);
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_arm_guide.png'), Buffer.from(screenshotData.data, 'base64'));
+
+    // Close arm guide
+    await sendCdp(ws, 'Runtime.evaluate', {
+      expression: `
+        const armBtn = document.querySelector('button[aria-label=\"Explain Arm Position Codes\"]');
+        if (armBtn) armBtn.click();
+      `,
+    });
+    await wait(500);
 
     // 4. Kiosk Form Demo (Hot Coral #FF007A)
     console.log('Capturing kiosk_form_demo.png (Hot Coral)...');
@@ -143,36 +158,30 @@ async function capture() {
         document.documentElement.style.setProperty('--accent-glow', 'rgba(255, 0, 122, 0.35)');
         document.documentElement.style.setProperty('--accent-ink', '#FF007A');
         document.documentElement.style.setProperty('--accent-muted', 'rgba(255, 0, 122, 0.15)');
-        
-        // Toggle Demo PiP
-        const demoBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Form Demo'));
-        if (demoBtn) demoBtn.click();
       `,
     });
     await wait(1000);
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_form_demo.png'), Buffer.from(screenshotData.data, 'base64'));
 
-    // 5. Kiosk AI Coach Dialog (Solar Amber #F59E0B)
-    console.log('Capturing kiosk_ai_coach.png (Solar Amber)...');
+    // 5. AI Voice Coach & MCP Server in Settings (Solar Amber #F59E0B)
+    console.log('Capturing kiosk_ai_coach.png (Solar Amber, /settings?tab=ai)...');
+    await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/settings?tab=ai' });
+    await wait(2500);
     await sendCdp(ws, 'Runtime.evaluate', {
       expression: `
         document.documentElement.style.setProperty('--accent-primary', '#F59E0B');
         document.documentElement.style.setProperty('--accent-glow', 'rgba(245, 158, 11, 0.35)');
         document.documentElement.style.setProperty('--accent-ink', '#F59E0B');
         document.documentElement.style.setProperty('--accent-muted', 'rgba(245, 158, 11, 0.15)');
-        
-        // Open AI Dialog
-        const aiBtn = Array.from(document.querySelectorAll('button')).find(b => b.title && b.title.includes('AI Voice Coach'));
-        if (aiBtn) aiBtn.click();
       `,
     });
     await wait(1000);
     screenshotData = await sendCdp(ws, 'Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_ai_coach.png'), Buffer.from(screenshotData.data, 'base64'));
 
-    // 6. Mobile Companion & Decentralized P2P Friends Feed (Emerald #10B981)
-    console.log('Capturing kiosk_friends_feed.png (Emerald, /companion friends tab)...');
+    // 6. Mobile Companion & Decentralized P2P Swocial Feed (Emerald #10B981)
+    console.log('Capturing kiosk_friends_feed.png (Emerald, /companion swocial tab)...');
     await sendCdp(ws, 'Page.navigate', { url: 'http://127.0.0.1:3000/companion' });
     await wait(2500);
     await sendCdp(ws, 'Runtime.evaluate', {
@@ -182,9 +191,9 @@ async function capture() {
         document.documentElement.style.setProperty('--accent-ink', '#10B981');
         document.documentElement.style.setProperty('--accent-muted', 'rgba(16, 185, 129, 0.15)');
         
-        // Switch to Friends tab
-        const friendsTabBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.includes('Friends'));
-        if (friendsTabBtn) friendsTabBtn.click();
+        // Switch to Swocial tab
+        const swocialTabBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && (b.textContent.includes('Swocial') || b.textContent.includes('Friends')));
+        if (swocialTabBtn) swocialTabBtn.click();
       `,
     });
     await wait(1500);
@@ -192,13 +201,13 @@ async function capture() {
     fs.writeFileSync(path.join(SCREENSHOT_DIR, 'kiosk_friends_feed.png'), Buffer.from(screenshotData.data, 'base64'));
 
     ws.close();
-    console.log('All screenshots captured successfully!');
+    console.log('All 6 screenshots captured successfully!');
   } finally {
     chrome.kill();
   }
 }
 
-capture().catch((err) => {
+run().catch((err) => {
   console.error('Capture failed:', err);
   process.exit(1);
 });
