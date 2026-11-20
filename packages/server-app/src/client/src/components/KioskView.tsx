@@ -238,6 +238,36 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   const [showArmInfo, setShowArmInfo] = useState(false);
   const [haStatus, setHaStatus] = useState<HomeAssistantBusStatus | null>(null);
   const [coachConfig, setCoachConfig] = useState<AiCoachPublicConfig | null>(null);
+  const [recentFriendTicker, setRecentFriendTicker] = useState<string | null>(null);
+
+  // Poll recent friend activity ticker on rest timer
+  useEffect(() => {
+    if (restSecondsRemaining <= 0 || !activeUser?.id) return;
+    const fetchTicker = async () => {
+      try {
+        const res = await fetch(`/api/friends/feed/${encodeURIComponent(activeUser.id)}?limit=5`);
+        if (res.ok) {
+          const items = (await res.json()) as Array<{
+            id: string;
+            kind: number;
+            authorName: string;
+            payload: any;
+          }>;
+          const workoutPost = items.find((it) => it.kind === 30101);
+          if (workoutPost) {
+            const p = workoutPost.payload;
+            const vol = p.totalVolumeLb ? `${Math.round(p.totalVolumeLb).toLocaleString()} lb` : '';
+            setRecentFriendTicker(
+              `${workoutPost.authorName} completed ${p.routineName || 'Workout'}${vol ? ` (${vol})` : ''} 💪`
+            );
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void fetchTicker();
+  }, [restSecondsRemaining > 0, activeUser?.id]);
   const [coachPrompt, setCoachPrompt] = useState('');
   const [coachReply, setCoachReply] = useState<string>(
     'Tap the mic or ask about PRs, progressive overload, or say "Add 5 pounds".'
@@ -1416,6 +1446,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                       {String(restSecondsRemaining % 60).padStart(2, '0')}
                     </p>
                   </div>
+                  {recentFriendTicker && (
+                    <div className="hidden lg:flex items-center gap-2 max-w-[280px] px-3.5 py-2 rounded-2xl elevated-pill text-xs font-bold truncate">
+                      <span className="text-sm">🔥</span>
+                      <span className="truncate">{recentFriendTicker}</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <button
                       type="button"

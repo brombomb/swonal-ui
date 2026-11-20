@@ -42,6 +42,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
     status?: string;
     mode?: string;
     mock?: boolean;
+    mock_mode?: boolean;
     serial_port?: string;
     latencyMs?: number;
   } | null>(null);

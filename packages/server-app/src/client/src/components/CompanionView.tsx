@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronLeft,
   ChevronRight,
   Dumbbell,
@@ -15,9 +16,11 @@ import {
   Play,
   Plus,
   Radio,
+  RefreshCw,
   Rewind,
   Send,
   Settings,
+  Share2,
   SkipForward,
   Sliders,
   Sparkles,
@@ -34,7 +37,7 @@ import { BlockType, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types'
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
 
 type SwonalHookReturn = ReturnType<typeof useSwonalState>;
-type CompanionTab = 'remote' | 'builder' | 'history';
+type CompanionTab = 'remote' | 'builder' | 'history' | 'friends';
 
 const BLOCK_TYPES: BlockType[] = ['WARMUP', 'STRAIGHT_SET', 'SUPERSET', 'CIRCUIT'];
 const DYNAMIC_MODES: Array<{ id: DynamicMode; label: string; defaultPct: number }> = [
@@ -108,6 +111,134 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const workoutPickerDialogRef = useRef<HTMLDialogElement>(null);
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
+
+  interface FriendFeedReaction {
+    id: string;
+    authorPubkey: string;
+    authorName: string;
+    emoji: string;
+    createdAt: string;
+  }
+
+  interface FriendFeedItem {
+    id: string;
+    kind: number;
+    authorPubkey: string;
+    authorName: string;
+    createdAt: string;
+    payload: any;
+    reactions: FriendFeedReaction[];
+  }
+
+  const [friendsFeed, setFriendsFeed] = useState<FriendFeedItem[]>([]);
+  const [friendsFeedLoading, setFriendsFeedLoading] = useState(false);
+  const [friendsFeedSyncing, setFriendsFeedSyncing] = useState(false);
+  const [importingRoutineId, setImportingRoutineId] = useState<string | null>(null);
+
+  const loadFriendsFeed = async (userId: string) => {
+    if (!userId) return;
+    setFriendsFeedLoading(true);
+    try {
+      const res = await fetch(`/api/friends/feed/${encodeURIComponent(userId)}?limit=50`);
+      if (res.ok) {
+        setFriendsFeed(await res.json());
+      }
+    } catch (err) {
+      console.warn('Failed to load friends feed:', err);
+    } finally {
+      setFriendsFeedLoading(false);
+    }
+  };
+
+  const syncFriendsFeed = async (userId: string) => {
+    if (!userId) return;
+    setFriendsFeedSyncing(true);
+    try {
+      await fetch(`/api/friends/sync/${encodeURIComponent(userId)}`, { method: 'POST' });
+      await loadFriendsFeed(userId);
+      setToast('Feed synchronized with Nostr relays');
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast('Relay sync timed out');
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setFriendsFeedSyncing(false);
+    }
+  };
+
+  const handleReactToPost = async (
+    targetEventId: string,
+    targetPubkey: string,
+    emoji: string
+  ) => {
+    if (!activeUser?.id) return;
+    // Optimistic UI update
+    setFriendsFeed((prev) =>
+      prev.map((item) => {
+        if (item.id === targetEventId) {
+          return {
+            ...item,
+            reactions: [
+              ...item.reactions,
+              {
+                id: `opt-${Date.now()}`,
+                authorPubkey: 'self',
+                authorName: activeUser.name,
+                emoji,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        return item;
+      })
+    );
+
+    try {
+      await fetch(`/api/friends/react/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetEventId,
+          targetPubkey,
+          emoji,
+        }),
+      });
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleImportSharedRoutine = async (eventId: string) => {
+    if (!activeUser?.id) return;
+    setImportingRoutineId(eventId);
+    try {
+      const res = await fetch(
+        `/api/friends/import-routine/${encodeURIComponent(activeUser.id)}/${encodeURIComponent(eventId)}`,
+        { method: 'POST' }
+      );
+      if (res.ok) {
+        await refreshBootstrap();
+        setToast('Routine successfully imported to your library!');
+        setTimeout(() => setToast(null), 3500);
+      } else {
+        const data = await res.json().catch(() => null);
+        setToast(data?.error || 'Failed to import routine');
+        setTimeout(() => setToast(null), 3500);
+      }
+    } catch {
+      setToast('Failed to import routine');
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setImportingRoutineId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (activeUser?.id && tab === 'friends') {
+      void loadFriendsFeed(activeUser.id);
+    }
+  }, [activeUser?.id, tab]);
 
   useEffect(() => {
     const checkHealth = () => {
@@ -1536,6 +1667,221 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             </section>
           </div>
         )}
+
+        {tab === 'friends' && (
+          <div className="space-y-4">
+            {/* Header & Sync */}
+            <div className="surface-card rounded-3xl p-5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black flex items-center gap-2">
+                  <Users size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <span>Friends Feed</span>
+                </h2>
+                <p className="text-xs opacity-70">
+                  Decentralized P2P activity from your connected gym buddies.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={friendsFeedSyncing}
+                onClick={() => {
+                  if (activeUser?.id) void syncFriendsFeed(activeUser.id);
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 elevated-pill hover:opacity-90 disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={friendsFeedSyncing ? 'animate-spin' : ''} />
+                <span>{friendsFeedSyncing ? 'Syncing...' : 'Sync'}</span>
+              </button>
+            </div>
+
+            {/* Feed Items */}
+            {friendsFeedLoading ? (
+              <div className="surface-card rounded-3xl p-8 text-center text-xs opacity-60">
+                Fetching peer workout feed...
+              </div>
+            ) : friendsFeed.length === 0 ? (
+              <div className="surface-card rounded-3xl p-8 text-center space-y-3">
+                <Users size={32} className="mx-auto opacity-40" />
+                <p className="text-sm font-extrabold">No friend activity yet</p>
+                <p className="text-xs opacity-70 max-w-xs mx-auto">
+                  Add friends with their Nostr npub key in Settings to view their workouts, celebrate PRs, and share routine templates.
+                </p>
+                <div className="pt-2">
+                  <a
+                    href="/settings?tab=friends"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold"
+                    style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                  >
+                    <Plus size={14} />
+                    <span>Manage Friends in Settings</span>
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {friendsFeed.map((post) => {
+                  const isWorkout = post.kind === 30101;
+                  const isRoutine = post.kind === 30102;
+                  const p = post.payload;
+                  const dateStr = new Date(post.createdAt).toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    month: 'short',
+                    day: 'numeric',
+                  });
+
+                  // Reaction counts
+                  const flexCount = post.reactions.filter((r) => r.emoji === '💪').length;
+                  const fireCount = post.reactions.filter((r) => r.emoji === '🔥').length;
+                  const trophyCount = post.reactions.filter((r) => r.emoji === '🏆').length;
+
+                  return (
+                    <article
+                      key={post.id}
+                      className="surface-card rounded-3xl p-5 space-y-3.5 border border-white/5"
+                    >
+                      {/* Author Header */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0"
+                            style={{
+                              backgroundColor: 'var(--accent-primary)',
+                              color: accentTextColor,
+                            }}
+                          >
+                            {post.authorName.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-extrabold text-sm truncate">{post.authorName}</p>
+                            <p className="text-[11px] opacity-60 font-mono">{dateStr}</p>
+                          </div>
+                        </div>
+
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase elevated-pill opacity-75">
+                          {isWorkout ? 'Workout Completed' : isRoutine ? 'Routine Shared' : 'Activity'}
+                        </span>
+                      </div>
+
+                      {/* Content Body: Workout */}
+                      {isWorkout && (
+                        <div className="space-y-3">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <h3 className="font-black text-base">{p.routineName || 'Free Lift'}</h3>
+                            <span
+                              className="font-mono tabular-nums text-base font-black shrink-0"
+                              style={{ color: 'var(--accent-ink)' }}
+                            >
+                              {formatDisplayWeight(p.totalVolumeLb || 0, activeUnit, true)} {activeUnit}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                            <div className="elevated-pill rounded-xl p-2">
+                              <p className="opacity-60 text-[10px] uppercase font-bold">Sets</p>
+                              <p className="font-mono font-black text-sm">{p.setsCount || 0}</p>
+                            </div>
+                            <div className="elevated-pill rounded-xl p-2">
+                              <p className="opacity-60 text-[10px] uppercase font-bold">Reps</p>
+                              <p className="font-mono font-black text-sm">{p.repsCount || 0}</p>
+                            </div>
+                            <div className="elevated-pill rounded-xl p-2">
+                              <p className="opacity-60 text-[10px] uppercase font-bold">Duration</p>
+                              <p className="font-mono font-black text-sm">
+                                {p.durationSec ? `${Math.round(p.durationSec / 60)}m` : '—'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {Array.isArray(p.prs) && p.prs.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                              {p.prs.map((pr: string) => (
+                                <span
+                                  key={pr}
+                                  className="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35 flex items-center gap-1"
+                                >
+                                  <Trophy size={12} />
+                                  <span>PR: {pr}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Content Body: Routine Template */}
+                      {isRoutine && (
+                        <div className="space-y-3">
+                          <div>
+                            <h3 className="font-black text-base">{p.name || 'Custom Routine'}</h3>
+                            {p.description && (
+                              <p className="text-xs opacity-75 mt-1">{p.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 pt-1">
+                            <span className="text-xs font-mono opacity-65">
+                              {Array.isArray(p.blocks) ? `${p.blocks.length} blocks` : 'Structured Routine'}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={importingRoutineId === post.id}
+                              onClick={() => void handleImportSharedRoutine(post.id)}
+                              className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:opacity-90 disabled:opacity-50"
+                              style={{
+                                backgroundColor: 'var(--accent-primary)',
+                                color: accentTextColor,
+                              }}
+                            >
+                              {importingRoutineId === post.id ? (
+                                <>
+                                  <RefreshCw size={13} className="animate-spin" />
+                                  <span>Importing...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ListPlus size={14} />
+                                  <span>Import Routine</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Social Reaction Bar */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                        <button
+                          type="button"
+                          onClick={() => void handleReactToPost(post.id, post.authorPubkey, '💪')}
+                          className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-white/10 active:scale-95 transition"
+                        >
+                          <span>💪</span>
+                          {flexCount > 0 && <span className="font-mono">{flexCount}</span>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleReactToPost(post.id, post.authorPubkey, '🔥')}
+                          className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-white/10 active:scale-95 transition"
+                        >
+                          <span>🔥</span>
+                          {fireCount > 0 && <span className="font-mono">{fireCount}</span>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleReactToPost(post.id, post.authorPubkey, '🏆')}
+                          className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-white/10 active:scale-95 transition"
+                        >
+                          <span>🏆</span>
+                          {trophyCount > 0 && <span className="font-mono">{trophyCount}</span>}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Bottom Mobile Navigation Bar */}
@@ -1543,7 +1889,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
         className="fixed bottom-0 inset-x-0 z-20 border-t border-white/10 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]"
         style={{ background: 'var(--bg-secondary-bar)' }}
       >
-        <div className="max-w-lg mx-auto grid grid-cols-3 h-[4.25rem]">
+        <div className="max-w-lg mx-auto grid grid-cols-4 h-[4.25rem]">
           <button
             type="button"
             onClick={() => setTab('remote')}
@@ -1551,7 +1897,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             style={{ color: tab === 'remote' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
           >
             <Radio size={20} />
-            <span>Live Remote</span>
+            <span>Remote</span>
           </button>
           <button
             type="button"
@@ -1560,7 +1906,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             style={{ color: tab === 'builder' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
           >
             <Dumbbell size={20} />
-            <span>Workout Builder</span>
+            <span>Builder</span>
           </button>
           <button
             type="button"
@@ -1569,7 +1915,16 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             style={{ color: tab === 'history' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
           >
             <Sliders size={20} />
-            <span>PRs & History</span>
+            <span>History</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('friends')}
+            className="flex flex-col items-center justify-center gap-1 text-xs font-bold"
+            style={{ color: tab === 'friends' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
+          >
+            <Users size={20} />
+            <span>Friends</span>
           </button>
         </div>
       </nav>

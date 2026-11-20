@@ -13,7 +13,8 @@
 - **Bi-Directional 30Hz Motor Bridge**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), and arm orientation telemetry.
 - **Fail-Safe Fast Path**: Instant `<5ms` emergency motor disengage (`WEIGHT OFF`) directly over local loopback, safeguarding lifters even during network loss.
 - **Pluggable Music Hub**: Integrated **Spotify Connect** ("Tonal Speakers"), **Plexamp**, **YouTube Music**, **Apple Music**, and **Amazon Music** with automatic volume ducking during cues.
-- **Mobile Companion Web App (`/companion`)**: Remote control, routine builder, and live metrics from any smartphone on your local network.
+- **Decentralized P2P Friends (Nostr)**: Self-sovereign gym buddy social network powered by Nostr (secp256k1 `npub1...`). Share workouts, exchange routine templates, and send encouragement (`💪`, `🔥`, `🏆`) peer-to-peer across home NATs without central servers or tracking.
+- **Mobile Companion Web App (`/companion`)**: Remote control, routine builder, friends feed, and live metrics from any smartphone on your local network.
 - **Bring-Your-Own-Key AI Voice Coach**: Real-time form tips and workout programming powered by OpenAI, Anthropic, Gemini, Ollama, or Model Context Protocol (MCP) agents.
 - **Home Assistant Integration**: Real-time MQTT discovery and webhook event bus for smart home automations.
 
@@ -126,9 +127,9 @@ The automated script [`scripts/install-device.sh`](file:///home/brombomb/dev/swo
 Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 
 - **Switching to Stock Tonal & Back**: Tap the quick-action menu at the top right of the screen and choose **"Exit to Stock Tonal"**. The daemon releases `/dev/ttyACM0` and launches stock software with a discreet floating overlay pill. Tapping the pill returns instantly to Swonal Kiosk without rebooting.
-- **Mobile Remote Control**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, and monitor reps from across the room.
+- **Mobile Remote Control & Social Feed**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view your friends' workout feed, react with motivation (`💪`, `🔥`, `🏆`), or import shared routines with one tap.
 - **Local Fail-Safe Protection**: If Wi-Fi ever drops mid-set, tapping **WEIGHT OFF** bypasses the network entirely via local loopback socket (`127.0.0.1:8765`), dropping cable tension in `<5ms`.
-- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to configure Lifters, Music Providers, BYOK AI Coach, Network overrides, and Security/Data backups.
+- **Dedicated Application Settings**: Navigate to `/settings` or tap the gear icon to configure Lifters, Friends & P2P Nostr Identity, Music Providers, BYOK AI Coach, Network overrides, and Security/Data backups.
 
 ---
 

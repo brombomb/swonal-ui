@@ -95,3 +95,18 @@
   - Set root environment variables (`HOME`, `PREFIX`, `LD_LIBRARY_PATH`, `PATH`, `PYTHONHOME`) in `start-daemon.sh`.
 - [x] Updated `BootReceiver.kt` in `android-kiosk` to ensure Wi-Fi ADB port 5555 is retained on `BOOT_COMPLETED`.
 - [x] Verified live physical Tonal motor telemetry streaming at 30Hz (`TONAL CDC 30Hz`) and active `librespot` ALSA sink.
+
+## Milestone 7: Decentralized Peer-to-Peer Friends System (Nostr Protocol)
+- [x] Update Prisma schema (`User.nostrPrivKeyHex`, `nostrPubKeyHex`, `nostrNpub`, `nostrRelays`, `shareWorkouts`, and new `Friend`, `FriendActivity` models).
+- [x] Install & integrate `nostr-tools` (`^2.10.4`) with Schnorr signatures (`secp256k1`) and NIP-19 npub encoding.
+- [x] Implement `nostrFriendsService.ts` (identity lifecycle, relay pool broadcasting, event signing, relay querying with timeout fallback, routine import/share, Kind 7 reactions).
+  - Custom Event Kind `30101`: Workout Completion Summary (volume, sets, reps, duration, PRs).
+  - Custom Event Kind `30102`: Routine Template Share (importable to local library).
+  - Standard Event Kind `7`: Reaction (`💪`, `🔥`, `🏆`).
+- [x] Add REST routes (`/api/friends/...`) and auto-publish on workout completion.
+- [x] Add dedicated "Friends" tab in `SettingsView.tsx` (Npub display, 1-click copy, friend roster manager, relay health badges).
+- [x] Restore and enhance "Music" tab in `SettingsView.tsx` (Spotify OAuth redirect copy, provider configs).
+- [x] Add "Friends" tab in Mobile Companion (`CompanionView.tsx`) with real-time peer feed, reaction counters, and 1-tap routine import.
+- [x] Add live motivational friend ticker to rest-timer overlay in Kiosk (`KioskView.tsx`).
+- [x] Add automated unit tests (`tests/friends.test.ts` - 12 tests, 100% pass; 29/29 Vitest total).
+- [x] Update `README.md` and `PROGRESS.md`.

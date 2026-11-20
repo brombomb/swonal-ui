@@ -21,6 +21,7 @@ import {
   setPublicUrlOverride,
 } from '../services/runtimeSettings';
 import { homeAssistantBus } from '../integrations/homeAssistantBus';
+import { publishWorkout } from '../services/nostrFriendsService';
 import {
   estimateOneRepMaxLb,
   formatWeight,
@@ -561,6 +562,17 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         routineName: completed.template?.name ?? 'Free Lift',
         totalVolumeLb: completed.totalVolume,
         setsCount: completed.setLogs.length,
+      });
+      void publishWorkout(completed.userId, {
+        sessionId: completed.id,
+        routineName: completed.template?.name ?? 'Free Lift',
+        totalVolumeLb: completed.totalVolume,
+        durationSec: completed.startedAt
+          ? Math.round((Date.now() - completed.startedAt.getTime()) / 1000)
+          : 0,
+        setLogs: completed.setLogs,
+      }).catch((err) => {
+        console.warn('[Nostr] Auto-publish failed:', err);
       });
       res.json(completed);
     } catch (err) {

@@ -31,6 +31,7 @@ import { createDaemonRouter } from './routes/daemonRoutes';
 import { createMusicRouter } from './routes/musicRoutes';
 import { createSpotifyRouter } from './routes/spotify';
 import { createAuthRouter } from './routes/authRoutes';
+import { createFriendsRouter } from './routes/friendsRoutes';
 import { getServerConfig } from './config';
 import { isRequestAuthenticated } from './services/authService';
 import { getEffectivePublicBaseUrl } from './services/runtimeSettings';
@@ -404,6 +405,7 @@ export async function createSwonalServer(
   app.use('/api/music', createMusicRouter(broadcastToClients));
   app.use('/api/spotify', createSpotifyRouter(broadcastToClients));
   app.use('/api/daemon', createDaemonRouter(daemonHttpUrl));
+  app.use('/api/friends', createFriendsRouter());
 
   // Built-in MCP SSE Transport
   const sseTransports = new Map<

@@ -15,12 +15,45 @@ model User {
   themeMode              String             @default("dark") // "dark" | "light" | "system"
   accentColor            String             @default("#00F0FF") // Custom hex accent color per user
   weightUnit             String             @default("LB") // "LB" | "KG"
+  nostrPrivKeyHex        String?
+  nostrPubKeyHex         String?
+  nostrNpub              String?
+  nostrRelays            String?            // JSON array of relay URLs
+  shareWorkouts          Boolean            @default(true)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   musicIntegrations      MusicIntegration[]
   templates              WorkoutTemplate[]
   sessions               WorkoutSession[]
   personalRecords        PersonalRecord[]
+  friends                Friend[]
+}
+
+model Friend {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  npub        String
+  pubkeyHex   String
+  displayName String
+  avatarUrl   String?
+  relaysJson  String?
+  lastSeenAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, pubkeyHex])
+}
+
+model FriendActivity {
+  id                String   @id @default(uuid())
+  friendPubkeyHex   String
+  friendDisplayName String?
+  eventId           String   @unique
+  kind              Int
+  createdAt         DateTime
+  contentJson       String
+  receivedAt        DateTime @default(now())
 }
 
 model MusicIntegration {

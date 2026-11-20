@@ -12,7 +12,9 @@ import {
   Music,
   Plus,
   Radio,
+  RefreshCw,
   Server,
+  Share2,
   ShieldCheck,
   Smartphone,
   Trash2,
@@ -51,12 +53,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
 
   const accentTextColor = getContrastTextColor(activeUser?.accentColor ?? '#00F0FF');
 
-  type SettingsTab = 'users' | 'music' | 'ai' | 'network' | 'security';
+  type SettingsTab = 'users' | 'friends' | 'music' | 'ai' | 'network' | 'security';
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as SettingsTab;
-    if (['users', 'music', 'ai', 'network', 'security'].includes(tab)) return tab;
+    if (['users', 'friends', 'music', 'ai', 'network', 'security'].includes(tab)) return tab;
     return 'users';
   });
 
@@ -101,6 +103,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   const [newUserUnit, setNewUserUnit] = useState<'LB' | 'KG'>('LB');
   const [newUserAccent, setNewUserAccent] = useState('#00F0FF');
   const [userMgmtMsg, setUserMgmtMsg] = useState<string | null>(null);
+
+  // Friends & Nostr P2P State
+  const [nostrIdentity, setNostrIdentity] = useState<{
+    userId: string;
+    userName: string;
+    npub: string;
+    pubkeyHex: string;
+    shareWorkouts: boolean;
+    relays: string[];
+  } | null>(null);
+  const [friendsList, setFriendsList] = useState<
+    Array<{
+      id: string;
+      userId: string;
+      npub: string;
+      pubkeyHex: string;
+      displayName: string;
+      lastSeenAt?: string | null;
+    }>
+  >([]);
+  const [friendInputNpub, setFriendInputNpub] = useState('');
+  const [friendInputName, setFriendInputName] = useState('');
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [friendsSyncing, setFriendsSyncing] = useState(false);
+  const [friendsMsg, setFriendsMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [friendsCopiedNpub, setFriendsCopiedNpub] = useState(false);
 
   // Security / Passcode Lock
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -263,6 +291,116 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
       })
       .catch(() => {});
   }, []);
+
+  const loadFriendsData = async (userId: string) => {
+    if (!userId) return;
+    setFriendsLoading(true);
+    try {
+      const [identRes, listRes] = await Promise.all([
+        fetch(`/api/friends/identity/${encodeURIComponent(userId)}`),
+        fetch(`/api/friends/${encodeURIComponent(userId)}`),
+      ]);
+      if (identRes.ok) {
+        setNostrIdentity(await identRes.json());
+      }
+      if (listRes.ok) {
+        setFriendsList(await listRes.json());
+      }
+    } catch (err) {
+      console.warn('Failed to fetch friends data:', err);
+    } finally {
+      setFriendsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeUser?.id && activeTab === 'friends') {
+      void loadFriendsData(activeUser.id);
+    }
+  }, [activeUser?.id, activeTab]);
+
+  const handleAddFriend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeUser?.id || !friendInputNpub.trim()) return;
+    setFriendsMsg(null);
+    try {
+      const res = await fetch(`/api/friends/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          npubOrHex: friendInputNpub.trim(),
+          displayName: friendInputName.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFriendInputNpub('');
+        setFriendInputName('');
+        setFriendsMsg({ ok: true, text: `Added friend ${data.displayName || 'successfully'}!` });
+        void loadFriendsData(activeUser.id);
+        setTimeout(() => setFriendsMsg(null), 3500);
+      } else {
+        setFriendsMsg({ ok: false, text: data.error || 'Failed to add friend' });
+      }
+    } catch (err: any) {
+      setFriendsMsg({ ok: false, text: err.message || 'Request failed' });
+    }
+  };
+
+  const handleRemoveFriend = async (friendId: string) => {
+    if (!activeUser?.id) return;
+    try {
+      const res = await fetch(
+        `/api/friends/${encodeURIComponent(activeUser.id)}/${encodeURIComponent(friendId)}`,
+        { method: 'DELETE' }
+      );
+      if (res.ok) {
+        setFriendsList((prev) => prev.filter((f) => f.id !== friendId));
+        setFriendsMsg({ ok: true, text: 'Friend removed' });
+        setTimeout(() => setFriendsMsg(null), 3000);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleShareWorkouts = async (share: boolean) => {
+    if (!activeUser?.id) return;
+    try {
+      const res = await fetch(`/api/friends/identity/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareWorkouts: share }),
+      });
+      if (res.ok) {
+        setNostrIdentity((prev) => (prev ? { ...prev, shareWorkouts: share } : prev));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSyncFriendsNow = async () => {
+    if (!activeUser?.id) return;
+    setFriendsSyncing(true);
+    setFriendsMsg({ ok: true, text: 'Syncing feed from Nostr relays...' });
+    try {
+      const res = await fetch(`/api/friends/sync/${encodeURIComponent(activeUser.id)}`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      setFriendsMsg({
+        ok: true,
+        text: `Sync complete! Synced ${data.syncedCount ?? 0} activity updates.`,
+      });
+      void loadFriendsData(activeUser.id);
+      setTimeout(() => setFriendsMsg(null), 4000);
+    } catch {
+      setFriendsMsg({ ok: false, text: 'Sync timed out or relays unreachable' });
+    } finally {
+      setFriendsSyncing(false);
+    }
+  };
 
   const persistPublicUrl = async (rawValue: string | null) => {
     const trimmed = (rawValue ?? '').trim().replace(/\/+$/, '');
@@ -624,6 +762,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           {(
             [
               { id: 'users', label: 'Users', icon: Users },
+              { id: 'friends', label: 'Friends', icon: Share2 },
               { id: 'music', label: 'Music', icon: Music },
               { id: 'ai', label: 'AI', icon: Bot },
               { id: 'network', label: 'Network', icon: Globe },
@@ -781,7 +920,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                 e.preventDefault();
                 if (!newUserName.trim()) return;
                 try {
-                  await createUser(newUserName.trim(), newUserUnit, newUserAccent);
+                  await createUser(newUserName.trim(), newUserAccent, newUserUnit);
                   setNewUserName('');
                   setUserMgmtMsg(`Lifter "${newUserName.trim()}" added successfully!`);
                   setTimeout(() => setUserMgmtMsg(null), 3500);
@@ -833,6 +972,337 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               </button>
             </form>
             {userMgmtMsg && <p className="text-xs font-bold text-emerald-400">{userMgmtMsg}</p>}
+          </section>
+        )}
+
+        {/* FRIENDS TAB */}
+        {activeTab === 'friends' && (
+          <div className="space-y-6">
+            {/* 1. Self-Sovereign Identity */}
+            <section className="surface-card rounded-3xl p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Share2 size={22} style={{ color: 'var(--accent-primary)' }} />
+                  <div>
+                    <h2 className="text-xl font-black">Decentralized P2P Identity (Nostr)</h2>
+                    <p className="text-xs opacity-70">
+                      Self-sovereign secp256k1 identity for {activeUser?.name ?? 'Lifter'}. Share workouts peer-to-peer without centralized servers.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={friendsSyncing}
+                  onClick={() => void handleSyncFriendsNow()}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 elevated-pill hover:opacity-90 disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={friendsSyncing ? 'animate-spin' : ''} />
+                  <span>{friendsSyncing ? 'Syncing...' : 'Sync Feed Now'}</span>
+                </button>
+              </div>
+
+              {friendsLoading ? (
+                <div className="p-8 text-center text-xs opacity-60">Loading Nostr identity...</div>
+              ) : nostrIdentity ? (
+                <div className="space-y-4">
+                  <div className="elevated-pill rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs uppercase font-bold tracking-wider opacity-65">
+                        Your Public Nostr npub (Share this with friends)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (nostrIdentity.npub) {
+                            void navigator.clipboard.writeText(nostrIdentity.npub);
+                            setFriendsCopiedNpub(true);
+                            setTimeout(() => setFriendsCopiedNpub(false), 2000);
+                          }
+                        }}
+                        className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                      >
+                        {friendsCopiedNpub ? <Check size={13} /> : <Copy size={13} />}
+                        <span>{friendsCopiedNpub ? 'Copied!' : 'Copy npub'}</span>
+                      </button>
+                    </div>
+                    <p className="font-mono text-sm font-black break-all text-emerald-400">
+                      {nostrIdentity.npub}
+                    </p>
+                    <p className="font-mono text-[11px] opacity-60 break-all">
+                      Hex: {nostrIdentity.pubkeyHex}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 elevated-pill rounded-2xl p-4">
+                    <div>
+                      <p className="text-sm font-extrabold">Auto-Share Completed Workouts</p>
+                      <p className="text-xs opacity-70">
+                        Automatically signs and publishes workout summaries to your configured P2P relays.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleShareWorkouts(!nostrIdentity.shareWorkouts)}
+                      className="px-4 py-2 rounded-xl text-xs font-black transition"
+                      style={
+                        nostrIdentity.shareWorkouts
+                          ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                          : undefined
+                      }
+                    >
+                      {nostrIdentity.shareWorkouts ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-xs uppercase font-bold tracking-wider opacity-65">
+                      Store-and-Forward P2P Relays
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {nostrIdentity.relays.map((relay) => (
+                        <span
+                          key={relay}
+                          className="px-3 py-1 rounded-full text-xs font-mono font-bold elevated-pill flex items-center gap-1.5"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                          <span>{relay.replace(/^wss?:\/\//, '')}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            {/* 2. Friends Roster & Add Friend */}
+            <section className="surface-card rounded-3xl p-6 space-y-4">
+              <div className="flex items-center gap-2.5">
+                <Users size={22} style={{ color: 'var(--accent-primary)' }} />
+                <div>
+                  <h2 className="text-xl font-black">Connected Friends ({friendsList.length})</h2>
+                  <p className="text-xs opacity-70">
+                    Add friends by their npub key to see their workout feed, share routines, and react.
+                  </p>
+                </div>
+              </div>
+
+              {/* Add Friend Form */}
+              <form onSubmit={handleAddFriend} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={friendInputNpub}
+                    onChange={(e) => setFriendInputNpub(e.target.value)}
+                    placeholder="npub1... or 64-char hex pubkey"
+                    className="sm:col-span-2 elevated-pill px-4 py-2.5 rounded-xl text-xs font-mono outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={friendInputName}
+                    onChange={(e) => setFriendInputName(e.target.value)}
+                    placeholder="Display Nickname (e.g. Jeri)"
+                    className="elevated-pill px-4 py-2.5 rounded-xl text-xs outline-none"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5"
+                    style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+                  >
+                    <Plus size={15} />
+                    <span>Add Friend</span>
+                  </button>
+                </div>
+              </form>
+
+              {friendsMsg && (
+                <p
+                  className={`text-xs font-bold ${
+                    friendsMsg.ok ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {friendsMsg.text}
+                </p>
+              )}
+
+              {/* Friends List */}
+              <div className="space-y-2 pt-2">
+                {friendsList.length === 0 ? (
+                  <p className="text-xs opacity-60 elevated-pill rounded-2xl p-4 text-center">
+                    No friends added yet. Enter a lifter's npub above to follow their workouts and exchange routines!
+                  </p>
+                ) : (
+                  friendsList.map((f) => (
+                    <div
+                      key={f.id}
+                      className="elevated-pill rounded-2xl p-3.5 flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
+                          style={{
+                            backgroundColor: 'var(--accent-primary)',
+                            color: accentTextColor,
+                          }}
+                        >
+                          {f.displayName.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-extrabold text-sm truncate">{f.displayName}</p>
+                          <p className="font-mono text-[11px] opacity-60 truncate">
+                            {f.npub.slice(0, 16)}...{f.npub.slice(-8)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {f.lastSeenAt && (
+                          <span className="text-[11px] font-bold text-emerald-400">
+                            Active {new Date(f.lastSeenAt).toLocaleDateString()}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveFriend(f.id)}
+                          className="p-2 rounded-xl text-rose-400 hover:bg-rose-500/15 transition"
+                          title="Remove Friend"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* MUSIC TAB */}
+        {activeTab === 'music' && (
+          <section className="surface-card rounded-3xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Music size={22} style={{ color: 'var(--accent-primary)' }} />
+                <div>
+                  <h2 className="text-xl font-black">Music Providers &amp; Integrations</h2>
+                  <p className="text-xs opacity-70">
+                    Connect your music account per profile ({activeUser?.name}) and choose your default player.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {musicProviders.map((prov) => {
+                const isSelected = prov.id === activeProviderId;
+                const isSpotify = prov.id === 'spotify';
+                const isSpotifyLinked = Boolean(
+                  isSpotify && (spotifyStatus?.hasOAuthToken || musicState.isConnected)
+                );
+
+                return (
+                  <div
+                    key={prov.id}
+                    className="elevated-pill rounded-2xl p-4 space-y-3 border"
+                    style={
+                      isSelected
+                        ? { borderColor: 'var(--accent-primary)' }
+                        : { borderColor: 'var(--border-subtle)' }
+                    }
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-black text-base">{prov.displayName}</span>
+                        {prov.configured ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            Configured
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-500/20 text-slate-400">
+                            Not Configured
+                          </span>
+                        )}
+                        {isSpotifyLinked && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/35">
+                            Spotify Connected
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {isSpotify && isSpotifyLinked && (
+                          <button
+                            type="button"
+                            onClick={() => setSpotifyExpanded((v) => !v)}
+                            className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold hover:opacity-90"
+                          >
+                            {spotifyExpanded ? 'Minimize' : 'Manage'}
+                          </button>
+                        )}
+                        {isSpotify && (!isSpotifyLinked || spotifyExpanded) && (
+                          <a
+                            href={(() => {
+                              const p = new URLSearchParams();
+                              if (activeUser?.id) p.set('userId', activeUser.id);
+                              if (baseUrlOverride) p.set('baseUrl', baseUrlOverride);
+                              const qs = p.toString();
+                              return `/api/spotify/login${qs ? `?${qs}` : ''}`;
+                            })()}
+                            className="px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-[#1DB954] text-slate-950 hover:opacity-90 transition"
+                          >
+                            <Music size={14} />
+                            <span>{isSpotifyLinked ? 'Reconnect Spotify' : 'Connect Spotify'}</span>
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeUser) {
+                              void updateUserPreferences(activeUser.id, {
+                                preferredMusicProvider: prov.id,
+                              });
+                            }
+                          }}
+                          className="px-3.5 py-2 rounded-xl text-xs font-bold transition elevated-pill"
+                          style={
+                            isSelected
+                              ? {
+                                  backgroundColor: 'var(--accent-primary)',
+                                  color: accentTextColor,
+                                }
+                              : undefined
+                          }
+                        >
+                          {isSelected ? 'Default Provider' : 'Set Default'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {isSpotify && spotifyStatus && (!isSpotifyLinked || spotifyExpanded) && (
+                      <div className="surface-card rounded-xl p-3 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold opacity-75">
+                            Spotify OAuth Redirect URI:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={copyRedirectUri}
+                            className="elevated-pill px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 hover:opacity-90"
+                          >
+                            {copiedRedirect ? <Check size={12} /> : <Copy size={12} />}
+                            <span>{copiedRedirect ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
+                        <p className="font-mono text-[11px] break-all opacity-90">
+                          {spotifyStatus.redirectUri}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </section>
         )}
 
