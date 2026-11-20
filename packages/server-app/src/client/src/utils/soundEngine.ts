@@ -110,6 +110,16 @@ class SoundEngine {
     this.playTone(310, 0.18, 'sawtooth', 0.16, 0);
     this.playTone(230, 0.28, 'sawtooth', 0.18, 0.2);
   }
+
+  playVoiceListeningStart() {
+    this.playTone(587.33, 0.08, 'sine', 0.12, 0);
+    this.playTone(880, 0.12, 'sine', 0.14, 0.07);
+  }
+
+  playVoiceCommandExecuted() {
+    this.playTone(783.99, 0.08, 'triangle', 0.13, 0);
+    this.playTone(1046.5, 0.14, 'triangle', 0.16, 0.06);
+  }
 }
 
 export const soundEngine = new SoundEngine();

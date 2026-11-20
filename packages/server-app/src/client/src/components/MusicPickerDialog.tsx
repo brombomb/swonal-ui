@@ -1,5 +1,19 @@
-import React, { useMemo, useState } from 'react';
-import { ExternalLink, Play, Radio, RefreshCw, Sliders, Star, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  ExternalLink,
+  Pause,
+  Play,
+  Radio,
+  RefreshCw,
+  SkipBack,
+  SkipForward,
+  Sliders,
+  Speaker,
+  Star,
+  Volume2,
+  X,
+} from 'lucide-react';
 import {
   MusicDevice,
   MusicPlaybackState,
@@ -8,6 +22,17 @@ import {
   MusicTrack,
   UserProfile,
 } from '../types';
+
+interface SpeakerDaemonStatus {
+  daemonOnline: boolean;
+  running: boolean;
+  hasCachedCredentials: boolean;
+  authenticatedUser: string | null;
+  deviceName: string;
+  activeAudioClients?: number;
+  isStreamingAudio?: boolean;
+  wlanIp?: string | null;
+}
 
 interface MusicPickerDialogProps {
   dialogRef: React.RefObject<HTMLDialogElement>;
@@ -32,6 +57,10 @@ interface MusicPickerDialogProps {
   transferMusicDevice: (deviceId: string) => Promise<void>;
   playPlaylist: (contextUri: string) => Promise<void>;
   fetchPlaylistTracks: (playlistId: string) => Promise<MusicTrack[]>;
+  onPlayPause?: () => Promise<void>;
+  onNextTrack?: () => Promise<void>;
+  onPrevTrack?: () => Promise<void>;
+  onSetVolume?: (volumePct: number) => Promise<void>;
 }
 
 export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
@@ -54,12 +83,80 @@ export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
   transferMusicDevice,
   playPlaylist,
   fetchPlaylistTracks,
+  onPlayPause,
+  onNextTrack,
+  onPrevTrack,
+  onSetVolume,
 }) => {
   const [expandedPlaylistId, setExpandedPlaylistId] = useState<string | null>(null);
   const [playlistTracks, setPlaylistTracks] = useState<MusicTrack[]>([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [refreshingDevices, setRefreshingDevices] = useState(false);
   const [showAllPlaylists, setShowAllPlaylists] = useState(false);
+  const [speakerStatus, setSpeakerStatus] = useState<SpeakerDaemonStatus | null>(null);
+  const [showPairPaste, setShowPairPaste] = useState(false);
+  const [pairCodeInput, setPairCodeInput] = useState('');
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingMsg, setPairingMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const refreshSpeakerStatus = useCallback(async () => {
+    if (activeProviderId !== 'spotify') return;
+    try {
+      const resp = await fetch('/api/spotify/speaker-status');
+      if (resp.ok) {
+        setSpeakerStatus((await resp.json()) as SpeakerDaemonStatus);
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeProviderId]);
+
+  useEffect(() => {
+    void refreshSpeakerStatus();
+  }, [refreshSpeakerStatus]);
+
+  const handleStartSpeakerPairing = () => {
+    const uid = activeUser?.id ? `?userId=${encodeURIComponent(activeUser.id)}` : '';
+    window.open(`/api/spotify/speaker-auth/start${uid}`, '_blank', 'noopener,noreferrer');
+    setShowPairPaste(true);
+    setPairingMsg({
+      ok: true,
+      text: 'Authorize Spotify in the opened tab. If on a remote device, paste the 127.0.0.1:8898 redirect URL below.',
+    });
+  };
+
+  const handleCompleteSpeakerPairing = async () => {
+    if (!pairCodeInput.trim()) return;
+    setPairingBusy(true);
+    setPairingMsg(null);
+    try {
+      const resp = await fetch('/api/spotify/speaker-auth/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: activeUser?.id,
+          codeOrUrl: pairCodeInput.trim(),
+        }),
+      });
+      const data = (await resp.json()) as { success?: boolean; error?: string };
+      if (!resp.ok || !data.success) {
+        setPairingMsg({ ok: false, text: data.error || 'Speaker pairing failed' });
+      } else {
+        setPairCodeInput('');
+        setShowPairPaste(false);
+        setPairingMsg({ ok: true, text: 'Tonal Speakers paired with Spotify!' });
+        await refreshSpeakerStatus();
+        if (onRefreshDevices) await onRefreshDevices();
+      }
+    } catch (err) {
+      setPairingMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : 'Speaker pairing failed',
+      });
+    } finally {
+      setPairingBusy(false);
+    }
+  };
 
   const configuredProviders = useMemo(
     () =>
@@ -123,6 +220,173 @@ export const MusicPickerDialog: React.FC<MusicPickerDialogProps> = ({
             <button type="button" onClick={clearMusicError} className="underline shrink-0">
               Dismiss
             </button>
+          </div>
+        )}
+
+        {/* Now Playing & Quick Transport Controls */}
+        <div className="elevated-pill rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {musicState.artworkUrl ? (
+                <img
+                  src={musicState.artworkUrl}
+                  alt={musicState.trackName}
+                  className="w-12 h-12 rounded-xl object-cover shrink-0"
+                />
+              ) : (
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: 'var(--accent-muted)' }}
+                >
+                  <Speaker size={20} style={{ color: 'var(--accent-primary)' }} />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="font-extrabold text-sm truncate">
+                  {musicState.trackName || 'No Track Playing'}
+                </p>
+                <p className="text-xs opacity-65 truncate">
+                  {musicState.artistName || 'Select a workout playlist below'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {onPrevTrack && (
+                <button
+                  type="button"
+                  onClick={() => void onPrevTrack()}
+                  className="surface-card p-2.5 rounded-xl hover:opacity-90"
+                  aria-label="Previous Track"
+                >
+                  <SkipBack size={16} />
+                </button>
+              )}
+              {onPlayPause && (
+                <button
+                  type="button"
+                  onClick={() => void onPlayPause()}
+                  className="p-2.5 rounded-xl font-bold text-slate-950 hover:opacity-90"
+                  style={{ backgroundColor: 'var(--accent-primary)' }}
+                  aria-label={musicState.isPlaying ? 'Pause' : 'Play'}
+                >
+                  {musicState.isPlaying ? <Pause size={17} /> : <Play size={17} />}
+                </button>
+              )}
+              {onNextTrack && (
+                <button
+                  type="button"
+                  onClick={() => void onNextTrack()}
+                  className="surface-card p-2.5 rounded-xl hover:opacity-90"
+                  aria-label="Next Track"
+                >
+                  <SkipForward size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {onSetVolume && (
+            <div className="flex items-center gap-3 pt-1">
+              <Volume2 size={15} className="opacity-70 shrink-0" />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={musicState.volumePct ?? 75}
+                onChange={(e) => void onSetVolume(Number(e.target.value))}
+                className="w-full accent-current cursor-pointer"
+                style={{ color: 'var(--accent-primary)' }}
+                aria-label="Speaker Volume"
+              />
+              <span className="font-mono text-xs font-bold w-10 text-right">
+                {musicState.volumePct ?? 75}%
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Tonal Speakers Hardware Pairing Banner (Spotify Connect / librespot) */}
+        {activeProviderId === 'spotify' && (
+          <div className="elevated-pill rounded-2xl p-4 space-y-2.5 border border-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Speaker size={18} style={{ color: 'var(--accent-primary)' }} />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-extrabold uppercase tracking-wider">
+                      Tonal Device Speakers
+                    </span>
+                    {speakerStatus?.authenticatedUser || speakerStatus?.hasCachedCredentials ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                        <CheckCircle2 size={11} />
+                        Paired ({speakerStatus.authenticatedUser || 'Ready'})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300">
+                        Needs 1-Time Pairing
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] opacity-65">
+                    {speakerStatus?.authenticatedUser || speakerStatus?.hasCachedCredentials
+                      ? `On-device receiver active${speakerStatus?.wlanIp ? ` (${speakerStatus.wlanIp})` : ''} • Audio Bridge clients: ${speakerStatus?.activeAudioClients ?? 0}`
+                      : 'Pair Tonal Speakers once with Spotify so playlists play directly out of the Tonal speakers.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleStartSpeakerPairing}
+                  className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-slate-950 hover:opacity-90"
+                  style={{ backgroundColor: 'var(--accent-primary)' }}
+                >
+                  {speakerStatus?.authenticatedUser || speakerStatus?.hasCachedCredentials
+                    ? 'Re-Pair Speakers'
+                    : 'Pair Tonal Speakers'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPairPaste((v) => !v)}
+                  className="surface-card px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+                >
+                  {showPairPaste ? 'Hide Code' : 'Paste Code'}
+                </button>
+              </div>
+            </div>
+
+            {showPairPaste && (
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="text"
+                  value={pairCodeInput}
+                  onChange={(e) => setPairCodeInput(e.target.value)}
+                  placeholder="Paste http://127.0.0.1:8898/login?code=... URL here"
+                  className="flex-1 surface-card px-3 py-2 rounded-xl text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  disabled={pairingBusy || !pairCodeInput.trim()}
+                  onClick={() => void handleCompleteSpeakerPairing()}
+                  className="px-3 py-2 rounded-xl text-xs font-extrabold text-slate-950 disabled:opacity-40"
+                  style={{ backgroundColor: 'var(--accent-primary)' }}
+                >
+                  {pairingBusy ? 'Pairing...' : 'Complete Pairing'}
+                </button>
+              </div>
+            )}
+
+            {pairingMsg && (
+              <p
+                className={`text-xs font-bold ${
+                  pairingMsg.ok ? 'text-emerald-400' : 'text-rose-400'
+                }`}
+              >
+                {pairingMsg.text}
+              </p>
+            )}
           </div>
         )}
 

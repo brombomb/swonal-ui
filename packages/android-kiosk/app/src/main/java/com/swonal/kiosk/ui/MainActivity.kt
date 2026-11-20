@@ -1017,6 +1017,7 @@ class MainActivity : AppCompatActivity() {
             "Connect a music service to play"
         }
         binding.tvDuckedBadge.visibility = if (ms.isDucked) View.VISIBLE else View.GONE
+        (application as? SwonalApp)?.librespotAudioBridge?.setDucked(ms.isDucked)
 
         val pct = if (ms.durationMs > 0) ((ms.progressMs * 1000L) / ms.durationMs).toInt().coerceIn(0, 1000) else 0
         binding.musicProgressBar.progress = pct

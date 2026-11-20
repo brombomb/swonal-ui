@@ -15,7 +15,8 @@
 - **Fail-Safe Fast Path**: Instant `<5ms` emergency motor disengage (`WEIGHT OFF`) directly over local loopback socket, safeguarding lifters even during network loss.
 - **Decentralized P2P Friends (Nostr)**: Self-sovereign gym buddy network powered by Nostr (secp256k1 `npub1...`). Share workouts, exchange routine templates, and send encouragement (`💪`, `🔥`, `🏆`) peer-to-peer across home NATs without central servers or tracking.
 - **Mobile Companion Web App (`/companion`)**: Remote control, routine builder, friends feed, and live metrics from any smartphone on your local network.
-- **AI Addons for MCP & Voice (Work in Progress)**: Autonomous workout programming via Model Context Protocol (MCP) agents (Claude, Cursor) and BYOK in-set voice coaching.
+- **AI Addons for MCP & Voice**: Autonomous workout programming via Model Context Protocol (MCP) agents (Claude, Cursor), hands-free AirPods voice control, and real-time in-set audio coaching.
+- **Local Spotify Connect Audio on Tonal Speakers**: Built-in `librespot` receiver and Android `AudioTrack` PCM bridge (`:41478`) enabling users to play their Spotify playlists directly through the Tonal wall speakers with automatic audio ducking during voice cues.
 - **Home Assistant Integration**: Real-time MQTT discovery and webhook event bus for smart home automations.
 
 ---
@@ -91,10 +92,14 @@ The built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs
   - `update_weight`: Set precise target digital weight and training mode.
   - `log_set`: Automatically record completed sets with RPE and volume tracking.
 
-### Real-Time Voice Coach (BYOK)
-- Connect any OpenAI, Anthropic, Google Gemini, or local Ollama model (`0600` encrypted server storage).
-- Real-time in-set coaching tips, velocity loss warnings, and automatic progressive overload recommendations based on actual cable strain gauge telemetry.
-- *(Note: Voice recognition and latency optimizations are actively evolving as a work-in-progress).*
+### Real-Time Voice Coach & Hands-Free AirPods Control (Local & BYOK)
+- **Hands-Free AirPods / Bluetooth Voice Mode**: Tap the prominent **AirPods Voice** button in the Kiosk header or Companion Remote to issue continuous hands-free commands while lifting:
+  - **Weight Deltas & Targets**: *"Add 5 pounds"*, *"Increase weight by ten"*, *"Drop 5 pounds"*, *"Set weight to 50 pounds"* (supports both digits and spoken number words).
+  - **Weight Engage / Disengage**: *"Weight on"*, *"Engage weight"*, *"Weight off"*, *"Rack weight"*.
+  - **Dynamic Training Modes**: *"Switch to chains mode"*, *"Eccentric mode"*, *"Spotter mode"*, *"Burnout mode"*, *"Standard mode"*.
+  - **Workouts & Exercises**: *"Next exercise"*, *"Previous exercise"*, *"Switch to Barbell Bicep Curl"*, *"Skip rest"*, *"Complete set"*.
+- **Live Audio Encouragement & VBT Coaching**: Speaks real-time coaching cues directly into your AirPods on weight engage, rep milestones (first rep, halfway, final 2 reps, target reached), PR celebrations (*"Boom! New personal record!"*), and >=25% velocity drop fatigue alerts.
+- **Built-In Offline Coach + BYOK LLM Support**: Works 100% offline out-of-the-box, or connect any OpenAI, Anthropic, Google Gemini, or local Ollama model (`0600` encrypted server storage).
 
 ---
 

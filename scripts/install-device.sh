@@ -328,8 +328,15 @@ until [ "\$(getprop sys.boot_completed)" -eq 1 ]; do
   sleep 2
 done
 
-# Multicast route required for libmdns Zeroconf discovery
-ip route add 224.0.0.0/4 dev wlan0 2>/dev/null || true
+# Multicast route and policy rule required for libmdns Zeroconf discovery on Android wlan0
+WLAN_IP=\$(ip -4 addr show wlan0 | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
+if [ -n "\${WLAN_IP}" ]; then
+  ip route replace 224.0.0.0/4 dev wlan0 src "\${WLAN_IP}" 2>/dev/null || true
+else
+  ip route add 224.0.0.0/4 dev wlan0 2>/dev/null || true
+fi
+ip rule del to 224.0.0.0/4 lookup main pref 9000 2>/dev/null || true
+ip rule add to 224.0.0.0/4 lookup main pref 9000 2>/dev/null || true
 
 # Ensure DNS resolution works for standalone musl binaries
 if [ ! -f "/system/etc/resolv.conf" ]; then
@@ -346,20 +353,13 @@ if [ ! -f "/system/etc/resolv.conf" ]; then
   mount -o bind /data/local/etc /system/etc
 fi
 
-export PREFIX="/data/data/com.termux/files/usr"
-export LD_LIBRARY_PATH="/data/data/com.termux/files/usr/lib:\${LD_LIBRARY_PATH:-}"
-export PATH="/data/data/com.termux/files/usr/bin:/data/local/bin:\$PATH"
-export ALSA_CONFIG_DIR="/data/local/alsa"
-export ALSA_CONFIG_PATH="/data/local/alsa/alsa.conf"
 mkdir -p /data/local/librespot-cache
-if [ -x "${LIBRESPOT_BIN}" ]; then
-  pkill -9 librespot || true
-  # Rotate log if it exceeds 5 MB to prevent flash exhaustion
-  if [ -f /data/local/swonal-librespot.log ] && [ \$(wc -c < /data/local/swonal-librespot.log 2>/dev/null || echo 0) -gt 5242880 ]; then
-    tail -n 2000 /data/local/swonal-librespot.log > /data/local/swonal-librespot.log.tmp 2>/dev/null && mv /data/local/swonal-librespot.log.tmp /data/local/swonal-librespot.log 2>/dev/null
-  fi
-  nohup "${LIBRESPOT_BIN}" --name "Tonal Speakers" --bitrate 320 --backend rodio --cache /data/local/librespot-cache --system-cache /data/local/librespot-cache --cache-size-limit 200M >> /data/local/swonal-librespot.log 2>&1 &
+# Rotate log if it exceeds 5 MB to prevent flash exhaustion
+if [ -f /data/local/swonal-librespot.log ] && [ \$(wc -c < /data/local/swonal-librespot.log 2>/dev/null || echo 0) -gt 5242880 ]; then
+  tail -n 2000 /data/local/swonal-librespot.log > /data/local/swonal-librespot.log.tmp 2>/dev/null && mv /data/local/swonal-librespot.log.tmp /data/local/swonal-librespot.log 2>/dev/null
 fi
+# Note: tonal-daemon (LibrespotBridge) supervises ${LIBRESPOT_BIN} with --backend pipe
+# and streams 44.1kHz stereo PCM to com.swonal.kiosk AudioTrack (:41478).
 EOF
   "${ADB[@]}" push "${BOOT_LIBRESPOT}" /data/local/tmp/99-swonal-librespot.sh
   rm -f "${BOOT_LIBRESPOT}"

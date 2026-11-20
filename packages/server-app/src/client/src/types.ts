@@ -292,6 +292,28 @@ export interface SymmetryMetrics {
   status: 'balanced' | 'drift' | 'critical';
 }
 
+export type CoachVoiceMode = 'STANDARD' | 'ECCENTRIC' | 'CHAINS' | 'SPOTTER' | 'BURNOUT';
+
+export interface CoachSuggestedAction {
+  type:
+    | 'set_weight_delta'
+    | 'set_weight_target'
+    | 'set_mode'
+    | 'next_exercise'
+    | 'prev_exercise'
+    | 'select_exercise'
+    | 'skip_rest'
+    | 'complete_set'
+    | 'set_weight_enabled'
+    | 'toggle_weight';
+  deltaLb?: number;
+  targetLb?: number;
+  mode?: CoachVoiceMode;
+  exerciseQuery?: string;
+  enabled?: boolean;
+  label: string;
+}
+
 export interface AiCoachPublicConfig {
   provider: 'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama';
   model: string;

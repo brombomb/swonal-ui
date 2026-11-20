@@ -450,3 +450,24 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
 
     await bridge.release_port()
     assert ctrl.closed is True
+
+
+def test_librespot_bridge_endpoints(monkeypatch):
+    monkeypatch.setenv("MOCK_TONAL", "true")
+    daemon_main._cli_mock_override = True
+
+    with TestClient(daemon_main.app) as client:
+        st = client.get("/api/spotify/status")
+        assert st.status_code == 200
+        body = st.json()
+        assert body["device_name"] == "Tonal Speakers"
+        assert body["pcm_stream_port"] == 41478
+
+        auth_res = client.post("/api/spotify/auth", json={"access_token": "mock-keymaster-token"})
+        assert auth_res.status_code == 200
+        assert auth_res.json()["authenticated_user"] == "mock-spotify-user"
+
+        wake_res = client.post("/api/spotify/wake")
+        assert wake_res.status_code == 200
+        assert wake_res.json()["running"] is True
+

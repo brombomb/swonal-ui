@@ -86,16 +86,23 @@ import { MusicPickerDialog } from './MusicPickerDialog';
 import {
   AccessoryType,
   AiCoachPublicConfig,
+  CoachSuggestedAction,
   DynamicMode,
   Exercise,
   HomeAssistantBusStatus,
 } from '../types';
+import { soundEngine } from '../utils/soundEngine';
 import {
   formatDisplayWeight,
   getContrastTextColor,
   KG_TO_LB,
   stepDisplayWeight,
 } from '../utils/units';
+import {
+  executeCoachSuggestedAction,
+  matchClientVoiceCommand,
+  speakCoachAudio,
+} from '../utils/voiceCommands';
 
 const ACCENT_SWATCHES = [
   { name: 'Electric Cyan', hex: '#00F0FF' },
@@ -163,7 +170,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     sendWs,
     subscribeLiveTelemetry,
     setWeight,
+    setTargetWeight,
     toggleWeight,
+    setWeightEnabled,
+    setWeightMode,
     setAccessory,
     alignMockArmsToExercise,
     switchUser,
@@ -171,13 +181,16 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     createUser,
     togglePartnerMode,
     selectFreeExercise,
+    selectExercise,
     startWorkoutTemplate,
     stepRoutine,
     logCompletedSet,
+    completeSet,
     finishActiveWorkout,
     lastCompletedWorkoutSummary,
     dismissWorkoutSummary,
     skipRestTimer,
+    skipRest,
     extendRestTimer,
     toggleMusicPlay,
     nextTrack,
@@ -295,15 +308,18 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   }, [restSecondsRemaining > 0, activeUser?.id]);
   const [coachPrompt, setCoachPrompt] = useState('');
   const [coachReply, setCoachReply] = useState<string>(
-    'Tap the mic or ask about PRs, progressive overload, or say "Add 5 pounds".'
+    'Tap AirPods Voice or say "Add 5 pounds", "Chains mode", "Weight on", or "Next exercise".'
   );
-  const [coachAction, setCoachAction] = useState<{
-    type: 'set_weight_delta' | 'toggle_weight' | 'skip_rest';
-    deltaLb?: number;
-    label: string;
-  } | null>(null);
+  const [coachAction, setCoachAction] = useState<CoachSuggestedAction | null>(null);
   const [coachBusy, setCoachBusy] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [liveVoiceCoachEnabled, setLiveVoiceCoachEnabled] = useState(true);
+  const [voiceToast, setVoiceToast] = useState<{
+    heard: string;
+    reply: string;
+    actionLabel?: string;
+  } | null>(null);
+  const voiceToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [byokProvider, setByokProvider] = useState<'local' | 'openai' | 'anthropic' | 'gemini' | 'ollama'>('local');
   const [byokModel, setByokModel] = useState('');
   const [byokApiKey, setByokApiKey] = useState('');
@@ -369,9 +385,151 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       .catch(() => {});
   }, []);
 
+  const showVoiceStatusToast = useCallback(
+    (heard: string, reply: string, actionLabel?: string) => {
+      setVoiceToast({ heard, reply, actionLabel });
+      if (voiceToastTimerRef.current) clearTimeout(voiceToastTimerRef.current);
+      voiceToastTimerRef.current = setTimeout(() => {
+        setVoiceToast(null);
+      }, 6500);
+    },
+    []
+  );
+
+  const executeVoiceAction = useCallback(
+    (action: CoachSuggestedAction): string => {
+      soundEngine.playVoiceCommandExecuted();
+      return executeCoachSuggestedAction(action, {
+        currentWeightLb: telemetry.target_weight_lb,
+        activeUnit,
+        exercises,
+        setTargetWeight,
+        setWeightEnabled,
+        toggleWeight,
+        setWeightMode,
+        stepRoutine,
+        selectExercise,
+        skipRest,
+        completeSet,
+      });
+    },
+    [
+      telemetry.target_weight_lb,
+      activeUnit,
+      exercises,
+      setTargetWeight,
+      setWeightEnabled,
+      toggleWeight,
+      setWeightMode,
+      stepRoutine,
+      selectExercise,
+      skipRest,
+      completeSet,
+    ]
+  );
+
+  // Real-Time Live Audio Coaching & Encouragement into AirPods during sets
+  const prevVoiceWeightOnRef = useRef<boolean>(telemetry.weight_enabled);
+  const prevVoiceRepRef = useRef<number>(telemetry.rep_count);
+  const vbtWarnedThisSetRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const wasOn = prevVoiceWeightOnRef.current;
+    prevVoiceWeightOnRef.current = telemetry.weight_enabled;
+
+    if (!wasOn && telemetry.weight_enabled) {
+      vbtWarnedThisSetRef.current = false;
+      prevVoiceRepRef.current = 0;
+      if ((isListening || liveVoiceCoachEnabled) && !soundMuted) {
+        const cue = 'Weight is live. Control the eccentric, drive hard!';
+        setCoachReply(cue);
+        speakCoachAudio(cue, soundMuted);
+      }
+    } else if (wasOn && !telemetry.weight_enabled) {
+      vbtWarnedThisSetRef.current = false;
+    }
+  }, [telemetry.weight_enabled, isListening, liveVoiceCoachEnabled, soundMuted]);
+
+  useEffect(() => {
+    const prevRep = prevVoiceRepRef.current;
+    const rep = telemetry.rep_count;
+    prevVoiceRepRef.current = rep;
+
+    if (!telemetry.weight_enabled || rep <= prevRep || rep === 0) return;
+    if (!(isListening || liveVoiceCoachEnabled) || soundMuted) return;
+
+    const targetReps = currentStep?.targetReps ?? 10;
+    const halfwayRep = Math.max(2, Math.floor(targetReps / 2));
+    const twoLeftRep = Math.max(3, targetReps - 2);
+
+    let cue: string | null = null;
+    if (rep === 1) {
+      cue = 'Good first rep, smooth tempo!';
+    } else if (rep === targetReps) {
+      cue = 'Target reps hit! Rack it or go for a burnout PR!';
+    } else if (rep === twoLeftRep && targetReps >= 5) {
+      cue = 'Two more reps! Push through!';
+    } else if (rep === halfwayRep && targetReps >= 4) {
+      cue = 'Halfway there! Keep your core braced!';
+    }
+
+    if (cue) {
+      setCoachReply(cue);
+      speakCoachAudio(cue, soundMuted);
+    }
+  }, [
+    telemetry.rep_count,
+    telemetry.weight_enabled,
+    currentStep?.targetReps,
+    isListening,
+    liveVoiceCoachEnabled,
+    soundMuted,
+  ]);
+
+  useEffect(() => {
+    if (!lastPrBanner) return;
+    if (!(isListening || liveVoiceCoachEnabled) || soundMuted) return;
+    const cue = 'Boom! New personal record! Massive lift!';
+    setCoachReply(cue);
+    speakCoachAudio(cue, soundMuted);
+  }, [lastPrBanner, isListening, liveVoiceCoachEnabled, soundMuted]);
+
+  useEffect(() => {
+    if (!telemetry.weight_enabled || telemetry.rep_count < 2) return;
+    if (vbtMetrics.velocityDropPct >= 25 && !vbtWarnedThisSetRef.current) {
+      vbtWarnedThisSetRef.current = true;
+      if ((isListening || liveVoiceCoachEnabled) && !soundMuted) {
+        const cue = `Bar speed dropped ${Math.round(vbtMetrics.velocityDropPct)} percent. Drive explosively or rack the weight.`;
+        setCoachReply(cue);
+        speakCoachAudio(cue, soundMuted);
+      }
+    }
+  }, [
+    vbtMetrics.velocityDropPct,
+    telemetry.weight_enabled,
+    telemetry.rep_count,
+    isListening,
+    liveVoiceCoachEnabled,
+    soundMuted,
+  ]);
+
   const askCoach = async (promptText: string) => {
     const trimmed = promptText.trim();
     if (!trimmed || !activeUser) return;
+
+    // Zero-latency client-side voice command detection & immediate auto-execution
+    const fastAction = matchClientVoiceCommand(trimmed);
+    let executedClientSide = false;
+    let spokenConfirmation = '';
+    if (fastAction) {
+      executedClientSide = true;
+      spokenConfirmation = executeVoiceAction(fastAction);
+      setCoachReply(spokenConfirmation);
+      setCoachAction(fastAction);
+      showVoiceStatusToast(trimmed, spokenConfirmation, fastAction.label);
+      speakCoachAudio(spokenConfirmation, soundMuted);
+    }
+
     setCoachBusy(true);
     try {
       const res = await fetch('/api/coach/ask', {
@@ -388,14 +546,23 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         }),
       });
       if (res.ok) {
-        const data = await res.json();
-        setCoachReply(data.reply);
-        setCoachAction(data.suggestedAction ?? null);
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window && !soundMuted) {
-          window.speechSynthesis.cancel();
-          const utter = new SpeechSynthesisUtterance(data.reply);
-          utter.rate = 1.04;
-          window.speechSynthesis.speak(utter);
+        const data = (await res.json()) as {
+          reply: string;
+          suggestedAction?: CoachSuggestedAction | null;
+        };
+        const serverAction = data.suggestedAction ?? null;
+        setCoachAction(serverAction);
+
+        if (serverAction && !executedClientSide) {
+          const confirmText = executeVoiceAction(serverAction);
+          const finalReply = confirmText || data.reply;
+          setCoachReply(finalReply);
+          showVoiceStatusToast(trimmed, finalReply, serverAction.label);
+          speakCoachAudio(finalReply, soundMuted);
+        } else if (!executedClientSide) {
+          setCoachReply(data.reply);
+          showVoiceStatusToast(trimmed, data.reply);
+          speakCoachAudio(data.reply, soundMuted);
         }
       }
     } finally {
@@ -524,6 +691,12 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
 
     voiceMicActiveRef.current = true;
     setIsListening(true);
+    setLiveVoiceCoachEnabled(true);
+    soundEngine.playVoiceListeningStart();
+    showVoiceStatusToast(
+      'AirPods Voice Active',
+      'Say "Add 5 pounds", "Chains mode", "Weight on", or "Next exercise".'
+    );
     launchRecognition();
   };
 
@@ -965,8 +1138,56 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           )}
         </div>
 
-        {/* Right Utility Controls (Consolidated Quick-Settings Popover + Phone + Hardware + Original Tonal) */}
+        {/* Right Utility Controls (Consolidated Quick-Settings Popover + AirPods Voice + Phone + Hardware + Original Tonal) */}
         <div className="flex items-center gap-2.5">
+          {/* Prominent Hands-Free AirPods / Voice Control Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleVoiceListening}
+            aria-pressed={isListening}
+            title="Hands-Free AirPods Voice Control & Live Audio Coach"
+            className={`px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-extrabold transition ${
+              isListening
+                ? 'bg-red-500 text-white shadow-lg ring-2 ring-red-400/60 animate-pulse'
+                : 'elevated-pill hover:opacity-90'
+            }`}
+          >
+            {isListening ? (
+              <Mic size={18} />
+            ) : (
+              <Mic size={18} style={{ color: 'var(--accent-ink)' }} />
+            )}
+            <span>{isListening ? 'Voice Active' : 'AirPods Voice'}</span>
+            {isListening && (
+              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            )}
+          </button>
+
+          {/* Spotify & On-Device Music Trigger */}
+          <button
+            type="button"
+            onClick={() => {
+              void refreshMusicNow();
+              musicDialogRef.current?.showModal();
+            }}
+            aria-label="Open Music & Speakers"
+            title="Spotify Playlists & Tonal Speakers"
+            className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
+          >
+            <Music size={18} style={{ color: 'var(--accent-ink)' }} />
+            <span className="max-w-[120px] truncate">
+              {musicState.isPlaying && musicState.trackName
+                ? musicState.trackName
+                : 'Music'}
+            </span>
+            {musicState.isPlaying && (
+              <span
+                className="w-2 h-2 rounded-full animate-pulse shrink-0"
+                style={{ backgroundColor: 'var(--accent-primary)' }}
+              />
+            )}
+          </button>
+
           {/* Quick Settings Popover Trigger (Theme, Units, Accent Color / Profiles) */}
           <div ref={quickSettingsRef} className="relative">
             <button
@@ -1027,6 +1248,17 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                     <span>{isLightTheme ? 'Light' : 'Dark'}</span>
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setLiveVoiceCoachEnabled((v) => !v)}
+                  className="w-full elevated-pill py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-between"
+                >
+                  <span>Live Audio Coach (AirPods)</span>
+                  <span style={{ color: 'var(--accent-ink)' }}>
+                    {liveVoiceCoachEnabled ? 'Enabled' : 'Muted'}
+                  </span>
+                </button>
 
                 <button
                   type="button"
@@ -1178,8 +1410,80 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         </div>
       </header>
 
-      {/* NOTIFICATION BANNERS (QUEUED WORKOUT / SAFETY CUTOUT / PR CELEBRATION) */}
+      {/* NOTIFICATION BANNERS (AIRPODS VOICE TOAST / QUEUED WORKOUT / SAFETY CUTOUT / PR CELEBRATION) */}
       <div className="space-y-3 my-3">
+        {(isListening || voiceToast) && (
+          <div
+            className="surface-card rounded-2xl px-6 py-3.5 flex items-center justify-between gap-4 border"
+            style={{
+              borderColor: isListening ? '#EF4444' : 'var(--accent-primary)',
+              boxShadow: isListening
+                ? '0 0 24px rgba(239, 68, 68, 0.25)'
+                : '0 0 20px var(--accent-glow)',
+            }}
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  isListening ? 'bg-red-500 text-white animate-pulse' : ''
+                }`}
+                style={
+                  !isListening
+                    ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                    : undefined
+                }
+              >
+                <Mic size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest font-black opacity-80">
+                    {isListening ? 'AirPods Hands-Free Listening' : 'Voice Coach Executed'}
+                  </span>
+                  {voiceToast?.actionLabel && (
+                    <span
+                      className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-black"
+                      style={{
+                        backgroundColor: 'var(--accent-muted)',
+                        color: 'var(--accent-ink)',
+                      }}
+                    >
+                      {voiceToast.actionLabel}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm font-extrabold truncate mt-0.5">
+                  {voiceToast
+                    ? `"${voiceToast.heard}" → ${voiceToast.reply}`
+                    : coachPrompt
+                      ? `Hearing: "${coachPrompt}"...`
+                      : coachReply}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setLiveVoiceCoachEnabled((v) => !v)}
+                className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5"
+                title="Toggle real-time rep & VBT audio encouragement"
+              >
+                {liveVoiceCoachEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                <span>{liveVoiceCoachEnabled ? 'Live Cues ON' : 'Live Cues OFF'}</span>
+              </button>
+              {voiceToast && !isListening && (
+                <button
+                  type="button"
+                  onClick={() => setVoiceToast(null)}
+                  className="elevated-pill p-2 rounded-xl opacity-75 hover:opacity-100"
+                  aria-label="Dismiss Voice Toast"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {sessionState.queuedWorkout && (
           <div
             className="surface-card rounded-2xl px-6 py-4 flex items-center justify-between border-2"
@@ -2062,13 +2366,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <button
                     type="button"
                     onClick={() => {
-                      if (coachAction.type === 'set_weight_delta' && coachAction.deltaLb) {
-                        setWeight(telemetry.target_weight_lb + coachAction.deltaLb);
-                      } else if (coachAction.type === 'toggle_weight') {
-                        toggleWeight();
-                      } else if (coachAction.type === 'skip_rest') {
-                        skipRestTimer();
-                      }
+                      executeVoiceAction(coachAction);
                       setCoachAction(null);
                     }}
                     className="px-3.5 py-3 rounded-xl bg-emerald-500/25 text-emerald-300 text-xs font-black shrink-0"
@@ -3292,6 +3590,32 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           </div>
         )}
       </dialog>
+
+      <MusicPickerDialog
+        dialogRef={musicDialogRef}
+        activeUser={activeUser}
+        activeProviderId={activeProviderId}
+        musicProviders={musicProviders}
+        musicState={musicState}
+        musicError={musicError}
+        clearMusicError={clearMusicError}
+        webPlayerEnabled={webPlayerEnabled}
+        setWebPlayerEnabled={setWebPlayerEnabled}
+        webPlayerReady={webPlayerReady}
+        devices={devices}
+        playlists={playlists}
+        favoritePlaylistIds={favoritePlaylistIds}
+        toggleFavoritePlaylist={toggleFavoritePlaylist}
+        onRefreshDevices={refreshMusicNow}
+        updateUserPreferences={updateUserPreferences}
+        transferMusicDevice={transferMusicDevice}
+        playPlaylist={playPlaylist}
+        fetchPlaylistTracks={fetchPlaylistTracks}
+        onPlayPause={toggleMusicPlay}
+        onNextTrack={nextTrack}
+        onPrevTrack={previousTrack}
+        onSetVolume={setMusicVolume}
+      />
     </div>
   );
 };

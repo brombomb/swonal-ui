@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import {
   ArrowDown,
@@ -12,6 +12,8 @@ import {
   History,
   Info,
   ListPlus,
+  Mic,
+  MicOff,
   Moon,
   Music,
   Pause,
@@ -36,8 +38,14 @@ import {
 import { useSwonalState } from '../hooks/useSwonalState';
 import { MusicPickerDialog } from './MusicPickerDialog';
 import { ProgressionAnalytics } from './ProgressionAnalytics';
-import { BlockType, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
+import { BlockType, CoachSuggestedAction, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
+import { soundEngine } from '../utils/soundEngine';
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
+import {
+  executeCoachSuggestedAction,
+  matchClientVoiceCommand,
+  speakCoachAudio,
+} from '../utils/voiceCommands';
 
 type SwonalHookReturn = ReturnType<typeof useSwonalState>;
 type CompanionTab = 'remote' | 'builder' | 'history' | 'friends';
@@ -67,6 +75,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     activeExercise,
     currentStep,
     restSecondsRemaining,
+    vbtMetrics,
+    soundMuted,
     musicConfigured,
     musicState,
     musicError,
@@ -80,14 +90,21 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     playlists,
     favoritePlaylistIds,
     setWeight,
+    setTargetWeight,
     toggleWeight,
+    setWeightEnabled,
+    setWeightMode,
     switchUser,
     updateUserPreferences,
     togglePartnerMode,
+    selectFreeExercise,
+    selectExercise,
     startWorkoutTemplate,
     stepRoutine,
     logCompletedSet,
+    completeSet,
     skipRestTimer,
+    skipRest,
     extendRestTimer,
     toggleMusicPlay,
     nextTrack,
@@ -364,6 +381,212 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
+  };
+
+  // Hands-Free AirPods Voice Control on Companion Remote
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [voiceInputDraft, setVoiceInputDraft] = useState('');
+  const [voiceCoachReply, setVoiceCoachReply] = useState<string>(
+    'Say "Add 5 pounds", "Chains mode", "Weight on", or "Next exercise".'
+  );
+  const [lastVoiceHeard, setLastVoiceHeard] = useState<string | null>(null);
+  const voiceMicActiveRef = useRef(false);
+  const voicePauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voicePendingRef = useRef('');
+  const voiceLastSubmittedIdxRef = useRef(0);
+  const voiceRecognitionRef = useRef<{ stop: () => void } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      voiceMicActiveRef.current = false;
+      if (voicePauseTimerRef.current) clearTimeout(voicePauseTimerRef.current);
+      try {
+        voiceRecognitionRef.current?.stop();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  const executeCompanionVoiceAction = useCallback(
+    (action: CoachSuggestedAction): string => {
+      soundEngine.playVoiceCommandExecuted();
+      return executeCoachSuggestedAction(action, {
+        currentWeightLb: telemetry.target_weight_lb,
+        activeUnit,
+        exercises,
+        setTargetWeight,
+        setWeightEnabled,
+        toggleWeight,
+        setWeightMode,
+        stepRoutine,
+        selectExercise,
+        skipRest,
+        completeSet,
+      });
+    },
+    [
+      telemetry.target_weight_lb,
+      activeUnit,
+      exercises,
+      setTargetWeight,
+      setWeightEnabled,
+      toggleWeight,
+      setWeightMode,
+      stepRoutine,
+      selectExercise,
+      skipRest,
+      completeSet,
+    ]
+  );
+
+  const askCompanionCoach = async (promptText: string) => {
+    const trimmed = promptText.trim();
+    if (!trimmed || !activeUser) return;
+    setLastVoiceHeard(trimmed);
+
+    const fastAction = matchClientVoiceCommand(trimmed);
+    let executedClientSide = false;
+    if (fastAction) {
+      executedClientSide = true;
+      const confirmText = executeCompanionVoiceAction(fastAction);
+      setVoiceCoachReply(confirmText);
+      showToast(`${fastAction.label}: ${confirmText}`);
+      speakCoachAudio(confirmText, soundMuted);
+    }
+
+    try {
+      const res = await fetch('/api/coach/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: activeUser.id,
+          prompt: trimmed,
+          exerciseName: activeExercise?.name,
+          currentWeightLb: telemetry.target_weight_lb,
+          repCount: telemetry.rep_count,
+          meanVelocity: vbtMetrics.currentVelocity,
+          velocityDropPct: vbtMetrics.velocityDropPct,
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          reply: string;
+          suggestedAction?: CoachSuggestedAction | null;
+        };
+        if (data.suggestedAction && !executedClientSide) {
+          const confirmText = executeCompanionVoiceAction(data.suggestedAction);
+          const finalReply = confirmText || data.reply;
+          setVoiceCoachReply(finalReply);
+          showToast(`${data.suggestedAction.label}: ${finalReply}`);
+          speakCoachAudio(finalReply, soundMuted);
+        } else if (!executedClientSide) {
+          setVoiceCoachReply(data.reply);
+          speakCoachAudio(data.reply, soundMuted);
+        }
+      }
+    } catch {
+      // ignore offline coach fetch error if client action already ran
+    }
+  };
+
+  const stopCompanionVoice = () => {
+    voiceMicActiveRef.current = false;
+    if (voicePauseTimerRef.current) {
+      clearTimeout(voicePauseTimerRef.current);
+      voicePauseTimerRef.current = null;
+    }
+    try {
+      voiceRecognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    voiceRecognitionRef.current = null;
+    setIsVoiceListening(false);
+  };
+
+  const toggleCompanionVoice = () => {
+    if (isVoiceListening || voiceMicActiveRef.current) {
+      stopCompanionVoice();
+      return;
+    }
+    const SpeechRec =
+      (window as unknown as Record<string, unknown>).SpeechRecognition ||
+      (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    if (!SpeechRec || typeof SpeechRec !== 'function') {
+      setVoiceCoachReply('Voice recognition unavailable in this browser — type a command below.');
+      return;
+    }
+
+    type SpeechRecInstance = {
+      lang: string;
+      continuous: boolean;
+      interimResults: boolean;
+      maxAlternatives: number;
+      onresult: (e: {
+        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }>;
+      }) => void;
+      onerror: (e?: { error?: string }) => void;
+      onend: () => void;
+      start: () => void;
+      stop: () => void;
+    };
+
+    const launchRecognition = () => {
+      if (!voiceMicActiveRef.current) return;
+      const recognition = new (SpeechRec as new () => SpeechRecInstance)();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      voiceLastSubmittedIdxRef.current = 0;
+      voicePendingRef.current = '';
+      voiceRecognitionRef.current = recognition;
+
+      recognition.onresult = (event) => {
+        let segment = '';
+        for (let i = voiceLastSubmittedIdxRef.current; i < event.results.length; i += 1) {
+          segment += event.results[i]?.[0]?.transcript ?? '';
+        }
+        const trimmed = segment.trim();
+        if (trimmed) {
+          voicePendingRef.current = trimmed;
+          setVoiceInputDraft(trimmed);
+        }
+        if (voicePauseTimerRef.current) clearTimeout(voicePauseTimerRef.current);
+        voicePauseTimerRef.current = setTimeout(() => {
+          const query = voicePendingRef.current.trim();
+          if (query) {
+            voiceLastSubmittedIdxRef.current = event.results.length;
+            voicePendingRef.current = '';
+            setVoiceInputDraft('');
+            void askCompanionCoach(query);
+          }
+        }, 1200);
+      };
+
+      recognition.onerror = (err) => {
+        if (err?.error === 'not-allowed' || err?.error === 'service-not-allowed') {
+          stopCompanionVoice();
+          setVoiceCoachReply('Microphone permission denied.');
+        }
+      };
+
+      recognition.onend = () => {
+        if (voiceMicActiveRef.current) {
+          setTimeout(launchRecognition, 150);
+        } else {
+          setIsVoiceListening(false);
+        }
+      };
+
+      recognition.start();
+    };
+
+    voiceMicActiveRef.current = true;
+    setIsVoiceListening(true);
+    soundEngine.playVoiceListeningStart();
+    launchRecognition();
   };
 
   const isLightTheme =
@@ -643,6 +866,19 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
             >
               <Users size={14} />
               <span>Work In</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void refreshMusicNow();
+                musicDialogRef.current?.showModal();
+              }}
+              title="Spotify Playlists & Tonal Speakers"
+              aria-label="Open Music & Speakers"
+              className="elevated-pill px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
+            >
+              <Music size={14} style={{ color: 'var(--accent-ink)' }} />
+              <span>Music</span>
             </button>
             <a
               href="/settings"
@@ -1007,6 +1243,83 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     Log Set & Start Rest
                   </button>
                 </div>
+              </div>
+            </section>
+
+            {/* Hands-Free AirPods Voice Control Card */}
+            <section className="surface-card rounded-3xl p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      isVoiceListening ? 'bg-red-500 text-white animate-pulse' : 'elevated-pill'
+                    }`}
+                  >
+                    {isVoiceListening ? (
+                      <Mic size={18} />
+                    ) : (
+                      <MicOff size={18} style={{ color: 'var(--accent-ink)' }} />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-black">AirPods Voice Control</h3>
+                      {isVoiceListening && (
+                        <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-mono font-black uppercase">
+                          Voice Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs opacity-75 truncate">
+                      {lastVoiceHeard ? `"${lastVoiceHeard}" → ${voiceCoachReply}` : voiceCoachReply}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleCompanionVoice}
+                  aria-pressed={isVoiceListening}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 shrink-0 transition ${
+                    isVoiceListening ? 'bg-red-500 text-white shadow-md' : ''
+                  }`}
+                  style={
+                    !isVoiceListening
+                      ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
+                      : undefined
+                  }
+                >
+                  <Mic size={14} />
+                  <span>{isVoiceListening ? 'Stop Mic' : 'Voice Mode'}</span>
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={voiceInputDraft}
+                  onChange={(e) => setVoiceInputDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && voiceInputDraft.trim()) {
+                      const q = voiceInputDraft;
+                      setVoiceInputDraft('');
+                      void askCompanionCoach(q);
+                    }
+                  }}
+                  placeholder='Say or type "Add 5 pounds", "Chains mode", "Weight on"...'
+                  className="flex-1 min-w-0 px-3 py-2 rounded-xl elevated-pill text-xs outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!voiceInputDraft.trim()) return;
+                    const q = voiceInputDraft;
+                    setVoiceInputDraft('');
+                    void askCompanionCoach(q);
+                  }}
+                  aria-label="Send Voice Command"
+                  className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold"
+                >
+                  <Send size={14} />
+                </button>
               </div>
             </section>
 
@@ -1997,6 +2310,32 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           </button>
         </div>
       </nav>
+
+      <MusicPickerDialog
+        dialogRef={musicDialogRef}
+        activeUser={activeUser}
+        activeProviderId={activeProviderId}
+        musicProviders={musicProviders}
+        musicState={musicState}
+        musicError={musicError}
+        clearMusicError={clearMusicError}
+        webPlayerEnabled={webPlayerEnabled}
+        setWebPlayerEnabled={setWebPlayerEnabled}
+        webPlayerReady={webPlayerReady}
+        devices={devices}
+        playlists={playlists}
+        favoritePlaylistIds={favoritePlaylistIds}
+        toggleFavoritePlaylist={toggleFavoritePlaylist}
+        onRefreshDevices={refreshMusicNow}
+        updateUserPreferences={updateUserPreferences}
+        transferMusicDevice={transferMusicDevice}
+        playPlaylist={playPlaylist}
+        fetchPlaylistTracks={fetchPlaylistTracks}
+        onPlayPause={toggleMusicPlay}
+        onNextTrack={nextTrack}
+        onPrevTrack={previousTrack}
+        onSetVolume={setMusicVolume}
+      />
     </div>
   );
 };

@@ -263,4 +263,47 @@ describe('Spotify OAuth Routes & Config Validation', () => {
     expect(body.success).toBe(true);
     expect(body.message).toContain('Spotify rate limit reset');
   });
+
+  it('resolves real Tonal Speakers device ID when synthetic tonal-gym-librespot is requested and generates Keymaster PKCE pairing URL', async () => {
+    const playCalls: string[] = [];
+    const origFetch = globalThis.fetch;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/me/player/devices')) {
+        return new Response(
+          JSON.stringify({
+            devices: [
+              { id: 'real-tonal-speaker-id', name: 'Tonal Speakers', type: 'Speaker', is_active: false, volume_percent: 85 },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('/me/player/play')) {
+        playCalls.push(url);
+        return new Response(null, { status: 204 });
+      }
+      return origFetch(input, init);
+    });
+
+    try {
+      const provider = new SpotifyProvider();
+      await provider.play(
+        DEFAULT_USERS.USER_TWO_ID,
+        'spotify:playlist:pl-1',
+        'tonal-gym-librespot'
+      );
+      expect(playCalls).toHaveLength(1);
+      expect(playCalls[0]).toContain('device_id=real-tonal-speaker-id');
+
+      const pkceResp = await origFetch(`${baseUrl}/api/spotify/speaker-auth/url`);
+      expect(pkceResp.status).toBe(200);
+      const pkceJson = (await pkceResp.json()) as { authUrl: string; redirectUri: string };
+      expect(pkceJson.redirectUri).toBe('http://127.0.0.1:8898/login');
+      expect(pkceJson.authUrl).toContain('client_id=65b708073fc0480ea92a077233ca87bd');
+      expect(pkceJson.authUrl).toContain('code_challenge_method=S256');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });

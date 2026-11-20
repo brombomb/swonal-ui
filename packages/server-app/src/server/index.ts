@@ -347,6 +347,19 @@ export async function createSwonalServer(
               accessory: String(msg.accessory ?? latestTelemetry.accessory),
             };
             broadcastToClients(latestTelemetry);
+          } else if (!sent && (type === 'toggle_weight' || type === 'enable_weight' || type === 'disable_weight')) {
+            const nextEnabled =
+              type === 'enable_weight'
+                ? true
+                : type === 'disable_weight'
+                  ? false
+                  : !Boolean(latestTelemetry.weight_enabled);
+            latestTelemetry = {
+              ...latestTelemetry,
+              weight_enabled: nextEnabled,
+              applied_resistance_lb: nextEnabled ? Number(latestTelemetry.target_weight_lb ?? 45) : 0,
+            };
+            broadcastToClients(latestTelemetry);
           }
           return;
         }

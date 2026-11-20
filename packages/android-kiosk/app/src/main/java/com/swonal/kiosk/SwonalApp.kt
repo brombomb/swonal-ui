@@ -4,6 +4,7 @@ import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.SvgDecoder
+import com.swonal.kiosk.audio.LibrespotAudioBridge
 import com.swonal.kiosk.audio.SwonalSoundEngine
 import com.swonal.kiosk.net.SwonalPreferences
 import com.swonal.kiosk.net.SwonalRepository
@@ -21,6 +22,8 @@ class SwonalApp : Application(), ImageLoaderFactory {
         private set
     lateinit var soundEngine: SwonalSoundEngine
         private set
+    lateinit var librespotAudioBridge: LibrespotAudioBridge
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -33,6 +36,9 @@ class SwonalApp : Application(), ImageLoaderFactory {
         tlsConfig = SwonalTlsFactory.create(this)
         soundEngine = SwonalSoundEngine(this).apply {
             muted = prefs.soundMuted
+        }
+        librespotAudioBridge = LibrespotAudioBridge().apply {
+            start()
         }
         repository = SwonalRepository(prefs = prefs, tlsConfig = tlsConfig)
         com.swonal.kiosk.ui.SwonalWebActivity.warmup(this)

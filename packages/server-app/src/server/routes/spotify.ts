@@ -1,10 +1,33 @@
 import crypto from 'crypto';
+import http from 'http';
 import { Router } from 'express';
 import { getSpotifyConfig } from '../config';
 import { prisma } from '../db';
 import { musicRegistry } from '../music/Registry';
 import { getEffectivePublicBaseUrl } from '../services/runtimeSettings';
 import { sessionCoordinator } from '../services/sessionState';
+
+const KEYMASTER_CLIENT_ID = '65b708073fc0480ea92a077233ca87bd';
+const KEYMASTER_REDIRECT_URI = 'http://127.0.0.1:8898/login';
+const KEYMASTER_SCOPES = [
+  'streaming',
+  'user-read-playback-state',
+  'user-modify-playback-state',
+  'user-read-currently-playing',
+  'playlist-read-private',
+  'user-read-email',
+  'user-read-private',
+].join(' ');
+
+interface PkceSession {
+  userId: string;
+  codeVerifier: string;
+  createdAt: number;
+}
+
+let latestPkceSession: PkceSession | null = null;
+const pkceSessionsByUser = new Map<string, PkceSession>();
+let localCallbackServer: http.Server | null = null;
 
 const EPHEMERAL_STATE_SECRET = crypto.randomBytes(32).toString('hex');
 const OAUTH_STATE_TTL_MS = 15 * 60 * 1000;
@@ -292,6 +315,214 @@ export function createSpotifyRouter(
   };
   router.post('/reset-rate-limit', handleResetRateLimit);
   router.get('/reset-rate-limit', handleResetRateLimit);
+
+  const exchangeKeymasterPkceCode = async (userId: string, rawCodeOrUrl: string) => {
+    let code = rawCodeOrUrl.trim();
+    if (code.includes('code=')) {
+      try {
+        const parsed = new URL(code.startsWith('http') ? code : `http://127.0.0.1${code}`);
+        code = parsed.searchParams.get('code') || code;
+      } catch {
+        const match = code.match(/[?&]code=([^&#\s]+)/);
+        if (match?.[1]) code = decodeURIComponent(match[1]);
+      }
+    }
+    if (!code) {
+      throw new Error('Missing Spotify authorization code');
+    }
+
+    const session = pkceSessionsByUser.get(userId) || latestPkceSession;
+    if (!session) {
+      throw new Error('No active speaker pairing session found. Click "Pair Tonal Speakers" first.');
+    }
+
+    const resp = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: KEYMASTER_CLIENT_ID,
+        code,
+        redirect_uri: KEYMASTER_REDIRECT_URI,
+        code_verifier: session.codeVerifier,
+      }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Speaker OAuth token exchange failed (${resp.status}): ${await resp.text()}`);
+    }
+
+    const data = (await resp.json()) as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in: number;
+    };
+
+    const spotify = musicRegistry.get('spotify') as {
+      provisionTonalSpeakers?: (token?: string, reset?: boolean) => Promise<Record<string, unknown> | null>;
+    };
+    const speakerStatus =
+      typeof spotify.provisionTonalSpeakers === 'function'
+        ? await spotify.provisionTonalSpeakers(data.access_token, false)
+        : null;
+
+    // If the user has not linked Web API OAuth yet, also seed their MusicIntegration
+    const existing = await prisma.musicIntegration.findUnique({
+      where: { userId_provider: { userId: session.userId, provider: 'spotify' } },
+    });
+    if (!existing?.accessToken) {
+      const tokenExpiry = Math.floor(Date.now() / 1000) + (data.expires_in || 3600);
+      await prisma.musicIntegration.upsert({
+        where: { userId_provider: { userId: session.userId, provider: 'spotify' } },
+        update: {
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token ?? undefined,
+          tokenExpiry,
+          preferredDeviceId: 'tonal-gym-librespot',
+        },
+        create: {
+          userId: session.userId,
+          provider: 'spotify',
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token ?? null,
+          tokenExpiry,
+          preferredDeviceId: 'tonal-gym-librespot',
+        },
+      });
+    }
+
+    broadcastToClients({
+      type: 'music_updated',
+      userId: session.userId,
+      provider: 'spotify',
+    });
+
+    return { speakerStatus, accessToken: data.access_token };
+  };
+
+  const ensureLocalCallbackListener = () => {
+    if (localCallbackServer) return;
+    try {
+      const srv = http.createServer(async (req, res) => {
+        try {
+          const url = new URL(req.url || '/', KEYMASTER_REDIRECT_URI);
+          if (url.pathname !== '/login') {
+            res.writeHead(404);
+            res.end('Not Found');
+            return;
+          }
+          const code = url.searchParams.get('code') || '';
+          const stateUserId = url.searchParams.get('state') || latestPkceSession?.userId || '';
+          if (!code) {
+            res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end('<h3>Missing Spotify authorization code.</h3>');
+            return;
+          }
+          await exchangeKeymasterPkceCode(stateUserId, code);
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(
+            '<!DOCTYPE html><html><body style="background:#0B0E14;color:#fff;font-family:sans-serif;text-align:center;padding:48px;">' +
+              '<h2 style="color:#10B981;">Tonal Speakers Paired with Spotify!</h2>' +
+              '<p>You can close this window and return to Swonal.</p>' +
+              '<script>setTimeout(() => { window.close(); window.location.href = "http://localhost:3000/?music_connected=1"; }, 1200);</script>' +
+              '</body></html>'
+          );
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`<h3>Speaker pairing error: ${err instanceof Error ? err.message : String(err)}</h3>`);
+        }
+      });
+      srv.on('error', () => {
+        // Port 8898 already in use; ignore and rely on paste flow
+      });
+      srv.listen(8898, '127.0.0.1');
+      srv.unref();
+      localCallbackServer = srv;
+    } catch {
+      // ignore bind errors
+    }
+  };
+
+  const buildSpeakerPkceUrl = (userId: string): string => {
+    ensureLocalCallbackListener();
+    const codeVerifier = crypto.randomBytes(48).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    const session: PkceSession = { userId, codeVerifier, createdAt: Date.now() };
+    latestPkceSession = session;
+    pkceSessionsByUser.set(userId, session);
+
+    const params = new URLSearchParams({
+      client_id: KEYMASTER_CLIENT_ID,
+      response_type: 'code',
+      redirect_uri: KEYMASTER_REDIRECT_URI,
+      code_challenge_method: 'S256',
+      code_challenge: codeChallenge,
+      scope: KEYMASTER_SCOPES,
+      state: userId,
+    });
+    return `https://accounts.spotify.com/authorize?${params.toString()}`;
+  };
+
+  router.get('/speaker-status', async (_req, res) => {
+    const spotify = musicRegistry.get('spotify') as {
+      getTonalSpeakerStatus?: () => Promise<Record<string, unknown> | null>;
+    };
+    const st =
+      typeof spotify.getTonalSpeakerStatus === 'function'
+        ? await spotify.getTonalSpeakerStatus()
+        : null;
+    if (!st) {
+      res.json({
+        daemonOnline: false,
+        running: false,
+        hasCachedCredentials: false,
+        authenticatedUser: null,
+        deviceName: 'Tonal Speakers',
+      });
+      return;
+    }
+    res.json({
+      daemonOnline: true,
+      running: Boolean(st.running),
+      hasCachedCredentials: Boolean(st.has_cached_credentials),
+      authenticatedUser: st.authenticated_user ?? null,
+      deviceName: st.device_name ?? 'Tonal Speakers',
+      activeAudioClients: st.active_audio_clients ?? 0,
+      isStreamingAudio: Boolean(st.is_streaming_audio),
+      wlanIp: st.wlan_ip ?? null,
+    });
+  });
+
+  router.get('/speaker-auth/url', (req, res) => {
+    const userId = resolveUserId(req);
+    const authUrl = buildSpeakerPkceUrl(userId);
+    res.json({ authUrl, redirectUri: KEYMASTER_REDIRECT_URI });
+  });
+
+  router.get('/speaker-auth/start', (req, res) => {
+    const userId = resolveUserId(req);
+    const authUrl = buildSpeakerPkceUrl(userId);
+    res.redirect(authUrl);
+  });
+
+  router.post('/speaker-auth/complete', async (req, res) => {
+    try {
+      const userId =
+        typeof req.body?.userId === 'string' && req.body.userId.trim()
+          ? req.body.userId.trim()
+          : resolveUserId(req);
+      const codeOrUrl = typeof req.body?.codeOrUrl === 'string' ? req.body.codeOrUrl : '';
+      const out = await exchangeKeymasterPkceCode(userId, codeOrUrl);
+      res.json({
+        success: true,
+        speakerStatus: out.speakerStatus,
+      });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Speaker pairing failed',
+      });
+    }
+  });
 
   return router;
 }

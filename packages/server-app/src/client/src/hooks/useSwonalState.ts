@@ -728,6 +728,22 @@ export function useSwonalState() {
     sendWs({ type: 'toggle_weight' });
   }, [sendWs]);
 
+  const setWeightEnabled = useCallback(
+    (enabled: boolean) => {
+      setSafetyEvent(null);
+      sendWs({ type: enabled ? 'enable_weight' : 'disable_weight' });
+    },
+    [sendWs]
+  );
+
+  const setWeightMode = useCallback(
+    (mode: DynamicMode, modifierPct?: number) => {
+      const defaultPct = mode === 'eccentric' || mode === 'chains' ? 25 : 0;
+      setWeight(telemetry.target_weight_lb, mode, modifierPct ?? defaultPct);
+    },
+    [setWeight, telemetry.target_weight_lb]
+  );
+
   const setAccessory = useCallback(
     (accessory: AccessoryType) => {
       sendWs({ type: 'set_accessory', accessory });
@@ -1414,7 +1430,10 @@ export function useSwonalState() {
     devices,
     sendWs,
     setWeight,
+    setTargetWeight: setWeight,
     toggleWeight,
+    setWeightEnabled,
+    setWeightMode,
     setAccessory,
     alignMockArmsToExercise,
     switchUser,
@@ -1423,13 +1442,16 @@ export function useSwonalState() {
     deleteUser,
     togglePartnerMode,
     selectFreeExercise,
+    selectExercise: selectFreeExercise,
     startWorkoutTemplate,
     stepRoutine,
     logCompletedSet,
+    completeSet: logCompletedSet,
     finishActiveWorkout,
     lastCompletedWorkoutSummary,
     dismissWorkoutSummary: () => setLastCompletedWorkoutSummary(null),
     skipRestTimer: () => sendWs({ type: 'skip_rest_timer' }),
+    skipRest: () => sendWs({ type: 'skip_rest_timer' }),
     extendRestTimer: (sec = 15) =>
       sendWs({ type: 'start_rest_timer', seconds: restSecondsRemaining + sec }),
     toggleMusicPlay,

@@ -20,6 +20,7 @@ except ImportError:
     yaml = None
 
 from src.ble_handles import BLEHandleManager
+from src.librespot_bridge import LibrespotBridge
 from src.mode_switcher import ModeSwitcher
 from src.motor_bridge import MotorBridge
 
@@ -35,7 +36,13 @@ active_websockets: list[WebSocket] = []
 motor: Optional[MotorBridge] = None
 ble: Optional[BLEHandleManager] = None
 switcher: Optional[ModeSwitcher] = None
+librespot: Optional[LibrespotBridge] = None
 _cli_mock_override: Optional[bool] = None
+
+
+class SpotifyAuthRequest(BaseModel):
+    access_token: Optional[str] = None
+    reset: bool = False
 
 
 class MockBleEventRequest(BaseModel):
@@ -102,8 +109,8 @@ async def _broadcast_payload(payload: str) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Initialize and cleanly tear down MotorBridge, BLEHandleManager, and ModeSwitcher."""
-    global motor, ble, switcher
+    """Initialize and cleanly tear down MotorBridge, BLEHandleManager, ModeSwitcher, and LibrespotBridge."""
+    global motor, ble, switcher, librespot
     config = load_config()
     motor = MotorBridge(config)
 
@@ -135,10 +142,14 @@ async def lifespan(_: FastAPI):
     motor.register_telemetry_callback(broadcast_telemetry)
     await motor.initialize()
     await ble.start()
+    librespot = LibrespotBridge(mock_mode=motor.mock_mode)
+    await librespot.start()
 
     try:
         yield
     finally:
+        if librespot is not None:
+            await librespot.stop()
         if ble is not None:
             await ble.disconnect_all()
         if motor is not None:
@@ -370,6 +381,32 @@ async def route_zero_calibration():
         return {"status": "calibrated", **motor.zero_cable_offsets()}
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/spotify/status")
+async def route_spotify_status():
+    if librespot is None:
+        raise HTTPException(status_code=503, detail="Librespot bridge unavailable")
+    return librespot.get_status()
+
+
+@app.post("/api/spotify/auth")
+async def route_spotify_auth(req: SpotifyAuthRequest):
+    if librespot is None:
+        raise HTTPException(status_code=503, detail="Librespot bridge unavailable")
+    return await librespot.restart_process(
+        access_token=req.access_token, clear_credentials=req.reset
+    )
+
+
+@app.post("/api/spotify/wake")
+async def route_spotify_wake():
+    if librespot is None:
+        raise HTTPException(status_code=503, detail="Librespot bridge unavailable")
+    st = librespot.get_status()
+    if not st["running"]:
+        return await librespot.restart_process()
+    return st
 
 
 def entry_point() -> None:

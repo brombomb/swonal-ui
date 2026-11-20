@@ -1,5 +1,5 @@
 import { prisma } from '../../db';
-import { getSpotifyConfig } from '../../config';
+import { getServerConfig, getSpotifyConfig } from '../../config';
 import {
   IMusicProvider,
   NormalizedAudioDevice,
@@ -371,23 +371,85 @@ export class SpotifyProvider implements IMusicProvider {
     };
   }
 
+  private getDaemonUrl(): string {
+    return getServerConfig().TONAL_DAEMON_URL.replace(/\/+$/, '');
+  }
+
+  public async getTonalSpeakerStatus(): Promise<Record<string, unknown> | null> {
+    try {
+      const resp = await fetch(`${this.getDaemonUrl()}/api/spotify/status`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (resp.ok) {
+        return (await resp.json()) as Record<string, unknown>;
+      }
+    } catch {
+      // Daemon offline or unreachable
+    }
+    return null;
+  }
+
+  public async wakeTonalSpeakers(): Promise<void> {
+    try {
+      await fetch(`${this.getDaemonUrl()}/api/spotify/wake`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(2000),
+      });
+    } catch {
+      // ignore if daemon unreachable
+    }
+  }
+
+  public async provisionTonalSpeakers(
+    accessToken?: string,
+    reset = false
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      const resp = await fetch(`${this.getDaemonUrl()}/api/spotify/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: accessToken, reset }),
+        signal: AbortSignal.timeout(6500),
+      });
+      if (resp.ok) {
+        return (await resp.json()) as Record<string, unknown>;
+      }
+    } catch (err) {
+      console.warn('[SpotifyProvider] Failed to provision Tonal Speakers on daemon:', err);
+    }
+    return null;
+  }
+
   private async resolveTargetDeviceId(
     userId: string,
     requestedDeviceId?: string,
     fallbackDeviceId?: string
   ): Promise<string | undefined> {
-    if (requestedDeviceId) {
+    if (requestedDeviceId && requestedDeviceId !== 'tonal-gym-librespot') {
       return requestedDeviceId;
     }
 
-    const devices = await this.getDevices(userId);
-    const active = devices.find((d) => d.isActive);
-    if (active) {
-      return undefined;
+    let devices = await this.getDevices(userId);
+    const wantsTonalSpeaker = requestedDeviceId === 'tonal-gym-librespot';
+
+    if (!wantsTonalSpeaker) {
+      const active = devices.find((d) => d.isActive && d.id !== 'tonal-gym-librespot');
+      if (active) {
+        return undefined;
+      }
     }
 
     // Prefer real Tonal Speakers when online
-    const tonalSpeaker = devices.find((d) => /tonal\s*(gym|speakers?)|librespot/i.test(d.name) && d.id !== 'tonal-gym-librespot');
+    let tonalSpeaker = devices.find(
+      (d) => /tonal\s*(gym|speakers?)|librespot/i.test(d.name) && d.id !== 'tonal-gym-librespot'
+    );
+    if (!tonalSpeaker) {
+      await this.wakeTonalSpeakers();
+      devices = await this.getDevices(userId);
+      tonalSpeaker = devices.find(
+        (d) => /tonal\s*(gym|speakers?)|librespot/i.test(d.name) && d.id !== 'tonal-gym-librespot'
+      );
+    }
     if (tonalSpeaker) {
       return tonalSpeaker.id;
     }
@@ -425,7 +487,8 @@ export class SpotifyProvider implements IMusicProvider {
   ): Promise<void> {
     await this.requireToken(userId);
     const targetDeviceId = await this.resolveTargetDeviceId(userId, deviceId, fallbackDeviceId);
-    const validTargetId = targetDeviceId && targetDeviceId !== 'tonal-gym-librespot' ? targetDeviceId : undefined;
+    const validTargetId =
+      targetDeviceId && targetDeviceId !== 'tonal-gym-librespot' ? targetDeviceId : undefined;
     const qs = validTargetId ? `?device_id=${encodeURIComponent(validTargetId)}` : '';
     let body: string | undefined;
     if (contextUri) {
@@ -440,9 +503,33 @@ export class SpotifyProvider implements IMusicProvider {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes('404') || errMsg.includes('NO_ACTIVE_DEVICE') || errMsg.includes('Device not found')) {
+      if (
+        validTargetId &&
+        (errMsg.includes('404') ||
+          errMsg.includes('NO_ACTIVE_DEVICE') ||
+          errMsg.includes('Device not found'))
+      ) {
+        try {
+          await this.callSpotifyApi(userId, '/me/player', {
+            method: 'PUT',
+            body: JSON.stringify({ device_ids: [validTargetId], play: false }),
+          });
+          await this.callSpotifyApi(userId, `/me/player/play${qs}`, {
+            method: 'PUT',
+            body,
+          });
+          return;
+        } catch {
+          // fall through to user-facing message
+        }
+      }
+      if (
+        errMsg.includes('404') ||
+        errMsg.includes('NO_ACTIVE_DEVICE') ||
+        errMsg.includes('Device not found')
+      ) {
         throw new Error(
-          'No active Spotify Connect target ready. Open Spotify on your phone/computer and select "Tonal Speakers" to begin.'
+          'Tonal Speakers are not paired with Spotify yet. Tap "Pair Tonal Speakers" in the Music menu (or select "Tonal Speakers" once in your Spotify app) to activate on-device audio.'
         );
       }
       throw err;
