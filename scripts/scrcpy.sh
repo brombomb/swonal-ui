@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Swonal Tonal Screen Mirroring via scrcpy
-# Automatically handles device selection (USB or Wi-Fi) and Android 6.0 audio compatibility
+# Automatically handles device selection, port 5038 isolation, reconnects, and Android 6.0 audio compatibility
 
 MODE="tonal" # tonal (wi-fi), usb, or custom
 EXTRA_ARGS=()
@@ -31,20 +31,32 @@ fi
 
 TONAL_IP="192.168.0.140:5555"
 
-# Detect attached devices
-DEVICES=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
+# If isolated on 5038 or default, ensure ADB keys and port are defined
+export ANDROID_ADB_SERVER_PORT="${ANDROID_ADB_SERVER_PORT:-5038}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# If Tonal is not in attached devices, try connecting
-if [[ ! " ${DEVICES[*]:-} " =~ " ${TONAL_IP} " ]] && [[ "${MODE}" == "tonal" ]]; then
-  echo "==> Connecting to Tonal Wi-Fi ADB (${TONAL_IP})..."
+if [[ -f "${ROOT_DIR}/tonal_keys/adbkey" ]]; then
+  export ADB_VENDOR_KEYS="${ADB_VENDOR_KEYS:-${ROOT_DIR}/tonal_keys/adbkey}"
+fi
+
+# Check device list
+DEVICES=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
+OFFLINE_DEVICES=($(adb devices | awk 'NR>1 && $2=="offline" {print $1}'))
+
+# If Tonal is offline or missing, disconnect and reconnect
+if [[ " ${OFFLINE_DEVICES[*]:-} " =~ " ${TONAL_IP} " ]] || [[ ! " ${DEVICES[*]:-} " =~ " ${TONAL_IP} " && "${MODE}" == "tonal" ]]; then
+  echo "==> Ensuring Tonal Wi-Fi ADB connection (${TONAL_IP})..."
+  adb disconnect "${TONAL_IP}" >/dev/null 2>&1 || true
+  sleep 1
   adb connect "${TONAL_IP}" || true
   sleep 1
   DEVICES=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
 fi
 
 if [[ ${#DEVICES[@]} -eq 0 ]]; then
-  echo "Error: No authorized ADB devices found." >&2
-  echo "Ensure the Tonal tablet is powered on and connected via Wi-Fi (adb connect ${TONAL_IP})." >&2
+  echo "Error: No authorized ADB devices found on port ${ANDROID_ADB_SERVER_PORT}." >&2
+  echo "Ensure the Tonal tablet is powered on and connected via Wi-Fi: adb connect ${TONAL_IP}" >&2
   exit 1
 fi
 
@@ -69,5 +81,5 @@ else
   fi
 fi
 
-echo "==> Launching scrcpy on device: ${TARGET} (Tonal Trainer)..."
+echo "==> Mirroring ${TARGET} (Tonal Trainer) via scrcpy..."
 exec scrcpy -s "${TARGET}" --no-audio --max-fps 30 -m 1080 --video-bit-rate 4M "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
