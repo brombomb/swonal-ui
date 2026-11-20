@@ -17,6 +17,10 @@ dependencies = [
     "pyyaml>=6.0.1",
     "pyserial-asyncio>=0.6",
     "swolectl @ git+https://github.com/d4l3k/swolectl.git",
+]
+
+[project.optional-dependencies]
+dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "httpx>=0.27.0",

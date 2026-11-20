@@ -159,6 +159,7 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 - **Hardware Serial Protection**: Restricts `/dev/ttyACM0` strictly to `0600 root:root` and stops stock Tonal MCB services from locking the motor controller.
 - **Magisk Root Pre-Grant**: Automatically pre-grants permanent superuser rights (`policy=2`, `notification=0`) to eliminate notification toasts.
 - **Hardware Motor Bridge**: Deploys `tonal-daemon` into Termux and sets up background auto-start services on device boot.
+- **Automated Storage Management**: Automatically purges temporary staging APKs (`/data/local/tmp`), prunes Termux package/pip caches, rotates log files (`<5MB`), and enforces a `--clean-disk` maintenance utility to prevent device storage exhaustion.
 
 ---
 

@@ -53,5 +53,9 @@ DAEMON_DIR="/data/swonal/packages/tonal-daemon"
 if [ -d "$DAEMON_DIR" ]; then
     cd "$DAEMON_DIR" || exit 1
     pkill -f "src.main" || true
-    nohup python3 -m src.main > /data/swonal/daemon.log 2>&1 &
+    # Rotate log if it exceeds 5 MB to prevent device flash exhaustion
+    if [ -f /data/swonal/daemon.log ] && [ "$(wc -c < /data/swonal/daemon.log 2>/dev/null || echo 0)" -gt 5242880 ]; then
+        tail -n 2000 /data/swonal/daemon.log > /data/swonal/daemon.log.tmp 2>/dev/null && mv /data/swonal/daemon.log.tmp /data/swonal/daemon.log 2>/dev/null
+    fi
+    nohup python3 -m src.main >> /data/swonal/daemon.log 2>&1 &
 fi

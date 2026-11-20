@@ -15,6 +15,7 @@ SERVER_URL="http://192.168.1.100:3000"
 USE_BROMITE=0
 ALLOW_DEBUG=0
 ALLOW_DOWNGRADE=0
+CLEAN_DISK=0
 SKIP_APKS=0
 SKIP_LIBRESPOT=0
 SKIP_DAEMON=0
@@ -58,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --use-bromite)
       USE_BROMITE=1
+      shift
+      ;;
+    --clean-disk)
+      CLEAN_DISK=1
       shift
       ;;
     --skip-apks)
@@ -105,6 +110,45 @@ echo "==> Waiting for Tonal ADB device..."
 "${ADB[@]}" wait-for-device
 DEVICE_ABI="$("${ADB[@]}" shell getprop ro.product.cpu.abi | tr -d '\r')"
 echo "==> Detected device ABI: ${DEVICE_ABI}"
+
+show_device_disk() {
+  echo "==> Current device disk space (/data):"
+  "${ADB[@]}" shell "df -h /data 2>/dev/null || df /data 2>/dev/null" || true
+}
+
+clean_device_disk() {
+  echo "==> Purging staging files, old logs, crash dumps, and package caches..."
+  "${ADB[@]}" shell "su -c '
+    # 1. Staging and temp archives in /data/local/tmp
+    rm -rf /data/local/tmp/*.apk /data/local/tmp/*.tar /data/local/tmp/*.tmp /data/local/tmp/alsa.tar 2>/dev/null || true
+
+    # 2. Crash tombstones and system dropbox logs
+    rm -rf /data/tombstones/* /data/system/dropbox/* 2>/dev/null || true
+
+    # 3. Termux pip cache and apt deb archives
+    rm -rf /data/data/com.termux/files/home/.cache 2>/dev/null || true
+    rm -rf /data/data/com.termux/files/usr/var/cache/apt/archives/*.deb 2>/dev/null || true
+    rm -rf /data/data/com.termux/files/usr/tmp/* 2>/dev/null || true
+
+    # 4. Truncate oversized log files (> 5MB)
+    for log in /data/local/swonal-librespot.log /data/swonal/daemon.log /data/local/tmp/*.log; do
+      if [ -f \"\$log\" ] && [ \$(wc -c < \"\$log\" 2>/dev/null || echo 0) -gt 5242880 ]; then
+        tail -n 2000 \"\$log\" > \"\${log}.tmp\" 2>/dev/null && mv \"\${log}.tmp\" \"\$log\" 2>/dev/null || true
+      fi
+    done
+  '" || true
+}
+
+if [[ "${CLEAN_DISK}" -eq 1 ]]; then
+  echo "==> Running standalone disk maintenance..."
+  clean_device_disk
+  show_device_disk
+  exit 0
+fi
+
+# Clean disk before install to ensure sufficient staging room
+clean_device_disk
+show_device_disk
 
 mkdir -p "${APK_DIR}"
 
@@ -186,10 +230,25 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
 
   for apk in "${KIOSK_APK}" "${TERMUX_APK}" "${BROMITE_APK}"; do
     if [[ -n "${apk}" && -f "${apk}" ]]; then
+      pkg_id=""
+      case "${apk}" in
+        *"termux"*) pkg_id="com.termux" ;;
+        *"bromite"*) pkg_id="org.bromite.bromite" ;;
+        *"kiosk"*|*"app-release"*|*"app-debug"*) pkg_id="com.swonal.kiosk" ;;
+      esac
+      if [[ -n "${pkg_id}" && "${pkg_id}" != "com.swonal.kiosk" ]]; then
+        if "${ADB[@]}" shell "pm path ${pkg_id}" 2>/dev/null | grep -q "package:"; then
+          echo "  [cached] ${pkg_id} is already installed on device. Skipping APK re-push to preserve disk space."
+          continue
+        fi
+      fi
       echo "  [install] ${apk}"
       "${ADB[@]}" install "${INSTALL_FLAGS[@]}" "${apk}" || echo "  [warn] adb install returned non-zero for ${apk} (may already be installed)"
     fi
   done
+
+  # Immediately purge staging APKs from /data/local/tmp
+  "${ADB[@]}" shell "su -c 'rm -rf /data/local/tmp/*.apk /data/local/tmp/*.tmp 2>/dev/null || true'" || true
 
   # Pre-grant permanent Magisk superuser rights (policy 2 = ALLOW, notification 0 = SILENT)
   echo "  [magisk] Pre-granting permanent root permissions to Swonal Kiosk in Magisk..."
@@ -277,7 +336,11 @@ export ALSA_CONFIG_PATH="/data/local/alsa/alsa.conf"
 mkdir -p /data/local/librespot-cache
 if [ -x "${LIBRESPOT_BIN}" ]; then
   pkill -9 librespot || true
-  nohup "${LIBRESPOT_BIN}" -v --name "Tonal Speakers" --bitrate 320 --backend rodio --cache /data/local/librespot-cache --system-cache /data/local/librespot-cache > /data/local/swonal-librespot.log 2>&1 &
+  # Rotate log if it exceeds 5 MB to prevent flash exhaustion
+  if [ -f /data/local/swonal-librespot.log ] && [ \$(wc -c < /data/local/swonal-librespot.log 2>/dev/null || echo 0) -gt 5242880 ]; then
+    tail -n 2000 /data/local/swonal-librespot.log > /data/local/swonal-librespot.log.tmp 2>/dev/null && mv /data/local/swonal-librespot.log.tmp /data/local/swonal-librespot.log 2>/dev/null
+  fi
+  nohup "${LIBRESPOT_BIN}" --name "Tonal Speakers" --bitrate 320 --backend rodio --cache /data/local/librespot-cache --system-cache /data/local/librespot-cache --cache-size-limit 200M >> /data/local/swonal-librespot.log 2>&1 &
 fi
 EOF
   "${ADB[@]}" push "${BOOT_LIBRESPOT}" /data/local/tmp/99-swonal-librespot.sh
@@ -400,9 +463,13 @@ EOF
   "${ADB[@]}" push "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/98-swonal-daemon.sh
   "${ADB[@]}" shell "su -c 'mv /data/local/tmp/98-swonal-daemon.sh /data/adb/service.d/98-swonal-daemon.sh && chown 0:0 /data/adb/service.d/98-swonal-daemon.sh && chmod 0700 /data/adb/service.d/98-swonal-daemon.sh'"
   echo "  [termux] Installing tonal-daemon & swolectl Python dependencies in Termux..."
-  run_in_termux "pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon" || \
+  run_in_termux "pkg install -y python git && pip install --no-cache-dir -e /data/swonal/packages/tonal-daemon && apt-get clean 2>/dev/null || true && rm -rf /data/data/com.termux/files/home/.cache /data/data/com.termux/files/usr/var/cache/apt/archives/*.deb /data/data/com.termux/files/usr/tmp/* 2>/dev/null || true" || \
     echo "  [warn] Open Termux once on the Tonal screen to finish bootstrap, then run: pkg install -y python git && pip install -e /data/swonal/packages/tonal-daemon"
 fi
+
+# Final cleanup of any staging debris
+clean_device_disk
+show_device_disk
 
 if [[ "${USE_BROMITE}" -eq 0 && -n "${KIOSK_APK}" ]]; then
   echo "==> Step 4/4: Launching Swonal Native Kiosk (${SERVER_URL})..."
