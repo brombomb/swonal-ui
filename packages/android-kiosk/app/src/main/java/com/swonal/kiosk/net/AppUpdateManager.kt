@@ -68,6 +68,9 @@ object AppUpdateManager {
     /** True while an update download/staging/install transaction owns the motor maintenance lock. */
     val isUpdateInProgress = AtomicBoolean(false)
 
+    /** True while awaiting completion/cancellation of the system fallback package installer UI. */
+    val pendingFallbackInstall = AtomicBoolean(false)
+
     @Volatile
     private var cachedClient: OkHttpClient? = null
 
@@ -204,7 +207,7 @@ object AppUpdateManager {
         runCatching { tmpFile.delete() }
         runCatching { finalFile.delete() }
 
-        var maintenanceLocked = false
+        var maintenanceLockAttempted = false
         var keepLockForRelaunch = false
         try {
             onProgress(0, "Connecting to GitHub Releases...")
@@ -267,8 +270,9 @@ object AppUpdateManager {
             // Acquire daemon-enforced maintenance lock so BLE buttons or other clients cannot
             // energize the motor while the kiosk APK is being replaced.
             onProgress(100, "Locking motor safety for update...")
-            maintenanceLocked = setDaemonMaintenanceLock(localDaemonUrl, locked = true)
-            if (!maintenanceLocked) {
+            maintenanceLockAttempted = true
+            val lockAcquired = setDaemonMaintenanceLock(localDaemonUrl, locked = true)
+            if (!lockAcquired) {
                 return@withContext UpdateInstallResult.Failed(
                     "Could not acquire motor safety lock from daemon — update aborted"
                 )
@@ -321,7 +325,18 @@ object AppUpdateManager {
                 setDataAndType(contentUri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(intent)
+            // Keep the maintenance lock active while the system installer UI is open.
+            // If the user cancels and returns to MainActivity, onResume() clears pendingFallbackInstall
+            // and releases the lock; if installation succeeds, the new MainActivity.onCreate() releases it.
+            pendingFallbackInstall.set(true)
+            keepLockForRelaunch = true
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                pendingFallbackInstall.set(false)
+                keepLockForRelaunch = false
+                throw e
+            }
             UpdateInstallResult.FallbackInstallerLaunched(finalFile)
         } catch (e: Exception) {
             Log.e(TAG, "Update download/install failed", e)
@@ -329,7 +344,7 @@ object AppUpdateManager {
             UpdateInstallResult.Failed(e.message ?: "Update failed")
         } finally {
             if (!keepLockForRelaunch) {
-                if (maintenanceLocked) {
+                if (maintenanceLockAttempted) {
                     withContext(NonCancellable) {
                         setDaemonMaintenanceLock(localDaemonUrl, locked = false)
                     }

@@ -143,6 +143,19 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         syncDeviceVolumeSlider()
+        // If the user returned after cancelling or dismissing the fallback system installer,
+        // release the maintenance lock and clear update ownership.
+        if (com.swonal.kiosk.net.AppUpdateManager.pendingFallbackInstall.compareAndSet(true, false)) {
+            lifecycleScope.launch {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    com.swonal.kiosk.net.AppUpdateManager.setDaemonMaintenanceLock(
+                        app.prefs.localDaemonUrl,
+                        locked = false
+                    )
+                    com.swonal.kiosk.net.AppUpdateManager.isUpdateInProgress.set(false)
+                }
+            }
+        }
         scheduleAutoUpdateCheck()
     }
 
