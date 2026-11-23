@@ -1,14 +1,25 @@
-# swonal-ui
+<div align="center">
+  <img src="docs/swonal-logo.png" alt="swonal-ui Logo" width="112" />
+  <h1>swonal-ui</h1>
+  <p><strong>Open-Source Workout Controller, Hardware Motor Bridge, Decentralized P2P Social Feed, &amp; AI Addons for Rooted Tonal V1</strong></p>
 
-**Open-Source Workout Controller, Hardware Motor Bridge, Decentralized P2P Social Feed, & AI Addons for Rooted Tonal V1**
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+  [![Node.js: 22+](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
+  [![Python: 3.11+](https://img.shields.io/badge/Python-3.11+-yellow.svg)](https://www.python.org/)
+  [![Android: 6.0+ (API 23)](https://img.shields.io/badge/Android-6.0+_API_23-brightgreen.svg)](https://developer.android.com)
+  [![GitHub Release](https://img.shields.io/github/v/release/brombomb/swonal-ui?include_prereleases&color=orange)](https://github.com/brombomb/swonal-ui/releases)
+  [![CI](https://github.com/brombomb/swonal-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/brombomb/swonal-ui/actions/workflows/ci.yml)
+  [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/hApx3nkryr)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Node.js: 22+](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
-[![Python: 3.11+](https://img.shields.io/badge/Python-3.11+-yellow.svg)](https://www.python.org/)
-[![Android: 6.0+ (API 23)](https://img.shields.io/badge/Android-6.0+_API_23-brightgreen.svg)](https://developer.android.com)
-[![GitHub Release](https://img.shields.io/github/v/release/brombomb/swonal-ui?include_prereleases&color=orange)](https://github.com/brombomb/swonal-ui/releases)
-[![CI](https://github.com/brombomb/swonal-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/brombomb/swonal-ui/actions/workflows/ci.yml)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/hApx3nkryr)
+  <br />
+  <br />
+
+  <img src="docs/screenshots/kiosk_live.png" alt="swonal-ui Live 60fps Kiosk on Rooted Tonal V1" width="380" />
+  <br />
+  <em>Native 60fps portrait workout controller running directly on rooted Tonal V1 hardware — zero cloud lock-in, zero subscription.</em>
+</div>
+
+---
 
 `swonal-ui` frees and modernizes the rooted **Tonal 1 (V1)** digital-weight home gym. It replaces proprietary cloud lock-in with a completely open, self-hosted, offline-first ecosystem featuring:
 
