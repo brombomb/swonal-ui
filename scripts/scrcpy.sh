@@ -17,6 +17,10 @@ while [[ $# -gt 0 ]]; do
       MODE="tonal"
       shift
       ;;
+    --target|-t)
+      TONAL_IP="$2"
+      shift 2
+      ;;
     *)
       EXTRA_ARGS+=("$1")
       shift
@@ -29,8 +33,6 @@ if ! command -v scrcpy >/dev/null 2>&1; then
   exit 1
 fi
 
-TONAL_IP="192.168.0.140:5555"
-
 # If isolated on 5038 or default, ensure ADB keys and port are defined
 export ANDROID_ADB_SERVER_PORT="${ANDROID_ADB_SERVER_PORT:-5038}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +40,15 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 if [[ -f "${ROOT_DIR}/tonal_keys/adbkey" ]]; then
   export ADB_VENDOR_KEYS="${ADB_VENDOR_KEYS:-${ROOT_DIR}/tonal_keys/adbkey}"
+fi
+
+# Auto-detect existing Wi-Fi ADB target (:5555) if TONAL_IP is not set via env or --target
+if [[ -z "${TONAL_IP:-}" ]]; then
+  TONAL_IP="$(adb devices | awk 'NR>1 && $1 ~ /:5555$/ {print $1; exit}')"
+fi
+if [[ -z "${TONAL_IP:-}" && "${MODE}" == "tonal" ]]; then
+  echo "Error: No Tonal Wi-Fi ADB target specified. Set TONAL_IP=<IP>:5555 or pass --target <IP>:5555." >&2
+  exit 1
 fi
 
 # Check device list

@@ -223,7 +223,7 @@ class DiagnosticsDialog : BaseSwonalDialog() {
         devSection.addView(makeDivider())
         devSection.addView(makeSectionLabel("Developer: Server & Fail-Safe Endpoints"))
 
-        val serverUrlInput = makeInput("Server URL (https://swonal.brombomb.com)", ui.serverUrl).apply {
+        val serverUrlInput = makeInput("Server URL (http://192.168.1.100:3000)", ui.serverUrl).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(40)

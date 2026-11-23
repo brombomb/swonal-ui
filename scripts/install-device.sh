@@ -14,14 +14,14 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APK_DIR="${ROOT_DIR}/packages/device-assets"
 KIOSK_APK=""
 ADB_TARGET=""
-DETECTED_HOST_IP=$(ip -4 route get 192.168.0.140 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || true)
+DETECTED_HOST_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || true)
 if [[ -z "${DETECTED_HOST_IP:-}" ]]; then
   DETECTED_HOST_IP=$(ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || true)
 fi
 if [[ -n "${DETECTED_HOST_IP:-}" ]]; then
   SERVER_URL="http://${DETECTED_HOST_IP}:3000"
 else
-  SERVER_URL="https://swonal.brombomb.com"
+  SERVER_URL="http://192.168.1.100:3000"
 fi
 USE_BROMITE=0
 ALLOW_DEBUG=0

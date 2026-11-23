@@ -12,6 +12,9 @@
 
 `swonal-ui` frees and modernizes the rooted **Tonal 1 (V1)** digital-weight home gym. It replaces proprietary cloud lock-in with a completely open, self-hosted, offline-first ecosystem featuring:
 
+> [!CAUTION]
+> **Motorized Fitness Hardware Safety Warning (Beta Software):** `swonal-ui` directly controls physical motor resistance up to 200 lb on third-party hardware and is provided **AS IS** with no warranty. Always start with light weight (5–15 lb), verify your physical handle buttons and on-screen **WEIGHT OFF** fail-safe before lifting heavy, and never leave weight engaged unattended. You assume all risk of injury or hardware damage.
+
 - **Native 60fps Android Kiosk**: Hardware-accelerated Canvas views rendered directly on the 1080x1920 portrait wall display, with zero garbage-collection stutter.
 - **Bi-Directional 30Hz Motor Bridge**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), live Tonal V1 arm orientation decoding (`H 1–12`, `R 1–3`, `A 1–5` with per-axis color coding and moving/locked detection), and Smart Handle / Bar Control Module (`0x2003`) button toggle support.
 - **Routine Schedules & Free Lift Randomizer**: Assign weekdays (`S M T W T F S`) to any saved routine for 1-click **"Today's Routine"** loading right from the main screen, or tap the **`🎲`** dice button in the Free Lift Catalog to roll a random exercise.

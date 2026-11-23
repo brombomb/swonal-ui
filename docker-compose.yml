@@ -6,7 +6,7 @@ services:
     container_name: swonal-daemon-mock
     restart: unless-stopped
     ports:
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"
     environment:
       - MOCK_TONAL=true
       - DAEMON_PORT=8765
@@ -21,7 +21,6 @@ services:
       - tonal-daemon-mock
     ports:
       - "3000:3000"
-      - "8898:8898"
     environment:
       - NODE_ENV=production
       - PORT=3000

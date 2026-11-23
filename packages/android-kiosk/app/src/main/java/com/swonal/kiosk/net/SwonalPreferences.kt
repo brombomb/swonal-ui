@@ -165,7 +165,7 @@ class SwonalPreferences(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_SERVER_URL = "https://swonal.brombomb.com"
+        const val DEFAULT_SERVER_URL = "http://192.168.1.100:3000"
         const val DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
