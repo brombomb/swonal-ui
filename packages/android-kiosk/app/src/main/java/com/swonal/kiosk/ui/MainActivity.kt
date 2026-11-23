@@ -138,6 +138,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun scheduleAutoUpdateCheck() {
         lifecycleScope.launch {
+            // Release any stale maintenance lock left over from a just-completed update
+            com.swonal.kiosk.net.AppUpdateManager.setDaemonMaintenanceLock(
+                app.prefs.localDaemonUrl,
+                locked = false
+            )
             kotlinx.coroutines.delay(8_000L)
             val result = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()
             if (result is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable) {

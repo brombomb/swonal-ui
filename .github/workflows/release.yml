@@ -20,12 +20,29 @@ jobs:
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode Release Keystore (if configured)
+        if: ${{ secrets.SWONAL_KEYSTORE_BASE64 != '' }}
+        env:
+          SWONAL_KEYSTORE_BASE64: ${{ secrets.SWONAL_KEYSTORE_BASE64 }}
+        run: |
+          echo "$SWONAL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/swonal-release.jks"
+          echo "SWONAL_KEYSTORE_PATH=$RUNNER_TEMP/swonal-release.jks" >> "$GITHUB_ENV"
 
       - name: Build Kiosk APK
+        env:
+          SWONAL_KEYSTORE_PASSWORD: ${{ secrets.SWONAL_KEYSTORE_PASSWORD }}
+          SWONAL_KEY_ALIAS: ${{ secrets.SWONAL_KEY_ALIAS }}
+          SWONAL_KEY_PASSWORD: ${{ secrets.SWONAL_KEY_PASSWORD }}
         run: |
+          TAG="${{ github.ref_name }}"
+          VER="${TAG#v}"
+          IFS='.' read -r MAJ MIN PAT <<< "${VER%%-*}"
+          VCODE=$(( ${MAJ:-1} * 10000 + ${MIN:-0} * 100 + ${PAT:-0} ))
+          echo "Building Swonal Kiosk versionName=$VER versionCode=$VCODE"
           cd packages/android-kiosk
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease -PswonalVersionName="$VER" -PswonalVersionCode="$VCODE" --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

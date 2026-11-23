@@ -41,7 +41,8 @@ class UpdateDialog : BaseSwonalDialog() {
         val p = palette
         val d = resources.displayMetrics.density
         val root = createCardRoot(20)
-        root.addView(createDialogHeader("Swonal Update Available"))
+        // Hide header close (X) so dismissal always goes through the guarded Later button
+        root.addView(createDialogHeader("Swonal Update Available", showClose = false))
 
         if (info == null) {
             root.addView(TextView(requireContext()).apply {
@@ -191,6 +192,7 @@ class UpdateDialog : BaseSwonalDialog() {
                 val result = AppUpdateManager.downloadAndInstall(
                     context = requireContext().applicationContext,
                     update = info,
+                    localDaemonUrl = repo.uiStateFlow.value.localDaemonUrl,
                     isWeightEngaged = { repo.isWeightCurrentlyEngaged() },
                     onProgress = { pct, msg ->
                         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {

@@ -536,3 +536,23 @@ async def test_inactivity_auto_cutoff_disables_resistance():
     assert any(ev.get("reason") == "INACTIVITY_AUTO_CUTOFF" for ev in events)
 
 
+async def test_maintenance_lock_disengages_and_blocks_enable():
+    bridge = MotorBridge(make_test_config(mock_mode=True))
+    bridge.state = "IDLE_WEIGHT_OFF"
+    await bridge.enable_resistance()
+    assert bridge.weight_enabled is True
+
+    res = await bridge.set_maintenance_lock(True)
+    assert res["maintenance_locked"] is True
+    assert res["weight_enabled"] is False
+    assert bridge.weight_enabled is False
+
+    with pytest.raises(RuntimeError, match="maintenance lock"):
+        await bridge.enable_resistance()
+
+    await bridge.set_maintenance_lock(False)
+    await bridge.enable_resistance()
+    assert bridge.weight_enabled is True
+
+
+

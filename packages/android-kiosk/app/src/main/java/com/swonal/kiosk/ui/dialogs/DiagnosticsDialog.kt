@@ -217,6 +217,7 @@ class DiagnosticsDialog : BaseSwonalDialog() {
                     is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable -> {
                         checkUpdateBtn.text = "Update Available: v${res.info.versionName} →"
                         val fm = parentFragmentManager
+                        if (fm.isStateSaved) return@launch
                         dismiss()
                         if (fm.findFragmentByTag("app_update") == null) {
                             UpdateDialog.newInstance(res.info).show(fm, "app_update")

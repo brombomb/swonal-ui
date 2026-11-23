@@ -3,7 +3,10 @@ package com.swonal.kiosk.net
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.FileProvider
 import com.swonal.kiosk.BuildConfig
 import com.swonal.kiosk.util.RootShell
 import kotlinx.coroutines.Dispatchers
@@ -13,8 +16,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
@@ -44,7 +49,8 @@ sealed class UpdateInstallResult {
 
 /**
  * Checks GitHub Releases for newer Swonal Kiosk APKs, parses human-readable changelog bullets,
- * downloads the verified APK over HTTPS, and performs a silent root install on rooted Tonal V1s.
+ * downloads the verified APK over HTTPS (using bundled modern root CAs on Android 6.0),
+ * acquires a daemon-enforced motor maintenance lock, and performs a verified root install.
  */
 object AppUpdateManager {
     private const val TAG = "AppUpdateManager"
@@ -52,14 +58,34 @@ object AppUpdateManager {
         "https://api.github.com/repos/brombomb/swonal-ui/releases/latest"
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+    @Volatile
+    private var tlsConfigRef: SwonalTlsConfig? = null
+
+    @Volatile
+    private var cachedClient: OkHttpClient? = null
+
+    /**
+     * Wire the app's bundled modern CA trust configuration into this isolated, cookie-less
+     * update client so Android 6.0 (API 23) devices trust GitHub's modern TLS certificates.
+     */
+    fun configureTls(config: SwonalTlsConfig) {
+        tlsConfigRef = config
+        cachedClient = null
+    }
+
+    private fun getHttpClient(): OkHttpClient {
+        cachedClient?.let { return it }
+        val builder = OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
-            .build()
+        tlsConfigRef?.let { tls ->
+            builder.sslSocketFactory(tls.sslSocketFactory, tls.trustManager)
+        }
+        return builder.build().also { cachedClient = it }
     }
 
     @Volatile
@@ -68,6 +94,26 @@ object AppUpdateManager {
 
     @Volatile
     var dismissedVersionInSession: String? = null
+
+    /**
+     * Acquire or release the local daemon's motor maintenance lock (`POST /api/motor/maintenance`).
+     * While locked, the daemon immediately disengages weight and rejects all engagement paths
+     * (BLE handle buttons, WebSocket, and HTTP) until the updated kiosk releases the lock.
+     */
+    suspend fun setDaemonMaintenanceLock(
+        localDaemonUrl: String,
+        locked: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        val base = SwonalPreferences.normalizeLoopbackDaemonUrl(localDaemonUrl).trimEnd('/')
+        val body = """{"locked":$locked}""".toRequestBody(jsonMediaType)
+        val req = Request.Builder()
+            .url("$base/api/motor/maintenance")
+            .post(body)
+            .build()
+        runCatching {
+            getHttpClient().newCall(req).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
 
     suspend fun checkForUpdate(
         currentVersion: String = BuildConfig.VERSION_NAME,
@@ -81,7 +127,7 @@ object AppUpdateManager {
                 .get()
                 .build()
 
-            httpClient.newCall(req).execute().use { resp ->
+            getHttpClient().newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     return@withContext UpdateCheckResult.Error("Update server returned HTTP ${resp.code}")
                 }
@@ -134,6 +180,7 @@ object AppUpdateManager {
     suspend fun downloadAndInstall(
         context: Context,
         update: AppUpdateInfo,
+        localDaemonUrl: String = SwonalPreferences.DEFAULT_DAEMON_URL,
         isWeightEngaged: () -> Boolean,
         onProgress: (percent: Int, status: String) -> Unit
     ): UpdateInstallResult = withContext(Dispatchers.IO) {
@@ -149,6 +196,7 @@ object AppUpdateManager {
         runCatching { tmpFile.delete() }
         runCatching { finalFile.delete() }
 
+        var maintenanceLocked = false
         try {
             onProgress(0, "Connecting to GitHub Releases...")
             val req = Request.Builder()
@@ -157,7 +205,7 @@ object AppUpdateManager {
                 .get()
                 .build()
 
-            httpClient.newCall(req).execute().use { resp ->
+            getHttpClient().newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     return@withContext UpdateInstallResult.Failed("Download failed (HTTP ${resp.code})")
                 }
@@ -207,31 +255,69 @@ object AppUpdateManager {
                 return@withContext UpdateInstallResult.Failed("Weight engaged — cancelled install for safety")
             }
 
-            onProgress(100, "Installing Swonal v${update.versionName}...")
+            // Acquire daemon-enforced maintenance lock so BLE buttons or other clients cannot
+            // energize the motor while the kiosk APK is being replaced.
+            onProgress(100, "Locking motor safety for update...")
+            maintenanceLocked = setDaemonMaintenanceLock(localDaemonUrl, locked = true)
+            if (isWeightEngaged()) {
+                return@withContext UpdateInstallResult.Failed("Weight engaged — cancelled install for safety")
+            }
+
+            onProgress(100, "Staging Swonal v${update.versionName}...")
             val stagedPath = "/data/local/tmp/swonal-update.apk"
             val srcPath = finalFile.absolutePath
-            val cmd =
-                "cp \"$srcPath\" \"$stagedPath\" && chmod 644 \"$stagedPath\" && " +
-                    "pm install -r \"$stagedPath\" && rm -f \"$stagedPath\" && " +
-                    "(sleep 1 && am start -n com.swonal.kiosk/.ui.MainActivity) >/dev/null 2>&1 &"
 
-            val res = RootShell.run(cmd)
-            if (res.isSuccess) {
-                return@withContext UpdateInstallResult.InstalledAndRelaunching
+            // Step 1: Synchronously stage APK and verify exit status
+            val stageRes = RootShell.run("cp \"$srcPath\" \"$stagedPath\" && chmod 644 \"$stagedPath\"")
+            if (stageRes.isSuccess) {
+                onProgress(100, "Installing Swonal v${update.versionName}...")
+                // Step 2: Run pm install synchronously so failures (e.g. signature mismatch) are surfaced;
+                // only background the post-install relaunch after pm install succeeds.
+                val installCmd =
+                    "pm install -r \"$stagedPath\" && rm -f \"$stagedPath\" && " +
+                        "(sleep 1 && am start -n com.swonal.kiosk/.ui.MainActivity >/dev/null 2>&1 &)"
+                val installRes = RootShell.run(installCmd)
+                if (installRes.isSuccess) {
+                    // Keep maintenance lock until the newly launched MainActivity clears it in onCreate
+                    maintenanceLocked = false
+                    return@withContext UpdateInstallResult.InstalledAndRelaunching
+                }
+                val errDetail = installRes.stderr.ifBlank { installRes.stdout }.ifBlank { "pm install exited ${installRes.exitCode}" }
+                Log.e(TAG, "Root pm install failed: $errDetail")
+                runCatching { RootShell.run("rm -f \"$stagedPath\"") }
+                return@withContext UpdateInstallResult.Failed("Install failed: $errDetail")
             }
 
-            Log.w(TAG, "Root silent install failed (${res.exitCode}): ${res.stderr}; trying system installer")
-            // Fallback to standard Android package installer if su is unavailable
+            Log.w(TAG, "Root staging unavailable (${stageRes.exitCode}); trying FileProvider system installer")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(settingsIntent)
+                return@withContext UpdateInstallResult.Failed("Enable 'Install unknown apps' permission, then retry")
+            }
+
+            val contentUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.updateprovider",
+                finalFile
+            )
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(Uri.fromFile(finalFile), "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(intent)
+            maintenanceLocked = false
             UpdateInstallResult.FallbackInstallerLaunched(finalFile)
         } catch (e: Exception) {
             Log.e(TAG, "Update download/install failed", e)
             runCatching { tmpFile.delete() }
             UpdateInstallResult.Failed(e.message ?: "Update failed")
+        } finally {
+            if (maintenanceLocked) {
+                setDaemonMaintenanceLock(localDaemonUrl, locked = false)
+            }
         }
     }
 

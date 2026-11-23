@@ -39,6 +39,14 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Prepare Seeded Test SQLite Database
+        env:
+          DATABASE_URL: file:./data/swonal.db
+        run: |
+          mkdir -p prisma/data
+          npx prisma db push
+          npx tsx prisma/seed.ts
+
       - name: TypeScript Typecheck
         run: npm run typecheck
 
@@ -46,6 +54,8 @@ jobs:
         run: npm run build
 
       - name: Run Unit & Integration Tests
+        env:
+          DATABASE_URL: file:./data/swonal.db
         run: npm test
 
   tonal-daemon:
