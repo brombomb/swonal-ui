@@ -27,7 +27,7 @@
 > **Motorized Fitness Hardware Safety Warning (Beta Software):** `swonal-ui` directly controls physical motor resistance up to 200 lb on third-party hardware and is provided **AS IS** with no warranty. Always start with light weight (5–15 lb), verify your physical handle buttons and on-screen **WEIGHT OFF** fail-safe before lifting heavy, and never leave weight engaged unattended. You assume all risk of injury or hardware damage.
 
 - **Native 60fps Android Kiosk**: Hardware-accelerated Canvas views rendered directly on the 1080x1920 portrait wall display, with zero garbage-collection stutter.
-- **Bi-Directional 30Hz Motor Bridge**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), live Tonal V1 arm orientation decoding (`H 1–12`, `R 1–3`, `A 1–5` with per-axis color coding and moving/locked detection), and Smart Handle / Bar Control Module (`0x2003`) button toggle support.
+- **Bi-Directional 30Hz Motor Bridge (powered by [`swolectl`](https://github.com/d4l3k/swolectl))**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), live Tonal V1 arm orientation decoding (`H 1–12`, `R 1–3`, `A 1–5` with per-axis color coding and moving/locked detection), and Smart Handle / Bar Control Module (`0x2003`) button toggle support.
 - **Routine Schedules & Free Lift Randomizer**: Assign weekdays (`S M T W T F S`) to any saved routine for 1-click **"Today's Routine"** loading right from the main screen, or tap the **`🎲`** dice button in the Free Lift Catalog to roll a random exercise.
 - **Multi-Layer Motor Safety & Fail-Safe Fast Path**: Instant `<5ms` emergency motor disengage (`WEIGHT OFF`) over local loopback, automatic weight shutoff on workout/exercise switch, 45-second cable inactivity auto-cutoff (`INACTIVITY_AUTO_CUTOFF`), instant disengage on kiosk disconnect or daemon shutdown, serialized async motor command lock, and monotonic watchdog protection.
 - **Decentralized P2P Friends (Swocial)**: Self-sovereign gym buddy network powered by Nostr (`Your Public Swocial Code`). Share workouts, exchange routine templates, and send encouragement (`💪`, `🔥`, `🏆`) peer-to-peer across home NATs without central servers or tracking.
@@ -238,6 +238,12 @@ npm --prefix packages/server-app test
 packages/tonal-daemon/.venv/bin/pytest packages/tonal-daemon/tests/test_daemon.py
 (cd packages/android-kiosk && ./gradlew :app:testDebugUnitTest)
 ```
+
+## Acknowledgements & Credits
+
+A huge thank you to **[Tristan Rice (`@d4l3k`)](https://github.com/d4l3k)** and the contributors of **[`swolectl`](https://github.com/d4l3k/swolectl)**! `swonal-ui`'s hardware motor daemon (`packages/tonal-daemon`) is built directly on top of `swolectl`'s reverse-engineered Tonal V1 serial protocol, firmware safety policies, and motor control library. None of this would be possible without their foundational work.
+
+---
 
 ## License
 
