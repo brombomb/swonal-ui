@@ -133,6 +133,28 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         syncDeviceVolumeSlider()
+        scheduleAutoUpdateCheck()
+    }
+
+    private fun scheduleAutoUpdateCheck() {
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(8_000L)
+            val result = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()
+            if (result is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable) {
+                val info = result.info
+                if (
+                    com.swonal.kiosk.net.AppUpdateManager.dismissedVersionInSession != info.versionName &&
+                    !app.repository.isWeightCurrentlyEngaged() &&
+                    !app.repository.uiStateFlow.value.authRequired &&
+                    !isFinishing &&
+                    !isDestroyed
+                ) {
+                    showDialogOnce("app_update") {
+                        com.swonal.kiosk.ui.dialogs.UpdateDialog.newInstance(info)
+                    }
+                }
+            }
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

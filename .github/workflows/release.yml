@@ -85,6 +85,22 @@ jobs:
         run: |
           mv release-artifacts/app-release.apk release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
 
+      - name: Extract Human-Readable Changelog
+        run: |
+          TAG="${{ github.ref_name }}"
+          python3 - "$TAG" <<'PY' > release-notes.md
+          import re, sys
+          tag = sys.argv[1]
+          try:
+              text = open("CHANGELOG.md", encoding="utf-8").read()
+          except FileNotFoundError:
+              sys.exit(0)
+          pattern = rf"^##\s+\[?{re.escape(tag)}\]?[^\n]*\n(.*?)(?=^##\s+|\Z)"
+          m = re.search(pattern, text, flags=re.M | re.S)
+          if m:
+              print(m.group(1).strip())
+          PY
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -92,6 +108,7 @@ jobs:
             release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
             release-artifacts/swonal-server-bundle.tar.gz
           name: Swonal UI ${{ github.ref_name }}
+          body_path: release-notes.md
           draft: false
           prerelease: false
           generate_release_notes: true

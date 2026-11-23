@@ -204,6 +204,41 @@ class DiagnosticsDialog : BaseSwonalDialog() {
         }
         content.addView(exportRow)
 
+        // In-App Auto-Updater Check
+        lateinit var checkUpdateBtn: TextView
+        checkUpdateBtn = makePillButton("Check for App Updates (v${com.swonal.kiosk.BuildConfig.VERSION_NAME})") {
+            checkUpdateBtn.isEnabled = false
+            checkUpdateBtn.text = "Checking for updates..."
+            viewLifecycleOwner.lifecycleScope.launch {
+                val res = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()
+                if (!isAdded) return@launch
+                checkUpdateBtn.isEnabled = true
+                when (res) {
+                    is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable -> {
+                        checkUpdateBtn.text = "Update Available: v${res.info.versionName} →"
+                        val fm = parentFragmentManager
+                        dismiss()
+                        if (fm.findFragmentByTag("app_update") == null) {
+                            UpdateDialog.newInstance(res.info).show(fm, "app_update")
+                        }
+                    }
+                    is com.swonal.kiosk.net.UpdateCheckResult.UpToDate -> {
+                        checkUpdateBtn.text = "Swonal v${res.currentVersion} is up to date ✓"
+                    }
+                    is com.swonal.kiosk.net.UpdateCheckResult.Error -> {
+                        checkUpdateBtn.text = "Check for App Updates (v${com.swonal.kiosk.BuildConfig.VERSION_NAME})"
+                        Toast.makeText(requireContext(), "Update check failed: ${res.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(8) }
+        }
+        content.addView(checkUpdateBtn)
+
         // Link to Application Settings (where AI Coach configuration lives)
         content.addView(makePillButton("Application & AI Coach Settings →") {
             dismiss()
