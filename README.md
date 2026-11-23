@@ -7,6 +7,7 @@
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11+-yellow.svg)](https://www.python.org/)
 [![Android: 6.0+ (API 23)](https://img.shields.io/badge/Android-6.0+_API_23-brightgreen.svg)](https://developer.android.com)
 [![GitHub Release](https://img.shields.io/github/v/release/brombomb/swonal-ui?include_prereleases&color=orange)](https://github.com/brombomb/swonal-ui/releases)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/hApx3nkryr)
 
 `swonal-ui` frees and modernizes the rooted **Tonal 1 (V1)** digital-weight home gym. It replaces proprietary cloud lock-in with a completely open, self-hosted, offline-first ecosystem featuring:
 
@@ -212,6 +213,8 @@ node scripts/verify-e2e.mjs
 ---
 
 ## Community & Contributing
+
+Join the community on Discord to share setups, workouts, and feedback: **[Join the Swonal Discord](https://discord.gg/hApx3nkryr)**
 
 Contributions are warmly welcomed! Please ensure all test suites pass before submitting pull requests:
 
