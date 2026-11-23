@@ -231,12 +231,10 @@ node scripts/verify-e2e.mjs
 
 Join the community on Discord to share setups, workouts, and feedback: **[Join the Swonal Discord](https://discord.gg/hApx3nkryr)**
 
-Contributions are warmly welcomed! Please ensure all test suites pass before submitting pull requests:
+Contributions are warmly welcomed! Run the clean-room local CI script before pushing to verify all three suites and workflow files without touching your local `.env` or `swonal.db`:
 
 ```bash
-npm --prefix packages/server-app test
-packages/tonal-daemon/.venv/bin/pytest packages/tonal-daemon/tests/test_daemon.py
-(cd packages/android-kiosk && ./gradlew :app:testDebugUnitTest)
+./scripts/ci-local.sh
 ```
 
 ## License

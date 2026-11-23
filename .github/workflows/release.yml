@@ -23,12 +23,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Decode Release Keystore (if configured)
-        if: ${{ secrets.SWONAL_KEYSTORE_BASE64 != '' }}
         env:
           SWONAL_KEYSTORE_BASE64: ${{ secrets.SWONAL_KEYSTORE_BASE64 }}
         run: |
-          echo "$SWONAL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/swonal-release.jks"
-          echo "SWONAL_KEYSTORE_PATH=$RUNNER_TEMP/swonal-release.jks" >> "$GITHUB_ENV"
+          if [ -n "$SWONAL_KEYSTORE_BASE64" ]; then
+            echo "$SWONAL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/swonal-release.jks"
+            echo "SWONAL_KEYSTORE_PATH=$RUNNER_TEMP/swonal-release.jks" >> "$GITHUB_ENV"
+            echo "Release keystore configured."
+          else
+            echo "SWONAL_KEYSTORE_BASE64 not set; falling back to default signing config."
+          fi
 
       - name: Build Kiosk APK
         env:
