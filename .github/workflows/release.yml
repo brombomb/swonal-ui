@@ -178,3 +178,69 @@ jobs:
           files: |
             release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
             release-artifacts/swonal-server-bundle.tar.gz
+
+      - name: Notify Discord Release Channel
+        continue-on-error: true
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$DISCORD_RELEASE_WEBHOOK" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK not set; skipping Discord notification."
+            exit 0
+          fi
+          gh release view "$RELEASE_TAG" --json name,url,body,assets > release-meta.json
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          webhook = os.environ["DISCORD_RELEASE_WEBHOOK"].strip()
+          tag = os.environ["RELEASE_TAG"]
+          repo = os.environ["REPO"]
+          meta = json.load(open("release-meta.json", encoding="utf-8"))
+
+          title = meta.get("name") or f"Swonal {tag}"
+          url = meta.get("url") or f"https://github.com/{repo}/releases/tag/{tag}"
+          body = (meta.get("body") or "New Swonal release is now available.").strip()
+          if len(body) > 3500:
+              body = body[:3497] + "..."
+
+          apk_asset = next(
+              (a for a in meta.get("assets", []) if str(a.get("name", "")).endswith(".apk")),
+              None,
+          )
+          fields = []
+          if apk_asset and apk_asset.get("url"):
+              fields.append({
+                  "name": "Android Kiosk APK",
+                  "value": f"[{apk_asset['name']}]({apk_asset['url']})\nExisting kiosks will prompt to update automatically.",
+                  "inline": False,
+              })
+
+          payload = {
+              "username": "Swonal Releases",
+              "embeds": [
+                  {
+                      "title": f"🚀 {title}",
+                      "url": url,
+                      "description": body,
+                      "color": 0x22C55E,
+                      "fields": fields,
+                      "footer": {"text": f"{repo} • {tag}"},
+                  }
+              ],
+          }
+
+          req = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "SwonalReleaseBot/1.0",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=15) as resp:
+              print(f"Discord notified (HTTP {resp.status})")
+          PY
