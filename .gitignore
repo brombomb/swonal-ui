@@ -24,6 +24,7 @@ packages/server-app/data/media/*
 packages/server-app/prisma/data/
 packages/tonal-daemon/config.yaml
 packages/data/swonal-settings.json
+backups/
 
 # Logs & OS Files
 *.log

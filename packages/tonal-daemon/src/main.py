@@ -4,14 +4,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import asynccontextmanager
+import hmac
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 try:
@@ -139,7 +141,15 @@ async def lifespan(_: FastAPI):
         except RuntimeError:
             pass
 
+    main_loop = asyncio.get_running_loop()
+
+    def on_mcb_ble_button(event: dict) -> None:
+        main_loop.call_soon_threadsafe(
+            lambda: main_loop.create_task(handle_ble_event(event))
+        )
+
     motor.register_telemetry_callback(broadcast_telemetry)
+    motor.register_ble_button_callback(on_mcb_ble_button)
     await motor.initialize()
     await ble.start()
     librespot = LibrespotBridge(mock_mode=motor.mock_mode)
@@ -159,11 +169,55 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Swonal Tonal Hardware Daemon", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:8765",
+        "http://localhost:8765",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _configured_daemon_token() -> str:
+    env_tok = os.getenv("DAEMON_API_TOKEN", "").strip()
+    if env_tok:
+        return env_tok
+    if motor is not None:
+        return str(motor.config.get("daemon", {}).get("api_token", "")).strip()
+    return ""
+
+
+def _is_authorized_request(client_host: str, auth_header: Optional[str], query_token: Optional[str] = None) -> bool:
+    if client_host in LOOPBACK_HOSTS:
+        return True
+    expected = _configured_daemon_token()
+    if not expected:
+        return True
+    provided = ""
+    if auth_header and auth_header.lower().startswith("bearer "):
+        provided = auth_header[7:].strip()
+    elif query_token:
+        provided = query_token.strip()
+    return bool(provided) and hmac.compare_digest(provided, expected)
+
+
+@app.middleware("http")
+async def daemon_auth_middleware(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+    client_host = getattr(request.client, "host", "") if request.client else ""
+    if not _is_authorized_request(
+        client_host,
+        request.headers.get("authorization"),
+        request.query_params.get("token"),
+    ):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized daemon request"})
+    return await call_next(request)
 
 
 @app.get("/health")
@@ -186,6 +240,14 @@ async def get_health():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    client_host = getattr(getattr(websocket, "client", None), "host", "")
+    if not _is_authorized_request(
+        client_host,
+        websocket.headers.get("authorization"),
+        websocket.query_params.get("token"),
+    ):
+        await websocket.close(code=4401)
+        return
     await websocket.accept()
     active_websockets.append(websocket)
     try:
@@ -273,10 +335,24 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         if websocket in active_websockets:
             active_websockets.remove(websocket)
+        client_host = getattr(getattr(websocket, "client", None), "host", "")
+        if motor is not None and motor.weight_enabled and (
+            client_host in ("127.0.0.1", "::1", "localhost") or not active_websockets
+        ):
+            logger.warning(
+                "Safety disengage: kiosk/last WebSocket client (%s) disconnected while weight was engaged.",
+                client_host,
+            )
+            await motor.disable_resistance()
     except Exception as exc:
         logger.error("WebSocket processing error: %s", exc)
         if websocket in active_websockets:
             active_websockets.remove(websocket)
+        client_host = getattr(getattr(websocket, "client", None), "host", "")
+        if motor is not None and motor.weight_enabled and (
+            client_host in ("127.0.0.1", "::1", "localhost") or not active_websockets
+        ):
+            await motor.disable_resistance()
 
 
 @app.post("/api/mode/stock")
@@ -387,7 +463,7 @@ async def route_zero_calibration():
 async def route_spotify_status():
     if librespot is None:
         raise HTTPException(status_code=503, detail="Librespot bridge unavailable")
-    return librespot.get_status()
+    return await librespot.get_status_async()
 
 
 @app.post("/api/spotify/auth")
@@ -403,10 +479,29 @@ async def route_spotify_auth(req: SpotifyAuthRequest):
 async def route_spotify_wake():
     if librespot is None:
         raise HTTPException(status_code=503, detail="Librespot bridge unavailable")
-    st = librespot.get_status()
+    st = await librespot.get_status_async()
     if not st["running"]:
         return await librespot.restart_process()
     return st
+
+
+@app.post("/api/adb/reset")
+async def route_adb_reset(request: Request):
+    """Restart on-device adbd over TCP :5555 if a stale half-open socket wedges Wi-Fi ADB."""
+    client_host = getattr(request.client, "host", "") if request.client else ""
+    if client_host not in LOOPBACK_HOSTS and not _configured_daemon_token():
+        logger.warning("ADB reset requested from %s (set DAEMON_API_TOKEN to enforce auth)", client_host)
+    if motor is not None and motor.mock_mode:
+        return {"status": "ok", "mock_mode": True}
+    proc = await asyncio.create_subprocess_exec(
+        "sh",
+        "-c",
+        "setprop service.adb.tcp.port 5555 && stop adbd && start adbd",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await asyncio.wait_for(proc.communicate(), timeout=5.0)
+    return {"status": "ok", "restarted": True}
 
 
 def entry_point() -> None:

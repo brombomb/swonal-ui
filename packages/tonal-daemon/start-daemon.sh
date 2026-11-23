@@ -3,6 +3,8 @@
 setprop persist.adb.tcp.port 5555
 setprop persist.sys.usb.config adb
 setprop sys.usb.config adb
+# Shorten TCP keepalive timers so half-open ADB sockets from a rebooted PC are reaped quickly
+sysctl -w net.ipv4.tcp_keepalive_time=30 net.ipv4.tcp_keepalive_intvl=10 net.ipv4.tcp_keepalive_probes=3 >/dev/null 2>&1 || true
 if [ "$(getprop service.adb.tcp.port)" != "5555" ]; then
     setprop service.adb.tcp.port 5555
     stop adbd
@@ -56,7 +58,8 @@ DAEMON_DIR="/data/swonal/packages/tonal-daemon"
 
 if [ -d "$DAEMON_DIR" ]; then
     cd "$DAEMON_DIR" || exit 1
-    pkill -f "src.main" || true
+    pkill -9 -f "python3 -m src.main" 2>/dev/null || true
+    sleep 1
     # Rotate log if it exceeds 5 MB to prevent device flash exhaustion
     if [ -f /data/swonal/daemon.log ] && [ "$(wc -c < /data/swonal/daemon.log 2>/dev/null || echo 0)" -gt 5242880 ]; then
         tail -n 2000 /data/swonal/daemon.log > /data/swonal/daemon.log.tmp 2>/dev/null && mv /data/swonal/daemon.log.tmp /data/swonal/daemon.log 2>/dev/null

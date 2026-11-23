@@ -91,6 +91,23 @@
                     android:src="@drawable/ic_settings" />
             </FrameLayout>
 
+            <!-- Swocial Friends Feed Trigger (Icon-Only) -->
+            <FrameLayout
+                android:id="@+id/btnSwocial"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/ivSwocial"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_users" />
+            </FrameLayout>
+
             <!-- Companion Phone QR Trigger -->
             <LinearLayout
                 android:id="@+id/btnCompanionQr"
@@ -136,32 +153,31 @@
                     android:src="@drawable/ic_apps" />
             </FrameLayout>
 
-            <!-- Hardware Telemetry Status Pill -->
+            <!-- Hardware Telemetry Status Dot Trigger (Tap for full Tonal CDC details) -->
             <LinearLayout
                 android:id="@+id/btnHardwareStatus"
-                android:layout_width="wrap_content"
+                android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_marginStart="8dp"
                 android:clickable="true"
                 android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="12dp">
+                android:gravity="center"
+                android:orientation="horizontal">
 
                 <View
                     android:id="@+id/statusDot"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp" />
+                    android:layout_width="11dp"
+                    android:layout_height="11dp" />
 
                 <TextView
                     android:id="@+id/tvHardwareStatus"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="7dp"
                     android:fontFamily="monospace"
                     android:text="DAEMON WAIT"
                     android:textSize="11sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    android:visibility="gone" />
             </LinearLayout>
         </LinearLayout>
 
@@ -357,6 +373,65 @@
                     android:text="Tap weight gauge or use handle click to engage"
                     android:textSize="13sp"
                     android:textStyle="bold" />
+
+                <!-- Routines & Exercises + 1-Click Today's Scheduled Routine Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="9dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:id="@+id/btnWorkoutLibrary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp">
+
+                        <ImageView
+                            android:id="@+id/ivWorkoutLibrary"
+                            android:layout_width="15dp"
+                            android:layout_height="15dp"
+                            android:src="@drawable/ic_dumbbell" />
+
+                        <TextView
+                            android:id="@+id/tvWorkoutLibrary"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="Routines &amp; Exercises"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- 1-Click Load Today's Scheduled Routine (shown when today matches a scheduled routine) -->
+                    <LinearLayout
+                        android:id="@+id/btnTodayRoutine"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginStart="8dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tvTodayRoutine"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="Today: Routine ▶"
+                            android:textSize="11.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- Right fixed-width action column (316px equivalent = 240dp) -->
@@ -365,62 +440,36 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <!-- Routines & Exercises Trigger -->
-                <LinearLayout
-                    android:id="@+id/btnWorkoutLibrary"
-                    android:layout_width="match_parent"
-                    android:layout_height="36dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:paddingHorizontal="12dp">
-
-                    <ImageView
-                        android:id="@+id/ivWorkoutLibrary"
-                        android:layout_width="15dp"
-                        android:layout_height="15dp"
-                        android:src="@drawable/ic_dumbbell" />
-
-                    <TextView
-                        android:id="@+id/tvWorkoutLibrary"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="Routines &amp; Exercises"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- Arm Alignment Sync Badge + Info button -->
+                <!-- 3-Row Arm Alignment Status Button (Target / Left / Right) + Info button -->
                 <LinearLayout
                     android:id="@+id/btnArmSync"
                     android:layout_width="match_parent"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="7dp"
+                    android:layout_height="wrap_content"
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingHorizontal="10dp">
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="8dp">
 
                     <ImageView
                         android:id="@+id/ivArmSync"
                         android:layout_width="14dp"
                         android:layout_height="14dp"
-                        android:src="@drawable/ic_check_circle" />
+                        android:src="@drawable/ic_check_circle"
+                        android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/tvArmSync"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="6dp"
+                        android:layout_marginEnd="6dp"
                         android:layout_weight="1"
-                        android:ellipsize="end"
                         android:fontFamily="monospace"
-                        android:maxLines="1"
-                        android:text="ARMS ALIGNED • H4 R2 A1"
-                        android:textSize="10.5sp"
+                        android:lineSpacingExtra="2dp"
+                        android:maxLines="3"
+                        android:text="Target  H4  R2  A1\nLeft    H1  R1  A1\nRight   H1  R1  A1"
+                        android:textSize="11sp"
                         android:textStyle="bold" />
 
                     <ImageView
@@ -997,15 +1046,11 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <com.swonal.kiosk.ui.views.SymmetrySliderView
-                    android:id="@+id/symmetrySliderView"
-                    android:layout_width="match_parent"
-                    android:layout_height="18dp"
-                    android:layout_marginVertical="8dp" />
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
 
                     <TextView
@@ -1035,6 +1080,11 @@
                         android:textSize="10.5sp"
                         android:textStyle="bold" />
                 </LinearLayout>
+
+                <com.swonal.kiosk.ui.views.SymmetrySliderView
+                    android:id="@+id/symmetrySliderView"
+                    android:layout_width="match_parent"
+                    android:layout_height="18dp" />
             </LinearLayout>
 
             <View
@@ -1474,11 +1524,14 @@
                     android:src="@drawable/ic_close" />
             </LinearLayout>
 
+            <!-- Spotify Player Row (hidden for now while Spotify Connect is paused) -->
             <LinearLayout
+                android:id="@+id/musicPlayerRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:visibility="gone">
 
                 <!-- Album Art -->
                 <FrameLayout
@@ -1650,15 +1703,15 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Row 2: Active Speaker Selector + Device Hardware Volume + Spotify Volume -->
+            <!-- Row 2: Tonal Device Hardware Volume (Spotify speaker & volume hidden for now) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="0dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <!-- Active Speaker Selector Pill -->
+                <!-- Active Speaker Selector Pill (hidden with Spotify player) -->
                 <LinearLayout
                     android:id="@+id/btnSelectSpeaker"
                     android:layout_width="wrap_content"
@@ -1669,7 +1722,8 @@
                     android:gravity="center_vertical"
                     android:maxWidth="210dp"
                     android:orientation="horizontal"
-                    android:paddingHorizontal="10dp">
+                    android:paddingHorizontal="10dp"
+                    android:visibility="gone">
 
                     <ImageView
                         android:id="@+id/ivSpeakerIcon"
@@ -1704,7 +1758,6 @@
                     android:id="@+id/deviceVolumePill"
                     android:layout_width="0dp"
                     android:layout_height="34dp"
-                    android:layout_marginEnd="8dp"
                     android:layout_weight="1"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
@@ -1749,7 +1802,7 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Spotify Connect Volume Pill -->
+                <!-- Spotify Connect Volume Pill (hidden with Spotify player) -->
                 <LinearLayout
                     android:id="@+id/volumePill"
                     android:layout_width="0dp"
@@ -1757,7 +1810,8 @@
                     android:layout_weight="1"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingHorizontal="10dp">
+                    android:paddingHorizontal="10dp"
+                    android:visibility="gone">
 
                     <ImageView
                         android:id="@+id/ivVolume"

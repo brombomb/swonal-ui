@@ -33,7 +33,13 @@ class LibrespotAudioBridge(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
-    private var ducked: Boolean = false
+    private var musicCueDucked: Boolean = false
+
+    @Volatile
+    private var coachTtsDucked: Boolean = false
+
+    private val ducked: Boolean
+        get() = musicCueDucked || coachTtsDucked
 
     @Volatile
     private var activeTrack: AudioTrack? = null
@@ -61,9 +67,19 @@ class LibrespotAudioBridge(
     }
 
     fun setDucked(isDucked: Boolean) {
-        if (ducked == isDucked) return
-        ducked = isDucked
-        val gain = if (isDucked) 0.25f else 1.0f
+        if (musicCueDucked == isDucked) return
+        musicCueDucked = isDucked
+        applyEffectiveGain()
+    }
+
+    fun setCoachTtsDucked(isDucked: Boolean) {
+        if (coachTtsDucked == isDucked) return
+        coachTtsDucked = isDucked
+        applyEffectiveGain()
+    }
+
+    private fun applyEffectiveGain() {
+        val gain = if (ducked) 0.25f else 1.0f
         runCatching { activeTrack?.setVolume(gain) }
     }
 

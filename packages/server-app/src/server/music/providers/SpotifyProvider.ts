@@ -206,24 +206,50 @@ export class SpotifyProvider implements IMusicProvider {
       return integration.accessToken;
     }
 
-    const clientId = this.getClientId();
-    const clientSecret = this.getClientSecret();
-    if (!clientId || !clientSecret || !integration.refreshToken) {
+    if (!integration.refreshToken) {
       return integration.accessToken;
     }
 
-    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const resp = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${basicAuth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: integration.refreshToken,
-      }),
-    });
+    let meta: { authMode?: string; clientId?: string } = {};
+    if (integration.metadataJson) {
+      try {
+        meta = JSON.parse(integration.metadataJson);
+      } catch {
+        meta = {};
+      }
+    }
+
+    let resp: Response;
+    if (meta.authMode === 'keymaster_pkce' && meta.clientId) {
+      // Public PKCE client refreshes with client_id in body (no Basic client secret)
+      resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: integration.refreshToken,
+          client_id: meta.clientId,
+        }),
+      });
+    } else {
+      const clientId = this.getClientId();
+      const clientSecret = this.getClientSecret();
+      if (!clientId || !clientSecret) {
+        return integration.accessToken;
+      }
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: integration.refreshToken,
+        }),
+      });
+    }
 
     if (!resp.ok) {
       throw new Error(`Spotify token refresh failed: ${resp.status}`);
@@ -722,6 +748,7 @@ export class SpotifyProvider implements IMusicProvider {
     await this.requireToken(userId);
     let targetId = deviceId;
     if (deviceId === 'tonal-gym-librespot') {
+      await this.wakeTonalSpeakers();
       try {
         const resp = await this.callSpotifyApi(userId, '/me/player/devices');
         if (resp && resp.status === 200) {
@@ -734,28 +761,28 @@ export class SpotifyProvider implements IMusicProvider {
       }
     }
 
-    if (targetId !== 'tonal-gym-librespot') {
-      try {
-        await this.callSpotifyApi(userId, '/me/player', {
-          method: 'PUT',
-          body: JSON.stringify({ device_ids: [targetId], play: true }),
+    // Save as preferred device preference
+    try {
+      const integration = await this.findIntegration(userId);
+      if (integration) {
+        await prisma.musicIntegration.update({
+          where: { id: integration.id },
+          data: { preferredDeviceId: targetId },
         });
-      } catch (err) {
-        console.warn(`[SpotifyProvider] transferPlayback to ${targetId} failed:`, err);
       }
+    } catch {
+      // ignore
+    }
+
+    if (targetId !== 'tonal-gym-librespot') {
+      await this.callSpotifyApi(userId, '/me/player', {
+        method: 'PUT',
+        body: JSON.stringify({ device_ids: [targetId], play: true }),
+      });
     } else {
-      // Save as preferred device preference for when speaker connects
-      try {
-        const integration = await this.findIntegration(userId);
-        if (integration) {
-          await prisma.musicIntegration.update({
-            where: { id: integration.id },
-            data: { preferredDeviceId: 'tonal-gym-librespot' },
-          });
-        }
-      } catch {
-        // ignore
-      }
+      throw new Error(
+        'Tonal Speakers need a 1-time Spotify pairing — tap "Pair Tonal Speakers" in the Speakers menu.'
+      );
     }
   }
 

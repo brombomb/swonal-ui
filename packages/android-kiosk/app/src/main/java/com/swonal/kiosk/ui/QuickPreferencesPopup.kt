@@ -269,7 +269,8 @@ object KioskPopups {
         telemetry: com.swonal.kiosk.model.TelemetryFrame? = null,
         exercise: com.swonal.kiosk.model.Exercise? = null,
         isMockMode: Boolean = false,
-        onSyncMockArms: (() -> Unit)? = null
+        onSyncMockArms: (() -> Unit)? = null,
+        liveTelemetryProvider: (() -> com.swonal.kiosk.model.TelemetryFrame)? = null
     ) {
         val d = context.resources.displayMetrics.density
         fun dp(v: Int) = (v * d).toInt()
@@ -290,7 +291,7 @@ object KioskPopups {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) }
             addView(TextView(context).apply {
-                text = "ARM POSITION & SENSORS"
+                text = "ARM POSITION & SENSORS (LIVE)"
                 textSize = 10.5f
                 letterSpacing = 0.08f
                 typeface = SwonalFonts.interExtraBold(context)
@@ -307,109 +308,31 @@ object KioskPopups {
         }
         root.addView(header)
 
-        if (telemetry != null && exercise != null) {
-            val alignment = com.swonal.kiosk.model.ArmAlignmentHelper.evaluate(telemetry, exercise)
-            val sensorBox = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                background = palette.elevatedPillDrawable(d, 10f, interactive = false)
-                setPadding(dp(10), dp(8), dp(10), dp(8))
+        if (isMockMode && onSyncMockArms != null) {
+            root.addView(makePopupButton(context, "Simulate Aligned Arms (Mock)", palette, d) {
+                onSyncMockArms()
+                popup.dismiss()
+            }.apply {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(8) }
-            }
-
-            fun addSensorRow(label: String, value: String, color: Int) {
-                sensorBox.addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(2); bottomMargin = dp(2) }
-                    addView(TextView(context).apply {
-                        text = label
-                        textSize = 11f
-                        typeface = SwonalFonts.interBold(context)
-                        setTextColor(palette.textMuted)
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    })
-                    addView(TextView(context).apply {
-                        text = value
-                        textSize = 11f
-                        typeface = SwonalFonts.monoBold(context)
-                        fontFeatureSettings = "tnum"
-                        setTextColor(color)
-                    })
-                })
-            }
-
-            addSensorRow("Target", alignment.targetText, palette.textPrimary)
-            addSensorRow(
-                "Left Arm",
-                "${alignment.leftLiveText} ${if (alignment.leftMatched) "✓" else "✗"}",
-                when {
-                    alignment.leftUnlocked -> palette.criticalText
-                    alignment.leftMatched -> palette.accentInk
-                    else -> palette.warningText
-                }
-            )
-            addSensorRow(
-                "Right Arm",
-                "${alignment.rightLiveText} ${if (alignment.rightMatched) "✓" else "✗"}",
-                when {
-                    alignment.rightUnlocked -> palette.criticalText
-                    alignment.rightMatched -> palette.accentInk
-                    else -> palette.warningText
-                }
-            )
-            addSensorRow(
-                "Attachment",
-                "${telemetry.accessory} ${if (alignment.accessoryMatched) "✓" else "→ ${exercise.accessory}"}",
-                if (alignment.accessoryMatched) palette.accentInk else palette.warningText
-            )
-            root.addView(sensorBox)
-
-            root.addView(TextView(context).apply {
-                text = if (isMockMode) {
-                    "Live sensor auto-check enabled (running in Mock 30Hz simulator)."
-                } else {
-                    "Auto-updates at 30Hz from Tonal arm height, rotation & lock sensors."
-                }
-                textSize = 10.5f
-                setTextColor(palette.textMuted)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
+                    dp(36)
                 ).apply { bottomMargin = dp(8) }
             })
-
-            if (isMockMode && onSyncMockArms != null && alignment.status != com.swonal.kiosk.model.ArmAlignmentStatus.ALIGNED) {
-                root.addView(makePopupButton(context, "Simulate Aligned Arms (Mock)", palette, d) {
-                    onSyncMockArms()
-                    popup.dismiss()
-                }.apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        dp(36)
-                    ).apply { bottomMargin = dp(8) }
-                })
-            }
         }
 
         listOf(
-            "H (Height): Vertical rail notch (1 low – 6 high)",
+            "H (Height): Vertical rail notch (1 – 12)",
             "R (Rotation): Horizontal arm swing (1 – 3)",
-            "A (Angle): Pivot angle tilt (1 – 2)"
+            "A (Angle): Vertical arm pivot notch (1 – 5)"
         ).forEach { line ->
             root.addView(TextView(context).apply {
                 text = line
-                textSize = 11f
-                setTextColor(palette.textMuted)
+                textSize = 11.5f
+                setTextColor(palette.textPrimary)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(2) }
+                ).apply { topMargin = dp(3); bottomMargin = dp(3) }
             })
         }
 
@@ -573,6 +496,7 @@ object KioskPopups {
         } else {
             sortedDevices.forEach { dev ->
                 val isLocal = dev.id == localLibrespot?.id
+                val needsPairing = dev.id == "tonal-gym-librespot"
                 val isActive = dev.isActive || dev.id == ui.musicState.activeDeviceId
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -590,8 +514,14 @@ object KioskPopups {
                     isClickable = true
                     isFocusable = true
                     setOnClickListener {
-                        onSelectDevice(dev.id)
                         popup.dismiss()
+                        if (needsPairing) {
+                            val uid = ui.activeUser?.id.orEmpty()
+                            val url = "${ui.serverUrl.trimEnd('/')}/api/spotify/speaker-auth/start?userId=$uid"
+                            InAppWebLauncher.open(context, url, "Pair Tonal Speakers", palette)
+                        } else {
+                            onSelectDevice(dev.id)
+                        }
                     }
                 }.also { PressFeedback.attachSingle(it) }
 
@@ -615,12 +545,16 @@ object KioskPopups {
                     setTextColor(if (isActive) palette.accentInk else palette.textPrimary)
                 })
                 info.addView(TextView(context).apply {
-                    text = buildString {
-                        append(dev.type)
-                        if (isLocal) append(" • Default")
+                    text = if (needsPairing) {
+                        "Tap to Pair with Spotify →"
+                    } else {
+                        buildString {
+                            append(dev.type)
+                            if (isLocal) append(" • Default")
+                        }
                     }
                     textSize = 10.5f
-                    setTextColor(palette.textMuted)
+                    setTextColor(if (needsPairing) palette.accentInk else palette.textMuted)
                 })
                 row.addView(info)
 

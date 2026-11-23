@@ -47,12 +47,15 @@ const CreateUserSchema = z.object({
 
 const UpdateUserSchema = CreateUserSchema.partial();
 
+const ScheduleDaysSchema = z.array(z.number().int().min(0).max(6)).max(7);
+
 const CreateTemplateSchema = z.object({
   userId: z.string().uuid(),
   name: z.string().min(1),
   description: z.string().optional(),
   unit: z.enum(['LB', 'KG']).optional(),
   blocks: z.array(WorkoutBlockSchema).min(1),
+  scheduleDays: ScheduleDaysSchema.optional(),
 });
 
 const UpdateTemplateSchema = z.object({
@@ -60,7 +63,19 @@ const UpdateTemplateSchema = z.object({
   description: z.string().optional(),
   unit: z.enum(['LB', 'KG']).optional(),
   blocks: z.array(WorkoutBlockSchema).min(1).optional(),
+  scheduleDays: ScheduleDaysSchema.optional(),
 });
+
+function parseScheduleDays(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6);
+  } catch {
+    return [];
+  }
+}
 
 const CreateSessionSchema = z.object({
   userId: z.string().uuid(),
@@ -103,7 +118,11 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         daemonConnected: bridge.isDaemonConnected(),
         users,
         exercises,
-        templates: templates.map((t) => ({ ...t, blocks: JSON.parse(t.blocksJson) })),
+        templates: templates.map((t) => ({
+          ...t,
+          blocks: JSON.parse(t.blocksJson),
+          scheduleDays: parseScheduleDays(t.scheduleDays),
+        })),
       });
     } catch (err) {
       next(err);
@@ -206,10 +225,18 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     }
   });
 
+  const SafeMediaUrlSchema = z
+    .string()
+    .max(500)
+    .refine(
+      (v) => v.startsWith('/media/') || /^https?:\/\//i.test(v),
+      'mediaUrl must be a /media/ path or http(s) URL'
+    );
+
   router.patch('/exercises/:id/media', async (req, res, next) => {
     try {
       const schema = z.object({
-        mediaUrl: z.string().max(500).nullable(),
+        mediaUrl: SafeMediaUrlSchema.nullable(),
       });
       const { mediaUrl } = schema.parse(req.body);
       const updated = await prisma.exercise.update({
@@ -226,12 +253,12 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   const ExerciseSchema = z.object({
     name: z.string().min(1).max(80),
     muscleGroup: z.string().min(1).max(40),
-    accessory: z.enum(['HANDLES', 'BAR', 'ROPE']).default('HANDLES'),
+    accessory: z.enum(['HANDLES', 'BAR', 'ROPE', 'BODYWEIGHT']).default('HANDLES'),
     isUnilateral: z.boolean().default(false),
-    recommendedHeight: z.number().int().min(1).max(6).default(4),
+    recommendedHeight: z.number().int().min(1).max(12).default(4),
     recommendedRotation: z.number().int().min(1).max(3).default(2),
-    recommendedAngle: z.number().int().min(1).max(2).default(1),
-    mediaUrl: z.string().max(500).nullable().optional(),
+    recommendedAngle: z.number().int().min(1).max(5).default(1),
+    mediaUrl: SafeMediaUrlSchema.nullable().optional(),
   });
 
   router.post('/exercises', async (req, res, next) => {
@@ -291,7 +318,13 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         where: userId ? { userId } : undefined,
         orderBy: { createdAt: 'desc' },
       });
-      res.json(templates.map((t) => ({ ...t, blocks: JSON.parse(t.blocksJson) })));
+      res.json(
+        templates.map((t) => ({
+          ...t,
+          blocks: JSON.parse(t.blocksJson),
+          scheduleDays: parseScheduleDays(t.scheduleDays),
+        }))
+      );
     } catch (err) {
       next(err);
     }
@@ -302,7 +335,11 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       const parsed = CreateTemplateSchema.parse(req.body);
       const created = await createCustomWorkoutTemplate(parsed);
       bridge.broadcastToClients({ type: 'templates_updated' });
-      res.status(201).json({ ...created, blocks: JSON.parse(created.blocksJson) });
+      res.status(201).json({
+        ...created,
+        blocks: JSON.parse(created.blocksJson),
+        scheduleDays: parseScheduleDays(created.scheduleDays),
+      });
     } catch (err) {
       next(err);
     }
@@ -316,7 +353,11 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         ...parsed,
       });
       bridge.broadcastToClients({ type: 'templates_updated' });
-      res.json({ ...updated, blocks: JSON.parse(updated.blocksJson) });
+      res.json({
+        ...updated,
+        blocks: JSON.parse(updated.blocksJson),
+        scheduleDays: parseScheduleDays(updated.scheduleDays),
+      });
     } catch (err) {
       next(err);
     }
@@ -796,7 +837,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
 
   // SQLite Database Snapshot Backup
   router.get('/admin/backup/db', async (_req, res, next) => {
-    const tmpPath = path.join(os.tmpdir(), `swonal-backup-${Date.now()}.db`);
+    const tmpPath = path.join(os.tmpdir(), `swonal-backup-${crypto.randomUUID()}.db`);
     const cleanup = () => {
       fs.promises.unlink(tmpPath).catch(() => {});
     };

@@ -13,19 +13,17 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 enum class TelemetryDisplayMode(val wireValue: String, val label: String) {
-    AUTO("auto", "During Set"),
-    ALWAYS("always", "Always"),
+    ALWAYS("always", "On"),
     OFF("off", "Off");
 
     fun next(): TelemetryDisplayMode = when (this) {
-        AUTO -> ALWAYS
         ALWAYS -> OFF
-        OFF -> AUTO
+        OFF -> ALWAYS
     }
 
     companion object {
         fun fromWire(value: String?): TelemetryDisplayMode =
-            entries.firstOrNull { it.wireValue == value } ?: AUTO
+            if (value == "off") OFF else ALWAYS
     }
 }
 
@@ -69,7 +67,7 @@ class SwonalPreferences(context: Context) {
         }
 
     var telemetryDisplayMode: TelemetryDisplayMode
-        get() = TelemetryDisplayMode.fromWire(prefs.getString(KEY_TELEMETRY_MODE, TelemetryDisplayMode.AUTO.wireValue))
+        get() = TelemetryDisplayMode.fromWire(prefs.getString(KEY_TELEMETRY_MODE, TelemetryDisplayMode.ALWAYS.wireValue))
         set(value) {
             prefs.edit().putString(KEY_TELEMETRY_MODE, value.wireValue).apply()
         }

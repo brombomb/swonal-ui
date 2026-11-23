@@ -297,11 +297,14 @@ export async function createSwonalServer(
     }
   };
 
+  let lastClientPingAt = 0;
+
   if (connectDaemonWs) {
     connectToDaemon();
     heartbeatTimer = setInterval(() => {
       if (daemonWs && daemonWs.readyState === WebSocket.OPEN) {
-        if (browserClients.size > 0 || latestTelemetry.weight_enabled) {
+        // Only forward liveness heartbeat if an active UI client pinged within the last 5s
+        if (browserClients.size > 0 && Date.now() - lastClientPingAt < 5000) {
           daemonWs.send(JSON.stringify({ type: 'ping' }));
         }
       }
@@ -314,6 +317,7 @@ export async function createSwonalServer(
       return;
     }
     browserClients.add(client);
+    lastClientPingAt = Date.now();
     client.send(JSON.stringify({ type: 'daemon_status', connected: daemonConnected }));
     client.send(
       JSON.stringify({ type: 'session_state', state: sessionCoordinator.getState() })
@@ -326,12 +330,20 @@ export async function createSwonalServer(
         const type = String(msg.type || '');
 
         if (type === 'ping') {
+          lastClientPingAt = Date.now();
           sendToDaemon({ type: 'ping' });
           client.send(JSON.stringify({ type: 'pong' }));
           return;
         }
 
         if (DAEMON_FORWARD_TYPES.has(type)) {
+          if (type === 'set_weight') {
+            const w = Number(msg.weight_lb);
+            if (!Number.isFinite(w) || w < 5 || w > 200) {
+              client.send(JSON.stringify({ type: 'error', message: `Invalid weight_lb: ${msg.weight_lb}` }));
+              return;
+            }
+          }
           const sent = sendToDaemon(msg);
           if (!sent && type === 'set_weight') {
             latestTelemetry = {
@@ -388,6 +400,11 @@ export async function createSwonalServer(
 
     client.on('close', () => {
       browserClients.delete(client);
+      if (browserClients.size === 0 && latestTelemetry.weight_enabled) {
+        console.warn('[SwonalServer] Last UI client disconnected while weight engaged — immediately disabling resistance.');
+        sendToDaemon({ type: 'disable_weight' });
+        fetch(`${daemonHttpUrl}/api/motor/disable`, { method: 'POST' }).catch(() => {});
+      }
     });
   });
 

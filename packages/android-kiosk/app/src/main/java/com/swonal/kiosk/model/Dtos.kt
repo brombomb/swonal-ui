@@ -1,14 +1,47 @@
 package com.swonal.kiosk.model
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+
+object FlexibleBooleanSerializer : KSerializer<Boolean> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("FlexibleBoolean", PrimitiveKind.BOOLEAN)
+
+    override fun deserialize(decoder: Decoder): Boolean {
+        if (decoder is JsonDecoder) {
+            val el = decoder.decodeJsonElement()
+            if (el is JsonPrimitive) {
+                el.booleanOrNull?.let { return it }
+                el.intOrNull?.let { return it != 0 }
+                val str = el.content.trim().lowercase()
+                if (str == "true" || str == "1") return true
+                if (str == "false" || str == "0") return false
+            }
+            return false
+        }
+        return runCatching { decoder.decodeBoolean() }.getOrDefault(false)
+    }
+
+    override fun serialize(encoder: Encoder, value: Boolean) {
+        encoder.encodeBoolean(value)
+    }
+}
 
 val SwonalJson = Json {
     ignoreUnknownKeys = true
@@ -28,8 +61,12 @@ data class CableData(
 data class ArmAxis(
     val left: Int = 4,
     val right: Int = 4,
-    @SerialName("left_unlocked") val leftUnlocked: Boolean = false,
-    @SerialName("right_unlocked") val rightUnlocked: Boolean = false
+    @SerialName("left_unlocked")
+    @Serializable(with = FlexibleBooleanSerializer::class)
+    val leftUnlocked: Boolean = false,
+    @SerialName("right_unlocked")
+    @Serializable(with = FlexibleBooleanSerializer::class)
+    val rightUnlocked: Boolean = false
 )
 
 @Serializable
@@ -106,6 +143,7 @@ data class WorkoutTemplate(
     val description: String? = null,
     val blocksJson: String = "[]",
     val blocks: List<WorkoutBlock> = emptyList(),
+    val scheduleDays: List<Int> = emptyList(),
     val createdAt: String = ""
 )
 

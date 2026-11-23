@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
 import subprocess
+from urllib.parse import urlparse
 from typing import Any, Dict
 
 logger = logging.getLogger("tonal-daemon.switcher")
@@ -111,14 +113,14 @@ class ModeSwitcher:
             await self.ble_manager.start()
 
             # 5. Launch custom native kiosk activity, fallback to browser if not installed
-            cmd_launch = (
-                "su -c '"
+            parsed_url = urlparse(self.server_url)
+            safe_url = self.server_url if parsed_url.scheme in ("http", "https") else "http://127.0.0.1:3000"
+            inner_cmd = (
                 f"am start -n {SWONAL_KIOSK_COMPONENT} || "
-                f"am start -a android.intent.action.VIEW -d \"{self.server_url}\" com.android.chrome"
-                "'"
+                f"am start -a android.intent.action.VIEW -d {shlex.quote(safe_url)} com.android.chrome"
             )
-            proc_launch = await asyncio.create_subprocess_shell(
-                cmd_launch, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            proc_launch = await asyncio.create_subprocess_exec(
+                "su", "-c", inner_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             await proc_launch.communicate()
 

@@ -57,7 +57,7 @@ data class KioskUiState(
     val safetyEvent: SafetyEvent? = null,
     val restSecondsRemaining: Int = 0,
     val showDemoPip: Boolean = true,
-    val telemetryDisplayMode: TelemetryDisplayMode = TelemetryDisplayMode.AUTO,
+    val telemetryDisplayMode: TelemetryDisplayMode = TelemetryDisplayMode.ALWAYS,
     val soundMuted: Boolean = false,
     val developerMode: Boolean = false,
     val musicProviders: List<MusicProviderInfo> = emptyList(),
@@ -1123,6 +1123,33 @@ class SwonalRepository(
         )
     }
 
+    fun updateTemplateSchedule(template: WorkoutTemplate, scheduleDays: List<Int>) {
+        if (_uiStateFlow.value.authRequired) return
+        val normalized = scheduleDays.filter { it in 0..6 }.distinct().sorted()
+        _uiStateFlow.update { st ->
+            st.copy(
+                templates = st.templates.map { t ->
+                    if (t.id == template.id) t.copy(scheduleDays = normalized) else t
+                }
+            )
+        }
+        scope.launch {
+            runCatching { api.updateTemplateSchedule(template.id, normalized) }
+                .onSuccess { updated ->
+                    _uiStateFlow.update { st ->
+                        st.copy(
+                            templates = st.templates.map { t ->
+                                if (t.id == updated.id) updated else t
+                            }
+                        )
+                    }
+                }
+                .onFailure { err ->
+                    _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to save schedule"))
+                }
+        }
+    }
+
     fun startQueuedWorkout() {
         if (_uiStateFlow.value.authRequired) return
         val queued = _uiStateFlow.value.sessionState.queuedWorkout ?: return
@@ -1155,6 +1182,9 @@ class SwonalRepository(
         }
         val uid = preferredUserId ?: _uiStateFlow.value.activeUser?.id ?: return
         scope.launch {
+            if (isWeightCurrentlyEngaged()) {
+                disableWeightAndAwait()
+            }
             val session = runCatching { api.createSession(uid, templateId) }.getOrNull()
             val step0 = steps[0]
             val ex0 = _uiStateFlow.value.exercises.firstOrNull { it.id == step0.exerciseId }
@@ -1181,6 +1211,7 @@ class SwonalRepository(
     fun selectFreeExercise(exercise: Exercise) {
         if (_uiStateFlow.value.authRequired) return
         lastAutoLoggedStepKey = null
+        val wasEngaged = isWeightCurrentlyEngaged()
         _uiStateFlow.update {
             it.copy(
                 activeTemplateName = null,
@@ -1193,13 +1224,20 @@ class SwonalRepository(
         resetReps()
         val ui = _uiStateFlow.value
         val pr = ui.prs.firstOrNull { it.exerciseId == exercise.id }
-        if (pr != null && pr.maxWeightLb > 0) {
-            val suggested = (round((pr.maxWeightLb * 0.85) / 5.0) * 5.0)
+        val suggested = if (pr != null && pr.maxWeightLb > 0) {
+            (round((pr.maxWeightLb * 0.85) / 5.0) * 5.0)
                 .coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
-            setWeight(suggested, allowWhileEngaged = false)
-        }
-        ui.activeUser?.id?.let { uid ->
-            scope.launch { refreshOverload(uid, exercise.id) }
+        } else null
+        scope.launch {
+            if (wasEngaged) {
+                disableWeightAndAwait()
+            }
+            if (suggested != null) {
+                setWeight(suggested, allowWhileEngaged = false)
+            }
+            ui.activeUser?.id?.let { uid ->
+                refreshOverload(uid, exercise.id)
+            }
         }
     }
 
@@ -1209,16 +1247,22 @@ class SwonalRepository(
         if (ui.routineSteps.isNotEmpty()) {
             val nextIdx = (ui.currentStepIdx + delta).coerceIn(0, ui.routineSteps.lastIndex)
             if (nextIdx == ui.currentStepIdx) return
+            val wasEngaged = isWeightCurrentlyEngaged()
             val step = ui.routineSteps[nextIdx]
             val ex = ui.exercises.firstOrNull { it.id == step.exerciseId }
             _uiStateFlow.update {
                 it.copy(currentStepIdx = nextIdx, activeExerciseId = step.exerciseId)
             }
             if (ex != null) setAccessory(ex.accessory)
-            setWeight(step.targetWeightLb, step.mode, step.modifierPct, allowWhileEngaged = false)
             resetReps()
-            ui.activeUser?.id?.let { uid ->
-                scope.launch { refreshOverload(uid, step.exerciseId) }
+            scope.launch {
+                if (wasEngaged) {
+                    disableWeightAndAwait()
+                }
+                setWeight(step.targetWeightLb, step.mode, step.modifierPct, allowWhileEngaged = false)
+                ui.activeUser?.id?.let { uid ->
+                    refreshOverload(uid, step.exerciseId)
+                }
             }
         } else if (ui.exercises.isNotEmpty()) {
             val curIdx = ui.exercises.indexOfFirst { it.id == ui.activeExercise?.id }.coerceAtLeast(0)
@@ -1451,10 +1495,31 @@ class SwonalRepository(
     }
 
     private fun resolvePreferredMusicDeviceId(ui: KioskUiState): String? {
+        val librespot = findLibrespotDevice(ui.musicDevices)
+        if (librespot != null && librespot.id != "tonal-gym-librespot") {
+            return librespot.id
+        }
         val currentActive = ui.musicDevices.firstOrNull { it.isActive }?.id
             ?: ui.musicState.activeDeviceId?.takeIf { it.isNotBlank() }
         if (currentActive != null) return currentActive
-        return findLibrespotDevice(ui.musicDevices)?.id ?: ui.musicDevices.firstOrNull()?.id
+        return librespot?.id ?: ui.musicDevices.firstOrNull()?.id
+    }
+
+    fun completeSpotifySpeakerAuth(codeOrUrl: String, onDone: (Boolean, String) -> Unit = { _, _ -> }) {
+        val uid = _uiStateFlow.value.activeUser?.id
+        scope.launch {
+            runCatching { api.completeSpotifySpeakerAuth(uid, codeOrUrl) }
+                .onSuccess {
+                    if (uid != null) {
+                        delay(1500L)
+                        refreshMusicAll(uid)
+                    }
+                    onDone(true, "Tonal Speakers paired with Spotify!")
+                }
+                .onFailure { err ->
+                    onDone(false, err.message ?: "Speaker pairing failed")
+                }
+        }
     }
 
     fun transferMusicDevice(deviceId: String) {

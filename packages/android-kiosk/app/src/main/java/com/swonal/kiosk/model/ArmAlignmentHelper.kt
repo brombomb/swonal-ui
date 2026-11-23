@@ -41,6 +41,14 @@ object ArmAlignmentHelper {
         val targetCoords = "H${ex.recommendedHeight} R${ex.recommendedRotation} A${ex.recommendedAngle}"
         val targetText = "$targetCoords • ${ex.accessory}"
 
+        val leftCoords = "H${arms.height.left} R${arms.rotation.left} A${arms.angle.left}"
+        val rightCoords = "H${arms.height.right} R${arms.rotation.right} A${arms.angle.right}"
+        val liveCoordsSummary = if (leftCoords == rightCoords) {
+            leftCoords
+        } else {
+            "L:$leftCoords R:$rightCoords"
+        }
+
         val status = when {
             leftUnlocked || rightUnlocked -> ArmAlignmentStatus.UNLOCKED
             leftMatched && rightMatched && accessoryMatched -> ArmAlignmentStatus.ALIGNED
@@ -54,18 +62,24 @@ object ArmAlignmentHelper {
                     leftUnlocked -> "LOCK L ARM"
                     else -> "LOCK R ARM"
                 }
-                "$which • $targetCoords"
+                "$which • $liveCoordsSummary"
             }
-            ArmAlignmentStatus.ALIGNED -> "ARMS ALIGNED • $targetText"
-            ArmAlignmentStatus.ADJUST -> "ARMS ADJUST • $targetText"
+            ArmAlignmentStatus.ALIGNED -> "ARMS ALIGNED • $leftCoords • ${frame.accessory}"
+            ArmAlignmentStatus.ADJUST -> {
+                if (leftMatched && rightMatched && !accessoryMatched) {
+                    "ARMS $leftCoords ✓ • ATTACH ${ex.accessory}"
+                } else {
+                    "LIVE $liveCoordsSummary → TARGET $targetCoords"
+                }
+            }
         }
 
         val leftLiveText = buildString {
-            append("H${arms.height.left} R${arms.rotation.left} A${arms.angle.left}")
+            append(leftCoords)
             if (leftUnlocked) append(" • UNLOCKED")
         }
         val rightLiveText = buildString {
-            append("H${arms.height.right} R${arms.rotation.right} A${arms.angle.right}")
+            append(rightCoords)
             if (rightUnlocked) append(" • UNLOCKED")
         }
 

@@ -20,6 +20,7 @@ object PressFeedback {
     @SuppressLint("ClickableViewAccessibility")
     fun attachSingle(view: View) {
         view.isSoundEffectsEnabled = false
+        view.clipToOutline = true
         view.setOnTouchListener { v, event ->
             if (!v.isEnabled) return@setOnTouchListener false
             when (event.actionMasked) {

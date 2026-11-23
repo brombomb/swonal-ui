@@ -10,13 +10,32 @@ import { sessionCoordinator } from '../services/sessionState';
 const KEYMASTER_CLIENT_ID = '65b708073fc0480ea92a077233ca87bd';
 const KEYMASTER_REDIRECT_URI = 'http://127.0.0.1:8898/login';
 const KEYMASTER_SCOPES = [
-  'streaming',
-  'user-read-playback-state',
-  'user-modify-playback-state',
-  'user-read-currently-playing',
+  'app-remote-control',
+  'playlist-modify',
+  'playlist-modify-private',
+  'playlist-modify-public',
+  'playlist-read',
+  'playlist-read-collaborative',
   'playlist-read-private',
+  'streaming',
+  'ugc-image-upload',
+  'user-follow-modify',
+  'user-follow-read',
+  'user-library-modify',
+  'user-library-read',
+  'user-modify',
+  'user-modify-playback-state',
+  'user-modify-private',
+  'user-personalized',
+  'user-read-birthdate',
+  'user-read-currently-playing',
   'user-read-email',
+  'user-read-play-history',
+  'user-read-playback-position',
+  'user-read-playback-state',
   'user-read-private',
+  'user-read-recently-played',
+  'user-top-read',
 ].join(' ');
 
 interface PkceSession {
@@ -360,11 +379,19 @@ export function createSpotifyRouter(
 
     const spotify = musicRegistry.get('spotify') as {
       provisionTonalSpeakers?: (token?: string, reset?: boolean) => Promise<Record<string, unknown> | null>;
+      transferPlayback?: (uid: string, deviceId: string) => Promise<void>;
     };
     const speakerStatus =
       typeof spotify.provisionTonalSpeakers === 'function'
         ? await spotify.provisionTonalSpeakers(data.access_token, false)
         : null;
+
+    // Wait briefly for librespot to register with Spotify Connect dealer, then auto-select Tonal Speakers
+    if (typeof spotify.transferPlayback === 'function') {
+      setTimeout(() => {
+        spotify.transferPlayback?.(session.userId, 'tonal-gym-librespot').catch(() => {});
+      }, 1800);
+    }
 
     // If the user has not linked Web API OAuth yet, also seed their MusicIntegration
     const existing = await prisma.musicIntegration.findUnique({
@@ -372,6 +399,7 @@ export function createSpotifyRouter(
     });
     if (!existing?.accessToken) {
       const tokenExpiry = Math.floor(Date.now() / 1000) + (data.expires_in || 3600);
+      const meta = JSON.stringify({ authMode: 'keymaster_pkce', clientId: KEYMASTER_CLIENT_ID });
       await prisma.musicIntegration.upsert({
         where: { userId_provider: { userId: session.userId, provider: 'spotify' } },
         update: {
@@ -379,6 +407,7 @@ export function createSpotifyRouter(
           refreshToken: data.refresh_token ?? undefined,
           tokenExpiry,
           preferredDeviceId: 'tonal-gym-librespot',
+          metadataJson: meta,
         },
         create: {
           userId: session.userId,
@@ -387,6 +416,7 @@ export function createSpotifyRouter(
           refreshToken: data.refresh_token ?? null,
           tokenExpiry,
           preferredDeviceId: 'tonal-gym-librespot',
+          metadataJson: meta,
         },
       });
     }
@@ -412,13 +442,14 @@ export function createSpotifyRouter(
             return;
           }
           const code = url.searchParams.get('code') || '';
-          const stateUserId = url.searchParams.get('state') || latestPkceSession?.userId || '';
-          if (!code) {
-            res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end('<h3>Missing Spotify authorization code.</h3>');
+          const rawState = url.searchParams.get('state') || '';
+          const verified = rawState ? decodeOAuthState(rawState) : null;
+          if (!code || !verified?.userId) {
+            res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Missing or invalid Spotify authorization code/state.');
             return;
           }
-          await exchangeKeymasterPkceCode(stateUserId, code);
+          await exchangeKeymasterPkceCode(verified.userId, code);
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           res.end(
             '<!DOCTYPE html><html><body style="background:#0B0E14;color:#fff;font-family:sans-serif;text-align:center;padding:48px;">' +
@@ -428,8 +459,8 @@ export function createSpotifyRouter(
               '</body></html>'
           );
         } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-          res.end(`<h3>Speaker pairing error: ${err instanceof Error ? err.message : String(err)}</h3>`);
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end(`Speaker pairing error: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
       srv.on('error', () => {
@@ -451,6 +482,7 @@ export function createSpotifyRouter(
     latestPkceSession = session;
     pkceSessionsByUser.set(userId, session);
 
+    const signedState = encodeOAuthState(userId, '/');
     const params = new URLSearchParams({
       client_id: KEYMASTER_CLIENT_ID,
       response_type: 'code',
@@ -458,7 +490,7 @@ export function createSpotifyRouter(
       code_challenge_method: 'S256',
       code_challenge: codeChallenge,
       scope: KEYMASTER_SCOPES,
-      state: userId,
+      state: signedState,
     });
     return `https://accounts.spotify.com/authorize?${params.toString()}`;
   };

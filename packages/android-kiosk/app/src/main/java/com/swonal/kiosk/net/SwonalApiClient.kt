@@ -150,6 +150,22 @@ class SwonalApiClient(
             executeAndDecode(req)
         }
 
+    private suspend inline fun <reified T> put(path: String, body: JsonObject): T =
+        withContext(Dispatchers.IO) {
+            val url = "${baseUrl()}$path"
+            val reqBody = SwonalJson.encodeToString(body).toRequestBody(jsonMediaType)
+            val req = buildAuthHeaders(Request.Builder().url(url).put(reqBody), url).build()
+            executeAndDecode(req)
+        }
+
+    suspend fun updateTemplateSchedule(templateId: String, scheduleDays: List<Int>): WorkoutTemplate =
+        put(
+            "/api/templates/${encPath(templateId)}",
+            buildJsonObject {
+                put("scheduleDays", kotlinx.serialization.json.JsonArray(scheduleDays.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+        )
+
     private inline fun <reified T> executeAndDecode(request: Request): T {
         okHttpClient.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
@@ -369,6 +385,50 @@ class SwonalApiClient(
             put("deviceId", deviceId)
         }
     )
+
+    suspend fun completeSpotifySpeakerAuth(
+        userId: String?,
+        codeOrUrl: String
+    ): JsonObject = post(
+        "/api/spotify/speaker-auth/complete",
+        buildJsonObject {
+            if (!userId.isNullOrBlank()) put("userId", userId)
+            put("codeOrUrl", codeOrUrl)
+        }
+    )
+
+    // --- Swocial / Nostr P2P Friends Feed ---
+    suspend fun getSwocialIdentity(userId: String): JsonObject =
+        get("/api/friends/identity/${encPath(userId)}")
+
+    suspend fun getSwocialFriends(userId: String): kotlinx.serialization.json.JsonArray =
+        get("/api/friends/${encPath(userId)}")
+
+    suspend fun getSwocialFeed(userId: String, limit: Int = 25): kotlinx.serialization.json.JsonArray =
+        get("/api/friends/feed/${encPath(userId)}?limit=$limit")
+
+    suspend fun syncSwocialFeed(userId: String): JsonObject =
+        post("/api/friends/sync/${encPath(userId)}")
+
+    suspend fun addSwocialFriend(userId: String, npubOrHex: String, displayName: String?): JsonObject = post(
+        "/api/friends/${encPath(userId)}",
+        buildJsonObject {
+            put("npubOrHex", npubOrHex)
+            if (!displayName.isNullOrBlank()) put("displayName", displayName)
+        }
+    )
+
+    suspend fun reactSwocialPost(userId: String, targetEventId: String, targetPubkey: String, emoji: String): JsonObject = post(
+        "/api/friends/react/${encPath(userId)}",
+        buildJsonObject {
+            put("targetEventId", targetEventId)
+            put("targetPubkey", targetPubkey)
+            put("emoji", emoji)
+        }
+    )
+
+    suspend fun importSwocialRoutine(userId: String, eventId: String): WorkoutTemplate =
+        post("/api/friends/import-routine/${encPath(userId)}/${encPath(eventId)}")
 
     // --- Daemon Proxy Controls ---
     suspend fun switchToStockMode(): JsonObject = post("/api/daemon/mode/stock")

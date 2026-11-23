@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+import functools
 import json
 import logging
 import os
@@ -10,9 +11,16 @@ from pathlib import Path
 import subprocess
 import time
 import urllib.request
-from typing import Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger("tonal-daemon.librespot")
+
+
+async def _to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    if hasattr(asyncio, "to_thread"):
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))
 
 
 class LibrespotBridge:
@@ -48,8 +56,10 @@ class LibrespotBridge:
         self._stdout_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
         self._watchdog_task: Optional[asyncio.Task] = None
+        self._restart_lock = asyncio.Lock()
         self._stopping = False
         self._auth_event = asyncio.Event()
+        self._bound_wlan_ip: Optional[str] = None
 
     @property
     def credentials_path(self) -> Path:
@@ -116,9 +126,9 @@ class LibrespotBridge:
         self._stopping = False
         try:
             self.pcm_server = await asyncio.start_server(
-                self._handle_pcm_client, host="0.0.0.0", port=self.pcm_port
+                self._handle_pcm_client, host="127.0.0.1", port=self.pcm_port
             )
-            logger.info("Librespot PCM audio relay listening on :%d", self.pcm_port)
+            logger.info("Librespot PCM audio relay listening on 127.0.0.1:%d", self.pcm_port)
         except Exception as exc:
             logger.warning("Could not bind PCM server on :%d: %s", self.pcm_port, exc)
 
@@ -189,19 +199,29 @@ class LibrespotBridge:
 
         if not self.mock_mode:
             try:
-                subprocess.run(
-                    ["pkill", "-9", "librespot"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2,
+                proc = await asyncio.create_subprocess_exec(
+                    "pkill",
+                    "-9",
+                    "librespot",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
             except Exception:
                 pass
 
     async def restart_process(
         self, access_token: Optional[str] = None, clear_credentials: bool = False
     ) -> dict:
-        """Spawn or restart librespot with --backend pipe."""
+        """Spawn or restart librespot with --backend pipe (serialized via lock)."""
+        async with self._restart_lock:
+            return await self._restart_process_unlocked(
+                access_token=access_token, clear_credentials=clear_credentials
+            )
+
+    async def _restart_process_unlocked(
+        self, access_token: Optional[str] = None, clear_credentials: bool = False
+    ) -> dict:
         await self._kill_process()
 
         if clear_credentials:
@@ -215,11 +235,12 @@ class LibrespotBridge:
         if self.mock_mode or not os.path.exists(self.binary_path):
             if access_token:
                 self.authenticated_user = "mock-spotify-user"
-            return self.get_status()
+            return await self.get_status_async()
 
         os.makedirs(self.cache_dir, exist_ok=True)
-        wlan_ip = self.detect_wlan_ip()
-        self._configure_multicast_routing(wlan_ip)
+        wlan_ip = await _to_thread(self.detect_wlan_ip)
+        self._bound_wlan_ip = wlan_ip
+        await _to_thread(self._configure_multicast_routing, wlan_ip)
 
         cmd = [
             self.binary_path,
@@ -341,16 +362,19 @@ class LibrespotBridge:
                         user = line.split("Authenticated as '", 1)[1].split("'", 1)[0]
                         self.authenticated_user = user
                         self.last_error = None
-                        self._auth_event.set()
-                        logger.info("Librespot authenticated as Spotify user: %s", user)
+                        logger.info("Librespot AP session authenticated as Spotify user: %s", user)
                     except Exception:
                         pass
-                elif "INVALID_CREDENTIALS" in line or "LoginFailed" in line:
+                elif "is handled by dealer" in line:
+                    self.last_error = None
+                    self._auth_event.set()
+                elif "INVALID_CREDENTIALS" in line or "LoginFailed" in line or "could not initialize spirc" in line:
                     self.last_error = "INVALID_CREDENTIALS"
                     self.authenticated_user = None
                     self._auth_event.set()
                     logger.warning(
-                        "Librespot reported INVALID_CREDENTIALS; purging stale credentials.json"
+                        "Librespot reported credential/spirc error (%s); purging stale credentials.json",
+                        line,
                     )
                     try:
                         if self.credentials_path.exists():
@@ -369,14 +393,22 @@ class LibrespotBridge:
                     pass
 
     async def _watchdog_loop(self) -> None:
-        """Ensure librespot stays running in Zeroconf/Connect mode even if it exits."""
+        """Ensure librespot stays running in Zeroconf/Connect mode and rebinds if wlan0 IP appears after boot."""
         try:
             while not self._stopping:
                 await asyncio.sleep(5.0)
                 if self._stopping or self.mock_mode or not os.path.exists(self.binary_path):
                     continue
+                current_ip = await _to_thread(self.detect_wlan_ip)
                 if self.process is None or self.process.returncode is not None:
                     logger.info("Librespot process exited; restarting in discovery/cached mode...")
+                    await self.restart_process()
+                elif current_ip and current_ip != self._bound_wlan_ip:
+                    logger.info(
+                        "WLAN IP changed (%s -> %s); restarting librespot to bind Zeroconf/mDNS...",
+                        self._bound_wlan_ip,
+                        current_ip,
+                    )
                     await self.restart_process()
         except asyncio.CancelledError:
             pass
@@ -394,6 +426,10 @@ class LibrespotBridge:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception:
             return None
+
+    async def get_status_async(self) -> dict:
+        """Non-blocking status query safe to call from the 30Hz motor safety event loop."""
+        return await _to_thread(self.get_status)
 
     def get_status(self) -> dict:
         running = self.process is not None and self.process.returncode is None

@@ -101,6 +101,73 @@ class BeveledSurfaceDrawable(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
+/**
+ * Rounded press-state wrapper that draws the pressed highlight strictly inside a round-rect
+ * matching [radiusPx], avoiding Android 6.0 (API 23) Mali-T860 RippleDrawable square-corner artifacts.
+ */
+class RoundedPressDrawable(
+    private val content: Drawable,
+    private val radiusPx: Float,
+    pressOverlayColor: Int
+) : Drawable(), Drawable.Callback {
+
+    private val rectF = RectF()
+    private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = pressOverlayColor
+    }
+    private var isPressedState = false
+
+    init {
+        content.callback = this
+    }
+
+    override fun isStateful(): Boolean = true
+
+    override fun onStateChange(state: IntArray): Boolean {
+        val contentChanged = content.setState(state)
+        val nowPressed = state.any { it == android.R.attr.state_pressed || it == android.R.attr.state_focused }
+        if (nowPressed != isPressedState) {
+            isPressedState = nowPressed
+            invalidateSelf()
+            return true
+        }
+        return contentChanged
+    }
+
+    override fun onBoundsChange(bounds: Rect) {
+        super.onBoundsChange(bounds)
+        content.bounds = bounds
+        rectF.set(bounds)
+    }
+
+    override fun draw(canvas: Canvas) {
+        content.draw(canvas)
+        if (isPressedState) {
+            canvas.drawRoundRect(rectF, radiusPx, radiusPx, pressPaint)
+        }
+    }
+
+    override fun getOutline(outline: Outline) {
+        outline.setRoundRect(bounds, radiusPx)
+    }
+
+    override fun setAlpha(alpha: Int) {
+        content.alpha = alpha
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        content.colorFilter = colorFilter
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+    override fun invalidateDrawable(who: Drawable) = invalidateSelf()
+    override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) = scheduleSelf(what, `when`)
+    override fun unscheduleDrawable(who: Drawable, what: Runnable) = unscheduleSelf(what)
+}
+
 data class SwonalPalette(
     val isDark: Boolean,
     val accentPrimary: Int,
@@ -137,12 +204,8 @@ data class SwonalPalette(
 ) {
     private fun wrapRipple(content: Drawable, radiusPx: Float, interactive: Boolean): Drawable {
         if (!interactive) return content
-        val rippleColor = if (isDark) 0x48FFFFFF else 0x330F172A
-        val mask = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = radiusPx
-        }
-        return RippleDrawable(ColorStateList.valueOf(rippleColor), content, mask)
+        val pressColor = if (isDark) 0x26FFFFFF else 0x1A0F172A
+        return RoundedPressDrawable(content, radiusPx, pressColor)
     }
 
     fun surfaceCardDrawable(

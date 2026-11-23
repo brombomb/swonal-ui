@@ -244,6 +244,32 @@ class SwonalWebActivity : AppCompatActivity() {
                 override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                     this@SwonalWebActivity.canGoBack = canGoBack
                 }
+
+                override fun onLoadRequest(
+                    session: GeckoSession,
+                    request: GeckoSession.NavigationDelegate.LoadRequest
+                ): org.mozilla.geckoview.GeckoResult<org.mozilla.geckoview.AllowOrDeny>? {
+                    val uri = request.uri
+                    if (uri.startsWith("http://127.0.0.1:8898/login") || uri.startsWith("http://localhost:8898/login")) {
+                        runOnUiThread {
+                            loadingOverlay.alpha = 1f
+                            loadingOverlay.visibility = View.VISIBLE
+                            loadingLabel.text = "Pairing Tonal Speakers with Spotify..."
+                        }
+                        app.repository.completeSpotifySpeakerAuth(uri) { ok, msg ->
+                            runOnUiThread {
+                                Toast.makeText(this@SwonalWebActivity, msg, Toast.LENGTH_LONG).show()
+                                if (ok) {
+                                    finish()
+                                } else {
+                                    loadingOverlay.visibility = View.GONE
+                                }
+                            }
+                        }
+                        return org.mozilla.geckoview.GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY)
+                    }
+                    return org.mozilla.geckoview.GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.ALLOW)
+                }
             }
             progressDelegate = object : GeckoSession.ProgressDelegate {
                 override fun onProgressChange(session: GeckoSession, progress: Int) {

@@ -1345,18 +1345,19 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             )}
           </div>
 
-          {/* Swocial Modal */}
+          {/* Swocial Friends Feed (Icon-Only) */}
           <button
             type="button"
             onClick={() => {
+              setFriendsKioskTab('feed');
               void loadKioskFriendsData();
               friendsDialogRef.current?.showModal();
             }}
-            title="Open Swocial"
-            className="elevated-pill px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold hover:opacity-90 transition"
+            aria-label="Open Swocial Feed"
+            title="Swocial Feed"
+            className="elevated-pill p-3 rounded-2xl flex items-center justify-center hover:opacity-90 transition"
           >
             <Users size={18} style={{ color: 'var(--accent-ink)' }} />
-            <span>Swocial</span>
           </button>
 
           {/* Companion QR Remote Modal */}
@@ -1370,19 +1371,21 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <span>Phone</span>
           </button>
 
-          {/* Hardware Telemetry Pill (opens Mock Diagnostic Drawer in mock mode, or /admin on real hardware) */}
+          {/* Hardware Telemetry Status Dot (shows full Tonal CDC details on press) */}
           <button
             type="button"
             onClick={() => {
-              if (isMockMode) {
-                void refreshHaStatus();
-                void refreshCalibration();
-                mockDialogRef.current?.showModal();
-              } else {
-                window.location.assign('/admin');
-              }
+              void refreshHaStatus();
+              void refreshCalibration();
+              mockDialogRef.current?.showModal();
             }}
-            className={`px-3.5 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center gap-2 ${
+            aria-label={daemonConnected ? (isMockMode ? 'MOCK 30Hz' : 'TONAL CDC 30Hz') : 'DAEMON WAIT'}
+            title={
+              daemonConnected
+                ? `${isMockMode ? 'MOCK 30Hz' : 'TONAL CDC 30Hz'} — Tap for Hardware Diagnostics`
+                : 'DAEMON WAIT — Tap for Hardware Diagnostics'
+            }
+            className={`p-3 rounded-2xl border flex items-center justify-center ${
               daemonConnected && wsConnected
                 ? ''
                 : 'bg-amber-500/10 border-amber-500/40 text-amber-400'
@@ -1398,14 +1401,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             }
           >
             <span
-              className={`w-2.5 h-2.5 rounded-full ${
+              className={`w-3 h-3 rounded-full ${
                 daemonConnected ? 'animate-pulse' : 'bg-amber-400'
               }`}
               style={daemonConnected ? { backgroundColor: 'var(--accent-primary)' } : undefined}
             />
-            <span>
-              {daemonConnected ? (isMockMode ? 'MOCK 30Hz' : 'TONAL CDC 30Hz') : 'DAEMON WAIT'}
-            </span>
           </button>
         </div>
       </header>
@@ -3510,7 +3510,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         {friendsKioskTab === 'add' && (
           <div className="space-y-4">
             <div className="elevated-pill rounded-2xl p-4 space-y-3">
-              <h3 className="font-extrabold text-sm">Add a Friend via npub Key</h3>
+              <h3 className="font-extrabold text-sm">Add a Friend via Swocial Code</h3>
               <div className="space-y-2">
                 <input
                   type="text"

@@ -1459,7 +1459,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                 <div>
                   <h2 className="text-xl font-black">Connected Friends ({friendsList.length})</h2>
                   <p className="text-xs opacity-70">
-                    Add friends by their npub key to see their workout feed, share routines, and react.
+                    Add friends by their Swocial code to see their workout feed, share routines, and react.
                   </p>
                 </div>
               </div>

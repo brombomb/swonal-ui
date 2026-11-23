@@ -147,7 +147,10 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
             return
         }
 
-        filtered.chunked(2).forEach { pair ->
+        val todayDow = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - 1 // 0=Sun..6=Sat
+        val sortedFiltered = filtered.sortedByDescending { tpl -> todayDow in tpl.scheduleDays }
+
+        sortedFiltered.chunked(2).forEach { pair ->
             val row = LinearLayout(requireContext()).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -179,6 +182,8 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
             runCatching { SwonalJson.decodeFromString<List<WorkoutBlock>>(tpl.blocksJson) }.getOrDefault(emptyList())
         }
         val totalSets = blocks.sumOf { blk -> blk.items.sumOf { it.sets } }
+        val todayDow = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - 1
+        val isScheduledToday = todayDow in tpl.scheduleDays
 
         return LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
@@ -201,6 +206,20 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
                         cornerRadius = dpf(8f)
                     }
                     setPadding(dp(8), dp(2), dp(8), dp(2))
+                })
+            }
+            if (isScheduledToday) {
+                meta.addView(TextView(requireContext()).apply {
+                    text = "TODAY"
+                    textSize = 9.5f
+                    typeface = SwonalFonts.interExtraBold(requireContext())
+                    setTextColor(p.successText)
+                    background = p.successPillDrawable(d, 7f, interactive = false)
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { marginStart = dp(6) }
                 })
             }
             meta.addView(TextView(requireContext()).apply {
@@ -259,11 +278,42 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
                 })
             }
 
+            // Interactive 7-day schedule pill selector (0=Sun..6=Sat)
+            val dayLabels = listOf("S", "M", "T", "W", "T", "F", "S")
+            val scheduleRow = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(10) }
+            }
+            dayLabels.forEachIndexed { dayIdx, letter ->
+                val active = dayIdx in tpl.scheduleDays
+                scheduleRow.addView(TextView(requireContext()).apply {
+                    text = letter
+                    textSize = 10.5f
+                    gravity = Gravity.CENTER
+                    typeface = SwonalFonts.monoBold(requireContext())
+                    setTextColor(if (active) p.accentTextColor else p.textMuted)
+                    background = if (active) p.accentPillDrawable(d, 8f) else p.elevatedPillDrawable(d, 8f)
+                    layoutParams = LinearLayout.LayoutParams(0, dp(28), 1f).apply {
+                        if (dayIdx < dayLabels.lastIndex) marginEnd = dp(4)
+                    }
+                    setOnClickListener {
+                        val next = if (active) tpl.scheduleDays - dayIdx else (tpl.scheduleDays + dayIdx).sorted()
+                        repo.updateTemplateSchedule(tpl, next)
+                        renderContent()
+                    }
+                })
+            }
+            addView(scheduleRow)
+
             addView(View(requireContext()).apply {
                 layoutParams = LinearLayout.LayoutParams(1, 0, 1f)
             })
 
-            addView(makeAccentButton("Start Routine") {
+            addView(makeAccentButton(if (isScheduledToday) "Start Today's Routine" else "Start Routine") {
                 repo.startWorkoutTemplate(tpl)
                 dismiss()
             }.apply {
@@ -281,11 +331,20 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
         val allMuscles = listOf("ALL") + ui.exercises.map { it.muscleGroup }.distinct().sorted()
         val accessories = listOf("ALL", "HANDLES", "BAR", "ROPE", "BODYWEIGHT")
 
-        val searchBox = makeInput("Search movements...", searchQuery).apply {
+        val searchRow = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(42)
+                ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) }
+        }
+        val searchBox = makeInput("Search movements...", searchQuery).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                dp(42),
+                1f
+            ).apply { marginEnd = dp(8) }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -295,7 +354,29 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
                 }
             })
         }
-        contentContainer.addView(searchBox)
+        val diceBtn = makePillButton("🎲", active = true) {
+            val currentUi = repo.uiStateFlow.value
+            val q = searchQuery.trim().lowercase()
+            val pool = currentUi.exercises.filter { ex ->
+                (selectedMuscle == "ALL" || ex.muscleGroup == selectedMuscle) &&
+                    (selectedAccessory == "ALL" || ex.accessory == selectedAccessory) &&
+                    (q.isEmpty() || ex.name.lowercase().contains(q) || ex.muscleGroup.lowercase().contains(q))
+            }.ifEmpty { currentUi.exercises }
+            if (pool.isNotEmpty()) {
+                val currentId = currentUi.activeExercise?.id
+                val candidates = pool.filter { it.id != currentId }.ifEmpty { pool }
+                val picked = candidates.random()
+                repo.selectFreeExercise(picked)
+                dismiss()
+            }
+        }.apply {
+            textSize = 18f
+            contentDescription = "Random workout"
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(42))
+        }
+        searchRow.addView(searchBox)
+        searchRow.addView(diceBtn)
+        contentContainer.addView(searchRow)
 
         val accRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL

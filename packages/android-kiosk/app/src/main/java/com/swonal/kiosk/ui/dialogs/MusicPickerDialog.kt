@@ -24,6 +24,7 @@ import com.swonal.kiosk.model.MusicProviderInfo
 import com.swonal.kiosk.model.MusicTrack
 import com.swonal.kiosk.net.SwonalRepository
 import com.swonal.kiosk.theme.SwonalFonts
+import com.swonal.kiosk.ui.InAppWebLauncher
 import com.swonal.kiosk.ui.PressFeedback
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -280,13 +281,23 @@ class MusicPickerDialog : BaseSwonalDialog() {
                 pair.forEachIndexed { idx, dev ->
                     val active = dev.isActive || dev.id == activeSlice.activeDeviceId
                     val isOnDevice = dev.id == librespotDev?.id
+                    val needsPairing = dev.id == "tonal-gym-librespot"
                     val card = LinearLayout(requireContext()).apply {
                         orientation = LinearLayout.VERTICAL
                         background = if (active) p.accentMutedDrawable(d, 12f, 2f) else p.elevatedPillDrawable(d, 12f)
                         setPadding(dp(12), dp(10), dp(12), dp(10))
                         isClickable = true
                         isFocusable = true
-                        setOnClickListener { repo.transferMusicDevice(dev.id) }
+                        setOnClickListener {
+                            if (needsPairing) {
+                                val uid = activeSlice.activeUserId.orEmpty()
+                                val url = "${repo.uiStateFlow.value.serverUrl.trimEnd('/')}/api/spotify/speaker-auth/start?userId=$uid"
+                                dismiss()
+                                InAppWebLauncher.open(requireContext(), url, "Pair Tonal Speakers", p)
+                            } else {
+                                repo.transferMusicDevice(dev.id)
+                            }
+                        }
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                             if (idx == 0 && pair.size == 2) marginEnd = dp(8)
                         }
@@ -306,13 +317,17 @@ class MusicPickerDialog : BaseSwonalDialog() {
                             setTextColor(if (active) p.accentInk else p.textPrimary)
                         })
                         addView(TextView(requireContext()).apply {
-                            text = buildString {
-                                append(dev.type)
-                                if (isOnDevice) append(" • Default")
-                                if (active) append(" • Active")
+                            text = if (needsPairing) {
+                                "Tap to Pair with Spotify →"
+                            } else {
+                                buildString {
+                                    append(dev.type)
+                                    if (isOnDevice) append(" • Default")
+                                    if (active) append(" • Active")
+                                }
                             }
                             textSize = 11f
-                            setTextColor(p.textMuted)
+                            setTextColor(if (needsPairing) p.accentInk else p.textMuted)
                         })
                     }.also { PressFeedback.attachSingle(it) }
                     row.addView(card)

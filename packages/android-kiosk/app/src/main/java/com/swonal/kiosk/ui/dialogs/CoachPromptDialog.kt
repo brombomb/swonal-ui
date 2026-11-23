@@ -1,13 +1,17 @@
 package com.swonal.kiosk.ui.dialogs
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -72,10 +76,29 @@ class CoachPromptDialog : BaseSwonalDialog() {
                 ttsReady = true
                 tts?.language = Locale.US
                 tts?.setSpeechRate(1.04f)
+                // Always route AI Coach speech directly to the Tonal's internal speaker amp (USAGE_MEDIA / STREAM_MUSIC)
+                tts?.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        runCatching { app.librespotAudioBridge.setCoachTtsDucked(true) }
+                    }
+                    override fun onDone(utteranceId: String?) {
+                        runCatching { app.librespotAudioBridge.setCoachTtsDucked(false) }
+                    }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        runCatching { app.librespotAudioBridge.setCoachTtsDucked(false) }
+                    }
+                })
                 val queued = pendingSpeech
                 pendingSpeech = null
                 if (!queued.isNullOrBlank() && isAdded) {
-                    tts?.speak(queued, TextToSpeech.QUEUE_FLUSH, null, "swonal_coach")
+                    speakOnTonalSpeaker(queued)
                 }
             }
         }
@@ -166,7 +189,7 @@ class CoachPromptDialog : BaseSwonalDialog() {
                         if (st.coachReply != lastSpokenReply && !st.soundMuted) {
                             lastSpokenReply = st.coachReply
                             if (ttsReady) {
-                                tts?.speak(st.coachReply, TextToSpeech.QUEUE_FLUSH, null, "swonal_coach")
+                                speakOnTonalSpeaker(st.coachReply)
                             } else {
                                 pendingSpeech = st.coachReply
                             }
@@ -243,6 +266,30 @@ class CoachPromptDialog : BaseSwonalDialog() {
         sr.startListening(intent)
     }
 
+    private fun speakOnTonalSpeaker(text: String) {
+        val ctx = context ?: return
+        runCatching {
+            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (am != null) {
+                if (am.isBluetoothScoOn) {
+                    am.stopBluetoothSco()
+                    am.isBluetoothScoOn = false
+                }
+                am.mode = AudioManager.MODE_NORMAL
+                // Ensure Tonal's internal speaker stream is audible (not muted at 0)
+                val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                if (am.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, (maxVol * 0.6f).toInt().coerceAtLeast(1), 0)
+                }
+            }
+        }
+        val params = Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "swonal_coach")
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         promptInputRef = null
@@ -252,5 +299,6 @@ class CoachPromptDialog : BaseSwonalDialog() {
         tts?.shutdown()
         tts = null
         ttsReady = false
+        runCatching { app.librespotAudioBridge.setCoachTtsDucked(false) }
     }
 }

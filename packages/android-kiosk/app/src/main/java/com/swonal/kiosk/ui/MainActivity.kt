@@ -59,6 +59,7 @@ import com.swonal.kiosk.ui.dialogs.DiagnosticsDialog
 import com.swonal.kiosk.ui.dialogs.MusicPickerDialog
 import com.swonal.kiosk.ui.dialogs.PostWorkoutSummaryDialog
 import com.swonal.kiosk.ui.dialogs.ProfileStyleDialog
+import com.swonal.kiosk.ui.dialogs.SwocialDialog
 import com.swonal.kiosk.ui.dialogs.WeightKeypadDialog
 import com.swonal.kiosk.ui.dialogs.WorkoutLibraryDialog
 import kotlinx.coroutines.delay
@@ -90,6 +91,8 @@ class MainActivity : AppCompatActivity() {
     private var lastArmExerciseId: String? = null
     private var lastArmStatus: ArmAlignmentStatus? = null
     private var lastAccessory: String = ""
+    private var confirmedAccessoryExerciseId: String? = null
+    private var confirmedAccessoryName: String? = null
     private var lastModeKey: String = ""
     private var lastSymStatus: SymmetryStatus? = null
     private var lastSymBadgeText: String = ""
@@ -300,6 +303,9 @@ class MainActivity : AppCompatActivity() {
                 onOpenWebPath = { path, title -> openServerWebPath(path, title) }
             )
         }
+        binding.btnSwocial.setOnClickListener {
+            showDialogOnce("swocial") { SwocialDialog() }
+        }
         binding.btnCompanionQr.setOnClickListener {
             showDialogOnce("qr") { CompanionQrDialog() }
         }
@@ -319,6 +325,12 @@ class MainActivity : AppCompatActivity() {
         binding.btnWorkoutLibrary.setOnClickListener {
             showDialogOnce("library") { WorkoutLibraryDialog() }
         }
+        binding.btnTodayRoutine.setOnClickListener {
+            val tpl = findTodayScheduledRoutine(repo.uiStateFlow.value)
+            if (tpl != null) {
+                repo.startWorkoutTemplate(tpl)
+            }
+        }
         val openArmGuide: (View) -> Unit = { anchor ->
             val ui = repo.uiStateFlow.value
             KioskPopups.showArmPositionGuide(
@@ -328,14 +340,23 @@ class MainActivity : AppCompatActivity() {
                 telemetry = repo.telemetryFlow.value,
                 exercise = ui.activeExercise,
                 isMockMode = ui.isMockMode,
-                onSyncMockArms = if (ui.isMockMode) { { repo.syncMockArmsToActiveExercise() } } else null
+                onSyncMockArms = if (ui.isMockMode) { { repo.syncMockArmsToActiveExercise() } } else null,
+                liveTelemetryProvider = { repo.telemetryFlow.value }
             )
         }
         binding.btnArmSync.setOnClickListener { openArmGuide(binding.btnArmInfo) }
         binding.btnArmInfo.setOnClickListener { anchor -> openArmGuide(anchor) }
-        binding.btnAccHandles.setOnClickListener { repo.setAccessory("HANDLES") }
-        binding.btnAccBar.setOnClickListener { repo.setAccessory("BAR") }
-        binding.btnAccRope.setOnClickListener { repo.setAccessory("ROPE") }
+        val confirmAttachment: (String) -> Unit = { acc ->
+            val curExId = repo.uiStateFlow.value.activeExercise?.id
+            confirmedAccessoryExerciseId = curExId
+            confirmedAccessoryName = acc
+            lastAccessory = ""
+            repo.setAccessory(acc)
+            renderAccessoryButtonsIfChanged(acc)
+        }
+        binding.btnAccHandles.setOnClickListener { confirmAttachment("HANDLES") }
+        binding.btnAccBar.setOnClickListener { confirmAttachment("BAR") }
+        binding.btnAccRope.setOnClickListener { confirmAttachment("ROPE") }
 
         // Docked Stepper & Form Demo Row
         binding.btnPrevExercise.setOnClickListener { repo.stepRoutine(-1) }
@@ -477,6 +498,7 @@ class MainActivity : AppCompatActivity() {
         PressFeedback.attach(
             binding.btnPartnerMode,
             binding.btnQuickPrefs,
+            binding.btnSwocial,
             binding.btnCompanionQr,
             binding.btnAppDrawer,
             binding.btnHardwareStatus,
@@ -484,6 +506,7 @@ class MainActivity : AppCompatActivity() {
             binding.btnStartQueued,
             binding.btnAckSafety,
             binding.btnWorkoutLibrary,
+            binding.btnTodayRoutine,
             binding.btnArmSync,
             binding.btnArmInfo,
             binding.btnAccHandles,
@@ -635,11 +658,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvWeightCenterInfo.text = centerInfo
         }
 
-        val showTelemetry = when (ui.telemetryDisplayMode) {
-            TelemetryDisplayMode.OFF -> false
-            TelemetryDisplayMode.ALWAYS -> true
-            TelemetryDisplayMode.AUTO -> frame.weightEnabled || frame.repCount > 0
-        }
+        val showTelemetry = ui.telemetryDisplayMode == TelemetryDisplayMode.ALWAYS
         val targetVis = if (showTelemetry) View.VISIBLE else View.GONE
         if (binding.telemetryStrip.visibility != targetVis) {
             binding.telemetryStrip.visibility = targetVis
@@ -727,6 +746,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun findTodayScheduledRoutine(ui: KioskUiState): com.swonal.kiosk.model.WorkoutTemplate? {
+        val todayDow = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - 1 // 0=Sun..6=Sat
+        val activeUserId = ui.activeUser?.id
+        val matchingForUser = ui.templates.firstOrNull { tpl ->
+            todayDow in tpl.scheduleDays && (activeUserId == null || tpl.userId == activeUserId)
+        }
+        return matchingForUser ?: ui.templates.firstOrNull { tpl -> todayDow in tpl.scheduleDays }
+    }
+
     private fun renderDiscreteUiState(ui: KioskUiState, telemetry: TelemetryFrame) {
         // 1. Opaque Auth Lock Privacy Scrim + Dialog
         binding.authLockScrim.visibility = if (ui.authRequired) View.VISIBLE else View.GONE
@@ -755,6 +783,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 4. Partner Work-In Toggle (diffed to avoid per-second drawable reallocations)
+        val todayScheduled = findTodayScheduledRoutine(ui)
+        if (todayScheduled != null && ui.activeTemplateName != todayScheduled.name) {
+            binding.btnTodayRoutine.visibility = View.VISIBLE
+            binding.tvTodayRoutine.text = "Today: ${todayScheduled.name} ▶"
+        } else {
+            binding.btnTodayRoutine.visibility = View.GONE
+        }
+
         val partnerKey = "${ui.users.size >= 2}|${ui.sessionState.partnerModeEnabled}|${ui.activeUser?.name}|${ui.partnerUser?.name}"
         if (partnerKey != lastPartnerKey) {
             lastPartnerKey = partnerKey
@@ -1056,11 +1092,13 @@ class MainActivity : AppCompatActivity() {
     private fun renderArmAlignmentBadgeIfChanged(frame: TelemetryFrame, ui: KioskUiState) {
         val ex = ui.activeExercise ?: return
         val alignment = ArmAlignmentHelper.evaluate(frame, ex)
+        val arms = frame.armPositions
 
-        // Reset chime transition state whenever the active exercise changes
+        // Reset chime transition state & attachment confirmation whenever the active exercise changes
         if (lastArmExerciseId != ex.id) {
             lastArmExerciseId = ex.id
             lastArmStatus = alignment.status
+            lastAccessory = ""
         } else if (lastArmStatus != null &&
             lastArmStatus != ArmAlignmentStatus.ALIGNED &&
             alignment.status == ArmAlignmentStatus.ALIGNED
@@ -1072,42 +1110,98 @@ class MainActivity : AppCompatActivity() {
             lastArmStatus = alignment.status
         }
 
-        val key = "${alignment.status}|${alignment.badgeText}"
+        val key = "${ex.recommendedHeight}:${ex.recommendedRotation}:${ex.recommendedAngle}|" +
+            "${arms.height.left}:${arms.rotation.left}:${arms.angle.left}:${alignment.leftUnlocked}|" +
+            "${arms.height.right}:${arms.rotation.right}:${arms.angle.right}:${alignment.rightUnlocked}|" +
+            "${alignment.status}"
         if (key == lastArmSyncKey) return
         lastArmSyncKey = key
 
         val p = currentPalette
         val d = resources.displayMetrics.density
-        binding.tvArmSync.text = alignment.badgeText
-        when (alignment.status) {
-            ArmAlignmentStatus.ALIGNED -> {
-                binding.btnArmSync.background = p.accentMutedDrawable(d, 10f, 1.2f)
-                binding.ivArmSync.setImageResource(R.drawable.ic_check_circle)
-                binding.tvArmSync.setTextColor(p.accentInk)
-                binding.ivArmSync.setColorFilter(p.accentInk)
-                binding.btnArmInfo.setColorFilter(p.accentInk)
+        val colorGreen = if (p.isDark) 0xFF34D399.toInt() else 0xFF059669.toInt()
+        val colorYellow = if (p.isDark) 0xFFFBBF24.toInt() else 0xFFD97706.toInt()
+        val colorRed = if (p.isDark) 0xFFF87171.toInt() else 0xFFDC2626.toInt()
+
+        val sb = android.text.SpannableStringBuilder()
+        fun appendColored(text: String, color: Int) {
+            val start = sb.length
+            sb.append(text)
+            sb.setSpan(
+                android.text.style.ForegroundColorSpan(color),
+                start,
+                sb.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        // Row 1: Target
+        appendColored(
+            String.format(
+                Locale.US,
+                "Target  H%-2d R%d  A%d\n",
+                ex.recommendedHeight,
+                ex.recommendedRotation,
+                ex.recommendedAngle
+            ),
+            p.textMuted
+        )
+
+        // Helper for Left / Right rows with per-value Yellow (moving) / Green (matched) / Red (mismatched)
+        fun appendArmRow(label: String, h: Int, r: Int, a: Int, moving: Boolean, newline: Boolean) {
+            appendColored(label, p.textPrimary)
+            val hColor = when {
+                moving -> colorYellow
+                h == ex.recommendedHeight -> colorGreen
+                else -> colorRed
             }
-            ArmAlignmentStatus.UNLOCKED -> {
-                binding.btnArmSync.background = p.criticalBannerDrawable(d, 10f, interactive = true)
-                binding.ivArmSync.setImageResource(R.drawable.ic_alert_triangle)
-                binding.tvArmSync.setTextColor(p.criticalText)
-                binding.ivArmSync.setColorFilter(p.criticalText)
-                binding.btnArmInfo.setColorFilter(p.criticalText)
+            val rColor = when {
+                moving -> colorYellow
+                r == ex.recommendedRotation -> colorGreen
+                else -> colorRed
             }
-            ArmAlignmentStatus.ADJUST -> {
+            val aColor = when {
+                moving -> colorYellow
+                a == ex.recommendedAngle -> colorGreen
+                else -> colorRed
+            }
+            appendColored(String.format(Locale.US, "H%-2d ", h), hColor)
+            appendColored(String.format(Locale.US, "R%d  ", r), rColor)
+            appendColored(String.format(Locale.US, "A%d", a), aColor)
+            if (newline) sb.append("\n")
+        }
+
+        appendArmRow("Left    ", arms.height.left, arms.rotation.left, arms.angle.left, alignment.leftUnlocked, true)
+        appendArmRow("Right   ", arms.height.right, arms.rotation.right, arms.angle.right, alignment.rightUnlocked, false)
+
+        binding.tvArmSync.text = sb
+        val allMatched = alignment.leftMatched && alignment.rightMatched
+        val anyMoving = alignment.leftUnlocked || alignment.rightUnlocked
+        when {
+            anyMoving -> {
                 binding.btnArmSync.background = p.warningPillDrawable(d, 10f, interactive = true)
-                binding.ivArmSync.setImageResource(R.drawable.ic_info)
-                binding.tvArmSync.setTextColor(p.warningText)
-                binding.ivArmSync.setColorFilter(p.warningText)
                 binding.btnArmInfo.setColorFilter(p.warningText)
+            }
+            allMatched -> {
+                binding.btnArmSync.background = p.successPillDrawable(d, 10f, interactive = true)
+                binding.btnArmInfo.setColorFilter(p.successText)
+            }
+            else -> {
+                binding.btnArmSync.background = p.elevatedPillDrawable(d, 10f, interactive = true)
+                binding.btnArmInfo.setColorFilter(p.textMuted)
             }
         }
     }
 
     private fun renderAccessoryButtonsIfChanged(activeAccessory: String) {
+        val ui = app.repository.uiStateFlow.value
+        val exId = ui.activeExercise?.id.orEmpty()
+        val targetAcc = ui.activeExercise?.accessory?.uppercase(Locale.US) ?: "HANDLES"
         val norm = activeAccessory.uppercase(Locale.US)
-        if (norm == lastAccessory) return
-        lastAccessory = norm
+        val isConfirmed = confirmedAccessoryExerciseId == exId && confirmedAccessoryName == targetAcc
+        val cacheKey = "$exId|$targetAcc|$norm|$isConfirmed"
+        if (cacheKey == lastAccessory) return
+        lastAccessory = cacheKey
 
         val p = currentPalette
         val d = resources.displayMetrics.density
@@ -1117,10 +1211,31 @@ class MainActivity : AppCompatActivity() {
             "ROPE" to binding.btnAccRope
         )
         mapping.forEach { (acc, view) ->
-            val selected = norm == acc
-            view.background = if (selected) p.accentMutedDrawable(d, 9f, 1.8f) else p.elevatedPillDrawable(d, 9f)
-            view.setTextColor(if (selected) p.accentInk else p.textMuted)
-            view.alpha = if (selected) 1f else 0.78f
+            val isTarget = acc == targetAcc
+            val isConfirmedTarget = isTarget && isConfirmed
+            val isSelectedNonTarget = !isTarget && norm == acc
+            when {
+                isConfirmedTarget -> {
+                    view.background = p.successPillDrawable(d, 9f, interactive = true)
+                    view.setTextColor(p.successText)
+                    view.alpha = 1f
+                }
+                isTarget -> {
+                    view.background = p.warningPillDrawable(d, 9f, interactive = true)
+                    view.setTextColor(p.warningText)
+                    view.alpha = 1f
+                }
+                isSelectedNonTarget -> {
+                    view.background = p.accentMutedDrawable(d, 9f, 1.8f)
+                    view.setTextColor(p.accentInk)
+                    view.alpha = 1f
+                }
+                else -> {
+                    view.background = p.elevatedPillDrawable(d, 9f)
+                    view.setTextColor(p.textMuted)
+                    view.alpha = 0.72f
+                }
+            }
         }
     }
 
@@ -1256,6 +1371,8 @@ class MainActivity : AppCompatActivity() {
         // Top Bar Icon Pills
         binding.btnQuickPrefs.background = p.elevatedPillDrawable(d, 12f)
         binding.ivQuickPrefs.setColorFilter(p.accentInk)
+        binding.btnSwocial.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivSwocial.setColorFilter(p.accentInk)
         binding.btnCompanionQr.background = p.elevatedPillDrawable(d, 12f)
         binding.ivCompanionQr.setColorFilter(p.accentInk)
         binding.tvCompanionQr.setTextColor(p.textPrimary)
@@ -1271,6 +1388,8 @@ class MainActivity : AppCompatActivity() {
         binding.btnWorkoutLibrary.background = p.elevatedPillDrawable(d, 10f)
         binding.ivWorkoutLibrary.setColorFilter(p.accentInk)
         binding.tvWorkoutLibrary.setTextColor(p.textPrimary)
+        binding.btnTodayRoutine.background = p.accentPillDrawable(d, 10f)
+        binding.tvTodayRoutine.setTextColor(p.accentTextColor)
 
         // Stepper & Form Demo Row
         binding.btnPrevExercise.background = p.elevatedPillDrawable(d, 12f)

@@ -126,7 +126,22 @@ export function createFriendsRouter(): Router {
       const userId = paramStr(req.params.userId);
       const eventId = paramStr(req.params.eventId);
       const template = await importRoutine(userId, eventId);
-      res.json(template);
+      let scheduleDays: number[] = [];
+      if (template.scheduleDays) {
+        try {
+          const parsed = JSON.parse(template.scheduleDays);
+          if (Array.isArray(parsed)) {
+            scheduleDays = parsed.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6);
+          }
+        } catch {
+          scheduleDays = [];
+        }
+      }
+      res.json({
+        ...template,
+        blocks: JSON.parse(template.blocksJson),
+        scheduleDays,
+      });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to import routine' });
     }

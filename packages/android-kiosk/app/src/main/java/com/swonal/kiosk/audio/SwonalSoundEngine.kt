@@ -6,6 +6,7 @@ import android.media.SoundPool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
@@ -56,6 +57,8 @@ class SwonalSoundEngine(context: Context) {
     @Volatile
     private var released: Boolean = false
 
+    private val poolLock = Any()
+
     enum class Cue {
         WEIGHT_ENGAGE,
         WEIGHT_DISENGAGE,
@@ -86,43 +89,43 @@ class SwonalSoundEngine(context: Context) {
 
         val specs = mapOf(
             Cue.WEIGHT_ENGAGE to listOf(
-                ToneSpec(523.25, 0.12, Wave.TRIANGLE, 0.15, 0.00),
-                ToneSpec(659.25, 0.18, Wave.TRIANGLE, 0.18, 0.07)
+                ToneSpec(523.25, 0.14, Wave.TRIANGLE, 0.65, 0.00),
+                ToneSpec(659.25, 0.20, Wave.TRIANGLE, 0.78, 0.08)
             ),
             Cue.WEIGHT_DISENGAGE to listOf(
-                ToneSpec(440.00, 0.12, Wave.SINE, 0.12, 0.00),
-                ToneSpec(329.63, 0.16, Wave.SINE, 0.12, 0.06)
+                ToneSpec(440.00, 0.14, Wave.SINE, 0.60, 0.00),
+                ToneSpec(329.63, 0.18, Wave.SINE, 0.60, 0.07)
             ),
             Cue.REP_COMPLETE to listOf(
-                ToneSpec(880.00, 0.09, Wave.SINE, 0.11, 0.00)
+                ToneSpec(880.00, 0.10, Wave.SINE, 0.55, 0.00)
             ),
             Cue.COUNTDOWN_TICK to listOf(
-                ToneSpec(660.00, 0.10, Wave.SINE, 0.15, 0.00)
+                ToneSpec(660.00, 0.10, Wave.SINE, 0.60, 0.00)
             ),
             Cue.COUNTDOWN_FINAL to listOf(
-                ToneSpec(1046.50, 0.28, Wave.SINE, 0.15, 0.00)
+                ToneSpec(1046.50, 0.30, Wave.SINE, 0.75, 0.00)
             ),
             Cue.SET_COMPLETE to listOf(
-                ToneSpec(523.25, 0.14, Wave.TRIANGLE, 0.15, 0.00),
-                ToneSpec(659.25, 0.14, Wave.TRIANGLE, 0.15, 0.09),
-                ToneSpec(783.99, 0.26, Wave.TRIANGLE, 0.18, 0.18)
+                ToneSpec(523.25, 0.14, Wave.TRIANGLE, 0.65, 0.00),
+                ToneSpec(659.25, 0.14, Wave.TRIANGLE, 0.70, 0.09),
+                ToneSpec(783.99, 0.28, Wave.TRIANGLE, 0.80, 0.18)
             ),
             Cue.PERSONAL_RECORD to listOf(
-                ToneSpec(523.25, 0.14, Wave.TRIANGLE, 0.18, 0.00),
-                ToneSpec(659.25, 0.14, Wave.TRIANGLE, 0.18, 0.10),
-                ToneSpec(783.99, 0.14, Wave.TRIANGLE, 0.18, 0.20),
-                ToneSpec(1046.50, 0.42, Wave.TRIANGLE, 0.22, 0.30)
+                ToneSpec(523.25, 0.14, Wave.TRIANGLE, 0.70, 0.00),
+                ToneSpec(659.25, 0.14, Wave.TRIANGLE, 0.75, 0.10),
+                ToneSpec(783.99, 0.14, Wave.TRIANGLE, 0.80, 0.20),
+                ToneSpec(1046.50, 0.42, Wave.TRIANGLE, 0.88, 0.30)
             ),
             Cue.SAFETY_CUTOUT to listOf(
-                ToneSpec(310.00, 0.18, Wave.SAWTOOTH, 0.16, 0.00),
-                ToneSpec(230.00, 0.28, Wave.SAWTOOTH, 0.18, 0.20)
+                ToneSpec(310.00, 0.20, Wave.SAWTOOTH, 0.75, 0.00),
+                ToneSpec(230.00, 0.32, Wave.SAWTOOTH, 0.85, 0.22)
             ),
             Cue.ARM_ALIGNED to listOf(
-                ToneSpec(659.25, 0.09, Wave.TRIANGLE, 0.13, 0.00),
-                ToneSpec(880.00, 0.14, Wave.TRIANGLE, 0.14, 0.07)
+                ToneSpec(659.25, 0.10, Wave.TRIANGLE, 0.55, 0.00),
+                ToneSpec(880.00, 0.16, Wave.TRIANGLE, 0.65, 0.07)
             ),
             Cue.TAP to listOf(
-                ToneSpec(1200.00, 0.015, Wave.SINE, 0.04, 0.00)
+                ToneSpec(1200.00, 0.018, Wave.SINE, 0.20, 0.00)
             )
         )
 
@@ -138,7 +141,10 @@ class SwonalSoundEngine(context: Context) {
                         tmp.delete()
                     }
                 }
-                val id = soundPool.load(file.absolutePath, 1)
+                val id = synchronized(poolLock) {
+                    if (released) return
+                    soundPool.load(file.absolutePath, 1)
+                }
                 if (id > 0) soundIds[cue] = id
             }
         }
@@ -148,7 +154,10 @@ class SwonalSoundEngine(context: Context) {
         if (muted || released) return
         val id = soundIds[cue] ?: return
         if (!readySampleIds.contains(id)) return
-        runCatching { soundPool.play(id, 1f, 1f, 1, 0, 1f) }
+        synchronized(poolLock) {
+            if (released) return
+            runCatching { soundPool.play(id, 1f, 1f, 1, 0, 1f) }
+        }
     }
 
     /**
@@ -159,14 +168,21 @@ class SwonalSoundEngine(context: Context) {
         if (muted || released) return
         val id = soundIds[Cue.TAP] ?: return
         if (!readySampleIds.contains(id)) return
-        runCatching { soundPool.play(id, 0.20f, 0.20f, 1, 0, 1f) }
+        synchronized(poolLock) {
+            if (released) return
+            runCatching { soundPool.play(id, 0.20f, 0.20f, 1, 0, 1f) }
+        }
     }
 
     fun release() {
-        released = true
-        readySampleIds.clear()
-        soundIds.clear()
-        runCatching { soundPool.release() }
+        initScope.cancel()
+        synchronized(poolLock) {
+            if (released) return
+            released = true
+            readySampleIds.clear()
+            soundIds.clear()
+            runCatching { soundPool.release() }
+        }
     }
 
     private fun renderPcm(tones: List<ToneSpec>): ShortArray {
@@ -236,6 +252,6 @@ class SwonalSoundEngine(context: Context) {
     }
 
     companion object {
-        private const val CACHE_VERSION = "v2"
+        private const val CACHE_VERSION = "v3"
     }
 }

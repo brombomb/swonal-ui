@@ -49,6 +49,7 @@ export interface WorkoutTemplate {
   description?: string | null;
   blocksJson: string;
   blocks: WorkoutBlock[];
+  scheduleDays?: number[];
   createdAt: string;
 }
 

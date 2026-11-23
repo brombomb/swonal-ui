@@ -88,8 +88,8 @@ async def test_heartbeat_watchdog_disables_resistance():
     assert bridge.weight_enabled is True
     assert bridge.state == "ACTIVE_WEIGHT_ON"
 
-    # Simulate stale heartbeat older than 0.2s
-    bridge.last_heartbeat = time.time() - 0.5
+    # Simulate stale heartbeat older than 0.2s (monotonic clock)
+    bridge.last_heartbeat = time.monotonic() - 0.5
     triggered = await bridge._check_watchdog()
 
     assert triggered is True
@@ -353,7 +353,7 @@ def test_mock_endpoints_rejected_on_live_hardware_and_motor_disable_works(monkey
 async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
     # 1. Verify raw 0x1020 / 0x1021 / 0x1025 decoders match swolectl wire format
     assert decode_cart_position(bytes([3, 5])) == (3, 5)
-    assert decode_column_rotation(bytes([2, 0, 1, 1])) == (2, False, 1, True)
+    assert decode_column_rotation(bytes([0, 2, 1, 1])) == (2, False, 1, True)
     # 0x1025: telescope=2, angle=1, side=0 (left), rot_locked=1 (bit 20), both_locked=1 (bit 21)
     left_locked_word = (2) | (1 << 8) | (0 << 16) | (1 << 20) | (1 << 21)
     left_arm = decode_arm_position(left_locked_word.to_bytes(4, "little"))
@@ -375,23 +375,25 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
             self.brought_up = False
             self.closed = False
             self.last_announcement = SimpleNamespace(firmware_version="5.2.18.0")
-            self.cart_position = SimpleNamespace(left=1, right=1)
+            self.cart_position = SimpleNamespace(left=1, right=9)
             self.column_rotation = SimpleNamespace(
-                left_position=2,
-                left_unlocked=False,
-                right_position=2,
-                right_unlocked=False,
+                left_position=0,
+                left_unlocked=True,
+                right_position=0,
+                right_unlocked=True,
             )
             self.arm_positions = {
                 "left": SimpleNamespace(
-                    angle=1,
-                    is_rotation_locked=True,
-                    is_rotation_and_telescope_locked=True,
+                    telescope_position=2,
+                    rotation_position=37,
+                    is_rotation_locked=False,
+                    is_rotation_and_telescope_locked=False,
                 ),
                 "right": SimpleNamespace(
-                    angle=1,
-                    is_rotation_locked=True,
-                    is_rotation_and_telescope_locked=True,
+                    telescope_position=6,
+                    rotation_position=138,
+                    is_rotation_locked=False,
+                    is_rotation_and_telescope_locked=False,
                 ),
             }
             self.telemetry = SimpleNamespace(
@@ -422,31 +424,71 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
     assert ctrl.brought_up is True
     assert bridge.state == "IDLE_WEIGHT_OFF"
 
+    # Simulate live Tonal V1 0x1021 raw wire format (from libmcb-service.so @ 0x4d328):
+    # [left_unlk, left_R, right_unlk, right_R]
+    bridge._on_swolectl_frame(
+        SimpleNamespace(message_type=MSG_COLUMN_ROTATION, payload=bytes.fromhex("00010003"), source=2)
+    )
     frame = bridge._build_frame_from_swolectl()
-    assert frame.arm_positions.height == {"left": 1, "right": 1}
+    assert frame.arm_positions.height == {"left": 1, "right": 9}
     assert frame.arm_positions.rotation == {
-        "left": 2,
-        "right": 2,
+        "left": 1,
+        "right": 3,
         "left_unlocked": False,
         "right_unlocked": False,
     }
-    assert frame.arm_positions.angle == {"left": 1, "right": 1}
+    assert frame.arm_positions.angle == {"left": 1, "right": 5}
     assert frame.rep_count == 3
     assert frame.applied_resistance_lb == 45.0
 
-    # Simulate physical user unlocking right arm telescope/rotation pin
-    ctrl.arm_positions["right"].is_rotation_and_telescope_locked = False
+    # Verify live capture: Left=5, Right=3 -> 00050003
+    bridge._on_swolectl_frame(
+        SimpleNamespace(message_type=MSG_COLUMN_ROTATION, payload=bytes.fromhex("00050003"), source=2)
+    )
+    frame_r53 = bridge._build_frame_from_swolectl()
+    assert frame_r53.arm_positions.rotation["left"] == 5
+    assert frame_r53.arm_positions.rotation["right"] == 3
+
+    # Verify Smart Handle 0x2003 button press (byte 8 == 0x01) triggers toggle_weight while release (0x03) is ignored
+    btn_events = []
+    bridge.register_ble_button_callback(lambda ev: btn_events.append(ev))
+    bridge._on_swolectl_frame(
+        SimpleNamespace(
+            message_type=0x2003,
+            payload=bytes.fromhex("ed232000c800030001210000fe130100fe130100"),
+            source=2,
+        )
+    )
+    bridge._on_swolectl_frame(
+        SimpleNamespace(
+            message_type=0x2003,
+            payload=bytes.fromhex("ed232000c8000300032000009815010098150100"),
+            source=2,
+        )
+    )
+    assert len(btn_events) == 1
+    assert btn_events[0]["action"] == "toggle_weight"
+
+    # Simulate physical user unlocking right arm telescope/rotation pin (raw_flags bit 20/21 set)
+    ctrl.arm_positions["right"].is_rotation_locked = True
+    ctrl.arm_positions["right"].is_rotation_and_telescope_locked = True
     frame_unlk = bridge._build_frame_from_swolectl()
     assert frame_unlk.arm_positions.rotation["left_unlocked"] is False
     assert frame_unlk.arm_positions.rotation["right_unlocked"] is True
 
-    # Simulate raw packet updates
+    # Simulate raw packet updates (0x1021 wire format: [left_unlk, left_pos, right_unlk, right_pos])
     bridge.update_hardware_arm_packet(MSG_CART_POSITION, bytes([4, 4]))
-    bridge.update_hardware_arm_packet(MSG_COLUMN_ROTATION, bytes([3, 1, 3, 0]))
+    bridge.update_hardware_arm_packet(MSG_COLUMN_ROTATION, bytes([1, 3, 0, 3]))
     bridge.update_hardware_arm_packet(MSG_ARM_POSITION, left_locked_word.to_bytes(4, "little"))
     assert bridge._hardware_arm_positions.height == {"left": 4, "right": 4}
     assert bridge._hardware_arm_positions.rotation["left_unlocked"] is True
     assert bridge._hardware_arm_positions.rotation["right_unlocked"] is False
+
+    # Verify NaN and Infinity resistance are rejected by safety bounds
+    with pytest.raises(ValueError, match="Non-finite"):
+        await bridge.set_target_weight(float("nan"))
+    with pytest.raises(ValueError, match="Non-finite"):
+        await bridge.set_target_weight(float("inf"))
 
     await bridge.release_port()
     assert ctrl.closed is True
@@ -470,4 +512,27 @@ def test_librespot_bridge_endpoints(monkeypatch):
         wake_res = client.post("/api/spotify/wake")
         assert wake_res.status_code == 200
         assert wake_res.json()["running"] is True
+
+
+async def test_inactivity_auto_cutoff_disables_resistance():
+    cfg = make_test_config(mock_mode=True)
+    cfg.setdefault("safety", {})["inactivity_cutoff_sec"] = 45.0
+    bridge = MotorBridge(cfg)
+    bridge.state = "IDLE_WEIGHT_OFF"
+    events = []
+    bridge.register_telemetry_callback(lambda ev: events.append(ev))
+
+    await bridge.enable_resistance()
+    assert bridge.weight_enabled is True
+
+    # First check establishes baseline cable position
+    assert await bridge._check_inactivity_safety(10.0, 10.0, 0.0, 0.0) is False
+    assert bridge.weight_enabled is True
+
+    # Simulate 46 seconds elapsed with stationary cables -> must auto-disengage
+    bridge._last_cable_activity_ts -= 46.0
+    assert await bridge._check_inactivity_safety(10.2, 10.1, 0.0, 0.0) is True
+    assert bridge.weight_enabled is False
+    assert any(ev.get("reason") == "INACTIVITY_AUTO_CUTOFF" for ev in events)
+
 

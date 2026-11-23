@@ -11,12 +11,12 @@
 `swonal-ui` frees and modernizes the rooted **Tonal 1 (V1)** digital-weight home gym. It replaces proprietary cloud lock-in with a completely open, self-hosted, offline-first ecosystem featuring:
 
 - **Native 60fps Android Kiosk**: Hardware-accelerated Canvas views rendered directly on the 1080x1920 portrait wall display, with zero garbage-collection stutter.
-- **Bi-Directional 30Hz Motor Bridge**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), and arm orientation telemetry.
-- **Fail-Safe Fast Path**: Instant `<5ms` emergency motor disengage (`WEIGHT OFF`) directly over local loopback socket, safeguarding lifters even during network loss.
-- **Decentralized P2P Friends (Nostr)**: Self-sovereign gym buddy network powered by Nostr (secp256k1 `npub1...`). Share workouts, exchange routine templates, and send encouragement (`💪`, `🔥`, `🏆`) peer-to-peer across home NATs without central servers or tracking.
+- **Bi-Directional 30Hz Motor Bridge**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), live Tonal V1 arm orientation decoding (`H 1–12`, `R 1–3`, `A 1–5` with per-axis color coding and moving/locked detection), and Smart Handle / Bar Control Module (`0x2003`) button toggle support.
+- **Routine Schedules & Free Lift Randomizer**: Assign weekdays (`S M T W T F S`) to any saved routine for 1-click **"Today's Routine"** loading right from the main screen, or tap the **`🎲`** dice button in the Free Lift Catalog to roll a random exercise.
+- **Multi-Layer Motor Safety & Fail-Safe Fast Path**: Instant `<5ms` emergency motor disengage (`WEIGHT OFF`) over local loopback, automatic weight shutoff on workout/exercise switch, 45-second cable inactivity auto-cutoff (`INACTIVITY_AUTO_CUTOFF`), instant disengage on kiosk disconnect or daemon shutdown, serialized async motor command lock, and monotonic watchdog protection.
+- **Decentralized P2P Friends (Swocial)**: Self-sovereign gym buddy network powered by Nostr (`Your Public Swocial Code`). Share workouts, exchange routine templates, and send encouragement (`💪`, `🔥`, `🏆`) peer-to-peer across home NATs without central servers or tracking.
 - **Mobile Companion Web App (`/companion`)**: Remote control, routine builder, friends feed, and live metrics from any smartphone on your local network.
-- **AI Addons for MCP & Voice**: Autonomous workout programming via Model Context Protocol (MCP) agents (Claude, Cursor), hands-free AirPods voice control, and real-time in-set audio coaching.
-- **Local Spotify Connect Audio on Tonal Speakers**: Built-in `librespot` receiver and Android `AudioTrack` PCM bridge (`:41478`) enabling users to play their Spotify playlists directly through the Tonal wall speakers with automatic audio ducking during voice cues.
+- **AI Addons for MCP & Voice**: Autonomous workout programming via Model Context Protocol (MCP) agents (Claude, Cursor), hands-free AirPods voice control, and real-time audio coaching routed directly to the Tonal speakers.
 - **Home Assistant Integration**: Real-time MQTT discovery and webhook event bus for smart home automations.
 
 ---
@@ -177,7 +177,7 @@ Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 
 - **Switching Between Swonal & Stock Tonal**: Tap the menu at the top right of the screen and choose **"Exit to Stock Tonal"**. A floating button allows you to return to Swonal at any time without rebooting.
 - **Phone Companion & Swocial**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view friends' workouts, and share routines.
-- **Hardware Safety**: If the network connection is ever interrupted during a set, pressing the on-screen **WEIGHT OFF** button immediately cuts cable tension locally.
+- **Hardware Safety**: Pressing **WEIGHT OFF** immediately cuts cable tension locally (`<5ms`). Weights also automatically disengage when switching workouts/exercises, when the kiosk app disconnects, or after 45 seconds of cable inactivity. Optional `DAEMON_API_TOKEN` authentication protects `:8765` across the LAN.
 - **Remote Screen View**: View and control the Tonal display remotely from your computer using:
   ```bash
   ./scripts/scrcpy.sh

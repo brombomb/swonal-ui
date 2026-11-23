@@ -83,7 +83,7 @@ class UnitsAndMathTest {
         val drift = SymmetryMetrics.from(
             TelemetryFrame(
                 leftCable = CableData(position = 50.0, loadLb = 30.0),
-                rightCable = CableData(position = 70.0, loadLb = 20.0)
+                rightCable = CableData(position = 95.0, loadLb = 20.0)
             )
         )
         assertEquals(SymmetryStatus.DRIFT, drift.status)
@@ -91,15 +91,15 @@ class UnitsAndMathTest {
         assertEquals(40, drift.rightLoadPct)
 
         val extremeLeft = SymmetryMetrics.from(
-            TelemetryFrame(leftCable = CableData(position = 150.0), rightCable = CableData(position = 0.0))
+            TelemetryFrame(leftCable = CableData(position = 200.0), rightCable = CableData(position = 0.0))
         )
         val extremeRight = SymmetryMetrics.from(
-            TelemetryFrame(leftCable = CableData(position = 0.0), rightCable = CableData(position = 150.0))
+            TelemetryFrame(leftCable = CableData(position = 0.0), rightCable = CableData(position = 200.0))
         )
         assertEquals(SymmetryStatus.CRITICAL, extremeRight.status)
-        // Symmetric bounds around 50%: 4.0 and 96.0
-        assertEquals(4.0f, extremeLeft.puckPercent, 0.01f)
-        assertEquals(96.0f, extremeRight.puckPercent, 0.01f)
+        // Symmetric bounds around 50%: 6.0 and 94.0
+        assertEquals(6.0f, extremeLeft.puckPercent, 0.01f)
+        assertEquals(94.0f, extremeRight.puckPercent, 0.01f)
     }
 
     @Test

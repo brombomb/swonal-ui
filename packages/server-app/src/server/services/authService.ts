@@ -62,35 +62,19 @@ export function verifyPasscode(candidate: string): boolean {
   return verifyPasscodeHash(candidate, stored);
 }
 
-function isPrivateOrLoopbackIp(rawIp: string): boolean {
+function isLoopbackIp(rawIp: string): boolean {
   const ip = rawIp.trim().replace(/^::ffff:/i, '');
   if (!ip) return false;
-  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.')) return true;
-  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.')) return true;
-  const m172 = /^172\.(\d+)\./.exec(ip);
-  if (m172) {
-    const second = Number(m172[1]);
-    if (second >= 16 && second <= 31) return true;
-  }
-  const lower = ip.toLowerCase();
-  return lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+  return ip === '127.0.0.1' || ip === '::1';
 }
 
 export function isDirectLocalhost(req: IncomingMessage): boolean {
-  const cfIp = req.headers['cf-connecting-ip'];
-  if (cfIp) {
-    const val = Array.isArray(cfIp) ? cfIp[0] : cfIp;
-    if (!isPrivateOrLoopbackIp(val)) return false;
+  // Never trust a proxied request as direct localhost (prevents X-Forwarded-For spoofing)
+  if (req.headers['x-forwarded-for'] || req.headers['forwarded'] || req.headers['cf-connecting-ip']) {
+    return false;
   }
   const remoteAddr = req.socket?.remoteAddress || '';
-  if (!isPrivateOrLoopbackIp(remoteAddr)) return false;
-
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) {
-    const firstHop = (Array.isArray(xff) ? xff[0] : xff).split(',')[0] ?? '';
-    return isPrivateOrLoopbackIp(firstHop);
-  }
-  return true;
+  return isLoopbackIp(remoteAddr);
 }
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -101,7 +85,11 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
     if (eq <= 0) continue;
     const k = part.slice(0, eq).trim();
     const v = part.slice(eq + 1).trim();
-    out[k] = decodeURIComponent(v);
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch {
+      out[k] = v;
+    }
   }
   return out;
 }

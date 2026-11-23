@@ -189,18 +189,27 @@ data class SymmetryMetrics(
     val status: SymmetryStatus = SymmetryStatus.BALANCED
 ) {
     val puckPercent: Float
-        get() = (50.0 + signedBalance * 1.1).coerceIn(4.0, 96.0).toFloat()
+        get() {
+            // Apply ±8.0 deadzone and dampened scaling so normal bilateral reps feel smooth and stable
+            val adjusted = when {
+                abs(signedBalance) <= 8.0 -> 0.0
+                signedBalance > 0 -> signedBalance - 8.0
+                else -> signedBalance + 8.0
+            }
+            return (50.0 + adjusted * 0.35).coerceIn(6.0, 94.0).toFloat()
+        }
 
     companion object {
-        fun from(frame: TelemetryFrame): SymmetryMetrics {
-            val delta = abs(frame.leftCable.position - frame.rightCable.position)
-            val signed = frame.rightCable.position - frame.leftCable.position
+        fun from(frame: TelemetryFrame, smoothedSigned: Double? = null): SymmetryMetrics {
+            val rawSigned = frame.rightCable.position - frame.leftCable.position
+            val signed = smoothedSigned ?: rawSigned
+            val delta = abs(signed)
             val totalLoad = frame.leftCable.loadLb + frame.rightCable.loadLb
             val leftPct = if (totalLoad > 0.0) ((frame.leftCable.loadLb / totalLoad) * 100.0).roundToInt() else 50
             val rightPct = if (totalLoad > 0.0) 100 - leftPct else 50
             val status = when {
-                delta > 28.0 -> SymmetryStatus.CRITICAL
-                delta > 12.0 -> SymmetryStatus.DRIFT
+                delta > 80.0 -> SymmetryStatus.CRITICAL
+                delta > 35.0 -> SymmetryStatus.DRIFT
                 else -> SymmetryStatus.BALANCED
             }
             return SymmetryMetrics(
@@ -240,9 +249,52 @@ class VbtTracker {
     private var peakSetVelocity = 0.0
     private var velocityDropPct = 0.0
     private var fatigueAlert = false
+    private var prevLeftPos: Double? = null
+    private var prevRightPos: Double? = null
+    private var prevSampleMs: Long = 0L
+    private var smoothedVelocity = 0.0
+    private var smoothedSignedBalance = 0.0
 
     fun update(frame: TelemetryFrame): VbtMetrics {
-        val avgVel = (abs(frame.leftCable.velocity) + abs(frame.rightCable.velocity)) / 2.0
+        val nowMs = System.currentTimeMillis()
+        var leftVel = abs(frame.leftCable.velocity)
+        var rightVel = abs(frame.rightCable.velocity)
+
+        // Fallback to position-derivative velocity when hardware cable_speed is 0 while cables move
+        val pL = prevLeftPos
+        val pR = prevRightPos
+        if (pL != null && pR != null && prevSampleMs > 0L) {
+            val dtSec = (nowMs - prevSampleMs) / 1000.0
+            if (dtSec in 0.015..0.5) {
+                val deltaL = abs(frame.leftCable.position - pL)
+                val deltaR = abs(frame.rightCable.position - pR)
+                val derivL = if (deltaL >= 0.6) (deltaL / dtSec) * 0.5 else 0.0
+                val derivR = if (deltaR >= 0.6) (deltaR / dtSec) * 0.5 else 0.0
+                if (leftVel < 0.1 && derivL >= 2.0) leftVel = derivL
+                if (rightVel < 0.1 && derivR >= 2.0) rightVel = derivR
+            }
+        }
+        prevLeftPos = frame.leftCable.position
+        prevRightPos = frame.rightCable.position
+        prevSampleMs = nowMs
+
+        // Use active cable velocity (works for both bilateral and unilateral exercises)
+        val rawVel = when {
+            leftVel > 2.0 && rightVel > 2.0 -> (leftVel + rightVel) / 2.0
+            else -> max(leftVel, rightVel)
+        }.let { if (it < 2.5) 0.0 else it }
+
+        smoothedVelocity = if (rawVel < 2.5) {
+            smoothedVelocity * 0.65
+        } else {
+            0.18 * rawVel + 0.82 * smoothedVelocity
+        }
+        val avgVel = if (smoothedVelocity < 1.5) 0.0 else smoothedVelocity
+
+        // Smooth symmetry balance to prevent jitter
+        val rawSigned = frame.rightCable.position - frame.leftCable.position
+        smoothedSignedBalance = 0.25 * rawSigned + 0.75 * smoothedSignedBalance
+
         if (!frame.weightEnabled && lastWeightEnabled) {
             resetSet()
         } else if (!frame.weightEnabled && frame.repCount == 0) {
@@ -252,11 +304,11 @@ class VbtTracker {
             if (frame.repCount < lastRepCount) {
                 resetSet()
             }
-            if (avgVel > currentRepPeakVel) currentRepPeakVel = avgVel
-            if (avgVel > peakSetVelocity) peakSetVelocity = avgVel
+            if (rawVel > currentRepPeakVel) currentRepPeakVel = rawVel
+            if (rawVel > peakSetVelocity) peakSetVelocity = rawVel
 
             if (frame.repCount > lastRepCount) {
-                val repPeak = max(currentRepPeakVel, avgVel)
+                val repPeak = max(currentRepPeakVel, rawVel)
                 if (firstRepPeakVel == 0.0 && repPeak > 0.1) {
                     firstRepPeakVel = repPeak
                 }
@@ -279,7 +331,7 @@ class VbtTracker {
             lastRepPeakCmSec = lastRepPeakVel,
             velocityDropPct = velocityDropPct,
             fatigueAlert = fatigueAlert,
-            symmetry = SymmetryMetrics.from(frame)
+            symmetry = SymmetryMetrics.from(frame, smoothedSignedBalance)
         )
     }
 
@@ -290,6 +342,7 @@ class VbtTracker {
         peakSetVelocity = 0.0
         velocityDropPct = 0.0
         fatigueAlert = false
+        smoothedVelocity = 0.0
     }
 }
 

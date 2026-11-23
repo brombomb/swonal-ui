@@ -34,10 +34,8 @@ class BLEHandleManager:
         self.clients: list[BleakClient] = []
         self._tasks: list[asyncio.Task] = []
         self._running = False
-        self._last_click_time = 0.0
-        self._click_count = 0
-        self._press_start_time = 0.0
-        self._pending_single_handle: Optional[asyncio.TimerHandle] = None
+        # Per-device button state keyed by sender so simultaneous handle presses never collide
+        self._device_states: dict[str, dict[str, Any]] = {}
 
     async def start(self) -> None:
         """Start BLE listener tasks for configured accessories."""
@@ -98,62 +96,76 @@ class BLEHandleManager:
             except RuntimeError:
                 pass
 
+    def _get_device_state(self, sender: Any) -> dict[str, Any]:
+        key = str(sender) if sender is not None else "default"
+        return self._device_states.setdefault(
+            key,
+            {
+                "last_click_time": 0.0,
+                "click_count": 0,
+                "press_start_time": 0.0,
+                "pending_single_handle": None,
+            },
+        )
+
     def _notification_handler(
         self, sender: Any, data: bytearray, now: Optional[float] = None
     ) -> None:
-        """Decode single click (<350ms), double click, and long press (>1000ms)."""
+        """Decode single click (<350ms), double click, and long press (>1000ms) per device."""
         if not data:
             return
-        ts = time.time() if now is None else now
+        ts = time.monotonic() if now is None else now
+        st = self._get_device_state(sender)
         is_pressed = (data[0] & 0x01) == 1
 
         if is_pressed:
-            self._press_start_time = ts
+            st["press_start_time"] = ts
             return
 
-        if self._press_start_time <= 0.0:
+        if st["press_start_time"] <= 0.0:
             return
 
-        duration_ms = (ts - self._press_start_time) * 1000.0
-        self._press_start_time = 0.0
+        duration_ms = (ts - st["press_start_time"]) * 1000.0
+        st["press_start_time"] = 0.0
 
         if duration_ms > 1000.0:
-            if self._pending_single_handle is not None:
-                self._pending_single_handle.cancel()
-                self._pending_single_handle = None
-            self._click_count = 0
+            if st["pending_single_handle"] is not None:
+                st["pending_single_handle"].cancel()
+                st["pending_single_handle"] = None
+            st["click_count"] = 0
             self._dispatch_event(
                 {"type": "handle_event", "action": "emergency_stop", "source": "ble"}
             )
             return
 
-        if ts - self._last_click_time < 0.35:
-            self._click_count += 1
+        if ts - st["last_click_time"] < 0.35:
+            st["click_count"] += 1
         else:
-            self._click_count = 1
-        self._last_click_time = ts
+            st["click_count"] = 1
+        st["last_click_time"] = ts
 
-        if self._click_count == 1:
+        if st["click_count"] == 1:
             try:
                 loop = asyncio.get_running_loop()
-                self._pending_single_handle = loop.call_later(
-                    0.38, self._process_single_click
+                st["pending_single_handle"] = loop.call_later(
+                    0.38, self._process_single_click, st
                 )
             except RuntimeError:
-                self._process_single_click()
-        elif self._click_count == 2:
-            if self._pending_single_handle is not None:
-                self._pending_single_handle.cancel()
-                self._pending_single_handle = None
-            self._click_count = 0
+                self._process_single_click(st)
+        elif st["click_count"] == 2:
+            if st["pending_single_handle"] is not None:
+                st["pending_single_handle"].cancel()
+                st["pending_single_handle"] = None
+            st["click_count"] = 0
             self._dispatch_event(
                 {"type": "handle_event", "action": "spotify_next", "source": "ble"}
             )
 
-    def _process_single_click(self) -> None:
-        if self._click_count == 1:
-            self._click_count = 0
-            self._pending_single_handle = None
+    def _process_single_click(self, st: Optional[dict[str, Any]] = None) -> None:
+        target = st if st is not None else self._get_device_state("default")
+        if target["click_count"] == 1:
+            target["click_count"] = 0
+            target["pending_single_handle"] = None
             self._dispatch_event(
                 {"type": "handle_event", "action": "toggle_weight", "source": "ble"}
             )
@@ -177,9 +189,12 @@ class BLEHandleManager:
     async def disconnect_all(self) -> None:
         """Stop all BLE listener tasks and disconnect clients."""
         self._running = False
-        if self._pending_single_handle is not None:
-            self._pending_single_handle.cancel()
-            self._pending_single_handle = None
+        for st in self._device_states.values():
+            handle = st.get("pending_single_handle")
+            if handle is not None:
+                handle.cancel()
+                st["pending_single_handle"] = None
+        self._device_states.clear()
 
         for task in self._tasks:
             if not task.done():

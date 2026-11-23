@@ -88,14 +88,15 @@ model Exercise {
 }
 
 model WorkoutTemplate {
-  id          String           @id @default(uuid())
-  userId      String
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String
-  description String?
-  blocksJson  String           // JSON serialized structured layout of warmups, supersets, and blocks
-  createdAt   DateTime         @default(now())
-  sessions    WorkoutSession[]
+  id           String           @id @default(uuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  blocksJson   String           // JSON serialized structured layout of warmups, supersets, and blocks
+  scheduleDays String?          // Optional JSON array of weekday numbers (0=Sun..6=Sat)
+  createdAt    DateTime         @default(now())
+  sessions     WorkoutSession[]
 }
 
 model WorkoutSession {

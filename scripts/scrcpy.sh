@@ -44,14 +44,31 @@ fi
 DEVICES=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
 OFFLINE_DEVICES=($(adb devices | awk 'NR>1 && $2=="offline" {print $1}'))
 
-# If Tonal is offline or missing, disconnect and reconnect
+# If Tonal is offline or missing, disconnect any conflicting default-port (5037) ADB socket and reconnect on 5038
 if [[ " ${OFFLINE_DEVICES[*]:-} " =~ " ${TONAL_IP} " ]] || [[ ! " ${DEVICES[*]:-} " =~ " ${TONAL_IP} " && "${MODE}" == "tonal" ]]; then
   echo "==> Ensuring Tonal Wi-Fi ADB connection (${TONAL_IP})..."
+  if [[ "${ANDROID_ADB_SERVER_PORT}" != "5037" ]]; then
+    ANDROID_ADB_SERVER_PORT=5037 adb disconnect "${TONAL_IP}" >/dev/null 2>&1 || true
+  fi
   adb disconnect "${TONAL_IP}" >/dev/null 2>&1 || true
   sleep 1
   adb connect "${TONAL_IP}" || true
   sleep 1
   DEVICES=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
+  if [[ ! " ${DEVICES[*]:-} " =~ " ${TONAL_IP} " ]]; then
+    TONAL_HOST="${TONAL_IP%%:*}"
+    echo "==> Requesting adbd reset via tonal-daemon (http://${TONAL_HOST}:8765/api/adb/reset) and reloading ADB server..."
+    curl -s --max-time 4 -X POST "http://${TONAL_HOST}:8765/api/adb/reset" >/dev/null 2>&1 || true
+    sleep 1
+    if [[ "${ANDROID_ADB_SERVER_PORT}" != "5037" ]]; then
+      ANDROID_ADB_SERVER_PORT=5037 adb kill-server >/dev/null 2>&1 || true
+    fi
+    adb kill-server >/dev/null 2>&1 || true
+    adb start-server >/dev/null 2>&1
+    adb connect "${TONAL_IP}" || true
+    sleep 1
+    DEVICES=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
+  fi
 fi
 
 if [[ ${#DEVICES[@]} -eq 0 ]]; then
@@ -73,11 +90,12 @@ if [[ "${MODE}" == "usb" ]]; then
     TARGET="${TONAL_IP}"
   fi
 else
-  # Default: target Tonal
+  # Default: target Tonal strictly (do not fall back to unrelated USB devices like Facebook Portal)
   if [[ " ${DEVICES[*]} " =~ " ${TONAL_IP} " ]]; then
     TARGET="${TONAL_IP}"
   else
-    TARGET="${DEVICES[0]}"
+    echo "Error: Tonal (${TONAL_IP}) is not online in ADB (current online devices: ${DEVICES[*]:-none})." >&2
+    exit 1
   fi
 fi
 

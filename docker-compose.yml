@@ -21,6 +21,7 @@ services:
       - tonal-daemon-mock
     ports:
       - "3000:3000"
+      - "8898:8898"
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -43,8 +44,5 @@ services:
       - SWONAL_API_TOKEN=${SWONAL_API_TOKEN:-}
       - SWONAL_SESSION_SECRET=${SWONAL_SESSION_SECRET:-}
     volumes:
-      - swonal-db-data:/data
-
-volumes:
-  swonal-db-data:
-    driver: local
+      - ./packages/server-app/prisma/data:/data
+      - ./packages/server-app/data/media:/data/media

@@ -212,12 +212,21 @@ export async function getUserStrengthHistory(params: {
   };
 }
 
+function normalizeScheduleDays(days?: number[]): string | undefined {
+  if (days === undefined) return undefined;
+  const clean = Array.from(
+    new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))
+  ).sort((a, b) => a - b);
+  return JSON.stringify(clean);
+}
+
 export async function createCustomWorkoutTemplate(params: {
   userId: string;
   name: string;
   description?: string;
   unit?: WeightUnit;
   blocks: WorkoutBlockInput[];
+  scheduleDays?: number[];
 }) {
   const user = await prisma.user.findUnique({ where: { id: params.userId } });
   if (!user) throw new Error(`User not found: ${params.userId}`);
@@ -225,12 +234,14 @@ export async function createCustomWorkoutTemplate(params: {
     params.unit ?? (user.weightUnit === 'KG' ? 'KG' : 'LB');
 
   const canonicalBlocks = normalizeBlocksToCanonicalLb(params.blocks, effectiveUnit);
+  const scheduleDaysJson = normalizeScheduleDays(params.scheduleDays);
   return prisma.workoutTemplate.create({
     data: {
       userId: params.userId,
       name: params.name,
       description: params.description,
       blocksJson: JSON.stringify(canonicalBlocks),
+      ...(scheduleDaysJson !== undefined ? { scheduleDays: scheduleDaysJson } : {}),
     },
   });
 }
@@ -241,6 +252,7 @@ export async function updateCustomWorkoutTemplate(params: {
   description?: string;
   unit?: WeightUnit;
   blocks?: WorkoutBlockInput[];
+  scheduleDays?: number[];
 }) {
   const existing = await prisma.workoutTemplate.findUnique({
     where: { id: params.templateId },
@@ -254,6 +266,7 @@ export async function updateCustomWorkoutTemplate(params: {
   const blocksJson = params.blocks
     ? JSON.stringify(normalizeBlocksToCanonicalLb(params.blocks, effectiveUnit))
     : undefined;
+  const scheduleDaysJson = normalizeScheduleDays(params.scheduleDays);
 
   return prisma.workoutTemplate.update({
     where: { id: params.templateId },
@@ -261,6 +274,7 @@ export async function updateCustomWorkoutTemplate(params: {
       ...(params.name !== undefined ? { name: params.name } : {}),
       ...(params.description !== undefined ? { description: params.description } : {}),
       ...(blocksJson !== undefined ? { blocksJson } : {}),
+      ...(scheduleDaysJson !== undefined ? { scheduleDays: scheduleDaysJson } : {}),
     },
   });
 }
