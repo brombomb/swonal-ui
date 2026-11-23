@@ -128,6 +128,16 @@ class MainActivity : AppCompatActivity() {
 
         app.repository.start()
         observeStateFlows()
+
+        // Release any stale daemon maintenance lock left over from a completed update on fresh launch
+        lifecycleScope.launch {
+            if (!com.swonal.kiosk.net.AppUpdateManager.isUpdateInProgress.get()) {
+                com.swonal.kiosk.net.AppUpdateManager.setDaemonMaintenanceLock(
+                    app.prefs.localDaemonUrl,
+                    locked = false
+                )
+            }
+        }
     }
 
     override fun onResume() {
@@ -138,11 +148,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun scheduleAutoUpdateCheck() {
         lifecycleScope.launch {
-            // Release any stale maintenance lock left over from a just-completed update
-            com.swonal.kiosk.net.AppUpdateManager.setDaemonMaintenanceLock(
-                app.prefs.localDaemonUrl,
-                locked = false
-            )
             kotlinx.coroutines.delay(8_000L)
             val result = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()
             if (result is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable) {

@@ -31,7 +31,8 @@ TMP_DB="$TMP_DIR/ci-test.db"
   cd "$ROOT_DIR/packages/server-app"
   # Isolate from local .env and local swonal.db to match GitHub Actions runner
   export DATABASE_URL="file:$TMP_DB"
-  unset SPOTIFY_CLIENT_ID SPOTIFY_CLIENT_SECRET SPOTIFY_REDIRECT_URI PUBLIC_URL
+  export SWONAL_SKIP_DOTENV=1
+  unset SPOTIFY_CLIENT_ID SPOTIFY_CLIENT_SECRET SPOTIFY_REDIRECT_URI PUBLIC_URL COMPANION_BASE_URL
   npx prisma generate >/dev/null
   npx prisma db push --skip-generate >/dev/null
   npx tsx prisma/seed.ts >/dev/null

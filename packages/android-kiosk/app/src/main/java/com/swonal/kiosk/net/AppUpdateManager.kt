@@ -10,6 +10,7 @@ import androidx.core.content.FileProvider
 import com.swonal.kiosk.BuildConfig
 import com.swonal.kiosk.util.RootShell
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -24,6 +25,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class AppUpdateInfo(
     val versionName: String,
@@ -62,6 +64,9 @@ object AppUpdateManager {
 
     @Volatile
     private var tlsConfigRef: SwonalTlsConfig? = null
+
+    /** True while an update download/staging/install transaction owns the motor maintenance lock. */
+    val isUpdateInProgress = AtomicBoolean(false)
 
     @Volatile
     private var cachedClient: OkHttpClient? = null
@@ -190,6 +195,9 @@ object AppUpdateManager {
         if (!isAllowedDownloadUrl(update.apkDownloadUrl)) {
             return@withContext UpdateInstallResult.Failed("Untrusted download URL")
         }
+        if (!isUpdateInProgress.compareAndSet(false, true)) {
+            return@withContext UpdateInstallResult.Failed("An update is already in progress")
+        }
 
         val tmpFile = File(context.cacheDir, "swonal-update.apk.tmp")
         val finalFile = File(context.cacheDir, "swonal-update.apk")
@@ -197,6 +205,7 @@ object AppUpdateManager {
         runCatching { finalFile.delete() }
 
         var maintenanceLocked = false
+        var keepLockForRelaunch = false
         try {
             onProgress(0, "Connecting to GitHub Releases...")
             val req = Request.Builder()
@@ -259,6 +268,11 @@ object AppUpdateManager {
             // energize the motor while the kiosk APK is being replaced.
             onProgress(100, "Locking motor safety for update...")
             maintenanceLocked = setDaemonMaintenanceLock(localDaemonUrl, locked = true)
+            if (!maintenanceLocked) {
+                return@withContext UpdateInstallResult.Failed(
+                    "Could not acquire motor safety lock from daemon — update aborted"
+                )
+            }
             if (isWeightEngaged()) {
                 return@withContext UpdateInstallResult.Failed("Weight engaged — cancelled install for safety")
             }
@@ -279,7 +293,7 @@ object AppUpdateManager {
                 val installRes = RootShell.run(installCmd)
                 if (installRes.isSuccess) {
                     // Keep maintenance lock until the newly launched MainActivity clears it in onCreate
-                    maintenanceLocked = false
+                    keepLockForRelaunch = true
                     return@withContext UpdateInstallResult.InstalledAndRelaunching
                 }
                 val errDetail = installRes.stderr.ifBlank { installRes.stdout }.ifBlank { "pm install exited ${installRes.exitCode}" }
@@ -308,15 +322,19 @@ object AppUpdateManager {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(intent)
-            maintenanceLocked = false
             UpdateInstallResult.FallbackInstallerLaunched(finalFile)
         } catch (e: Exception) {
             Log.e(TAG, "Update download/install failed", e)
             runCatching { tmpFile.delete() }
             UpdateInstallResult.Failed(e.message ?: "Update failed")
         } finally {
-            if (maintenanceLocked) {
-                setDaemonMaintenanceLock(localDaemonUrl, locked = false)
+            if (!keepLockForRelaunch) {
+                if (maintenanceLocked) {
+                    withContext(NonCancellable) {
+                        setDaemonMaintenanceLock(localDaemonUrl, locked = false)
+                    }
+                }
+                isUpdateInProgress.set(false)
             }
         }
     }
