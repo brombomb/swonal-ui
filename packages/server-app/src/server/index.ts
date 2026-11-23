@@ -6,16 +6,19 @@ import http from 'http';
 import path from 'path';
 
 // Load package-local .env first, then monorepo root .env, filling any missing or empty values
-for (const envPath of [
-  path.resolve(process.cwd(), '.env'),
-  path.resolve(__dirname, '../../../.env'),
-  path.resolve(__dirname, '../../../../.env'),
-]) {
-  if (!fs.existsSync(envPath)) continue;
-  const parsed = dotenv.parse(fs.readFileSync(envPath));
-  for (const [k, v] of Object.entries(parsed)) {
-    if (!process.env[k]?.trim() && v.trim()) {
-      process.env[k] = v;
+// Set SWONAL_SKIP_DOTENV=1 in clean-room CI runs to avoid loading developer .env files
+if (process.env.SWONAL_SKIP_DOTENV !== '1') {
+  for (const envPath of [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(__dirname, '../../../.env'),
+    path.resolve(__dirname, '../../../../.env'),
+  ]) {
+    if (!fs.existsSync(envPath)) continue;
+    const parsed = dotenv.parse(fs.readFileSync(envPath));
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!process.env[k]?.trim() && v.trim()) {
+        process.env[k] = v;
+      }
     }
   }
 }

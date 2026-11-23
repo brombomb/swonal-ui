@@ -12,8 +12,10 @@ android {
         applicationId = "com.swonal.kiosk"
         minSdk = 23
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.1.1"
+        val propVersionCode = (project.findProperty("swonalVersionCode") as String?)?.toIntOrNull()
+        val propVersionName = (project.findProperty("swonalVersionName") as String?)?.trim()?.takeIf { it.isNotEmpty() }
+        versionCode = propVersionCode ?: 10101
+        versionName = propVersionName ?: "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

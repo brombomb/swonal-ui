@@ -47,6 +47,10 @@ class SpotifyAuthRequest(BaseModel):
     reset: bool = False
 
 
+class MaintenanceLockRequest(BaseModel):
+    locked: bool = True
+
+
 class MockBleEventRequest(BaseModel):
     action: str = "toggle_weight"
 
@@ -483,6 +487,14 @@ async def route_spotify_wake():
     if not st["running"]:
         return await librespot.restart_process()
     return st
+
+
+@app.post("/api/motor/maintenance")
+async def route_motor_maintenance(req: MaintenanceLockRequest):
+    """Acquire/release motor maintenance lock (e.g., during kiosk APK updates)."""
+    if motor is None:
+        raise HTTPException(status_code=503, detail="Motor bridge unavailable")
+    return await motor.set_maintenance_lock(req.locked)
 
 
 @app.post("/api/adb/reset")

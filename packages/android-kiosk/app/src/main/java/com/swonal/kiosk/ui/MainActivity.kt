@@ -128,11 +128,56 @@ class MainActivity : AppCompatActivity() {
 
         app.repository.start()
         observeStateFlows()
+
+        // Release any stale daemon maintenance lock left over from a completed update on fresh launch
+        lifecycleScope.launch {
+            if (!com.swonal.kiosk.net.AppUpdateManager.isUpdateInProgress.get()) {
+                com.swonal.kiosk.net.AppUpdateManager.setDaemonMaintenanceLock(
+                    app.prefs.localDaemonUrl,
+                    locked = false
+                )
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
         syncDeviceVolumeSlider()
+        // If the user returned after cancelling or dismissing the fallback system installer,
+        // release the maintenance lock and clear update ownership.
+        if (com.swonal.kiosk.net.AppUpdateManager.pendingFallbackInstall.compareAndSet(true, false)) {
+            lifecycleScope.launch {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    com.swonal.kiosk.net.AppUpdateManager.setDaemonMaintenanceLock(
+                        app.prefs.localDaemonUrl,
+                        locked = false
+                    )
+                    com.swonal.kiosk.net.AppUpdateManager.isUpdateInProgress.set(false)
+                }
+            }
+        }
+        scheduleAutoUpdateCheck()
+    }
+
+    private fun scheduleAutoUpdateCheck() {
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(8_000L)
+            val result = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()
+            if (result is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable) {
+                val info = result.info
+                if (
+                    com.swonal.kiosk.net.AppUpdateManager.dismissedVersionInSession != info.versionName &&
+                    !app.repository.isWeightCurrentlyEngaged() &&
+                    !app.repository.uiStateFlow.value.authRequired &&
+                    !isFinishing &&
+                    !isDestroyed
+                ) {
+                    showDialogOnce("app_update") {
+                        com.swonal.kiosk.ui.dialogs.UpdateDialog.newInstance(info)
+                    }
+                }
+            }
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

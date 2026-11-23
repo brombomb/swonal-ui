@@ -190,6 +190,7 @@ class MotorBridge:
 
         self.state = "DISCONNECTED"
         self.weight_enabled = False
+        self.maintenance_locked = False
         self.target_weight_lb = 45.0
         self.profile_mode = "standard"
         self.modifier_pct = 0
@@ -681,6 +682,8 @@ class MotorBridge:
             await self._set_target_weight_unlocked(weight_lb, profile, modifier_pct)
 
     async def _enable_resistance_unlocked(self) -> None:
+        if self.maintenance_locked:
+            raise RuntimeError("Cannot enable resistance: system update maintenance lock active")
         if self.state == "FAULT":
             raise RuntimeError("Cannot enable resistance: Motor controller in FAULT state")
         if self.state == "STOCK_MODE":
@@ -736,6 +739,18 @@ class MotorBridge:
         """Zero and disengage motor resistance (serialized under command lock)."""
         async with self._cmd_lock:
             await self._disable_resistance_unlocked()
+
+    async def set_maintenance_lock(self, locked: bool) -> dict:
+        """Engage/release maintenance lock (immediately disengages weight and blocks all engagement paths)."""
+        async with self._cmd_lock:
+            self.maintenance_locked = bool(locked)
+            if self.maintenance_locked and self.weight_enabled:
+                await self._disable_resistance_unlocked()
+            return {
+                "maintenance_locked": self.maintenance_locked,
+                "weight_enabled": self.weight_enabled,
+                "state": self.state,
+            }
 
     async def toggle_resistance(self) -> bool:
         """Toggle weight ON/OFF and return resulting enabled state."""

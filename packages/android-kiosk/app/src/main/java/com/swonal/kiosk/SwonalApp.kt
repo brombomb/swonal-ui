@@ -34,6 +34,7 @@ class SwonalApp : Application(), ImageLoaderFactory {
         }
         prefs = SwonalPreferences(this)
         tlsConfig = SwonalTlsFactory.create(this)
+        com.swonal.kiosk.net.AppUpdateManager.configureTls(tlsConfig)
         soundEngine = SwonalSoundEngine(this).apply {
             muted = prefs.soundMuted
         }

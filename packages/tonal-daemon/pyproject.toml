@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "tonal-daemon"
 version = "1.1.1"
 description = "Hardware daemon and serial bridge for Tonal V1 motor controller"
-readme = "../../README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110.0",
