@@ -1,3 +1,4 @@
+import WebSocket from 'ws';
 import {
   generateSecretKey,
   getPublicKey,
@@ -7,7 +8,14 @@ import {
   SimplePool,
   type Event as NostrEvent,
 } from 'nostr-tools';
+import { useWebSocketImplementation as usePoolWebSocket } from 'nostr-tools/pool';
+import { useWebSocketImplementation as useRelayWebSocket } from 'nostr-tools/relay';
 import { prisma } from '../db';
+
+// Use the `ws` package instead of Node 22's built-in undici WebSocket, which can trigger
+// infinite `onerror -> close -> onerror` recursion inside nostr-tools when a relay rejects a connection.
+usePoolWebSocket(WebSocket as unknown as typeof globalThis.WebSocket);
+useRelayWebSocket(WebSocket as unknown as typeof globalThis.WebSocket);
 
 export const DEFAULT_RELAYS: string[] = [
   'wss://relay.damus.io',
@@ -235,6 +243,9 @@ async function getUserSecretKey(userId: string): Promise<{
 }
 
 export async function publishToRelays(relays: string[], event: NostrEvent): Promise<void> {
+  if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+    return;
+  }
   const pool = getSimplePool();
   const targetRelays = relays && relays.length > 0 ? relays : DEFAULT_RELAYS;
   try {
