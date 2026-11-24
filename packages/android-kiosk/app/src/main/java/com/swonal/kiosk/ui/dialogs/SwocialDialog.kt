@@ -15,11 +15,13 @@ import com.swonal.kiosk.ui.PressFeedback
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.Locale
 
 /**
@@ -62,13 +64,43 @@ class SwocialDialog : BaseSwonalDialog() {
         loading = true
         renderBody()
         viewLifecycleOwner.lifecycleScope.launch {
-            val ident = runCatching { repo.api.getSwocialIdentity(uid) }.getOrNull()
-            val friends = runCatching { repo.api.getSwocialFriends(uid) }.getOrNull()
-            val feed = runCatching { repo.api.getSwocialFeed(uid, 25) }.getOrNull()
+            val ident = runCatching { repo.localNostr.getOrCreateIdentity(uid) }.getOrNull()
+            val friends = runCatching { repo.localNostr.listFriends(uid) }.getOrDefault(emptyList())
+            val feed = runCatching { repo.localNostr.getFeed(uid, 25) }.getOrDefault(emptyList())
 
-            myNpub = ident?.get("npub")?.jsonPrimitive?.content.orEmpty()
-            friendsList = friends?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
-            feedItems = feed?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
+            myNpub = ident?.npub.orEmpty()
+            friendsList = friends.map { f ->
+                buildJsonObject {
+                    put("id", f.id)
+                    put("npub", f.npub)
+                    put("pubkeyHex", f.pubkeyHex)
+                    put("displayName", f.displayName)
+                }
+            }
+            feedItems = feed.map { item ->
+                buildJsonObject {
+                    put("id", item.id)
+                    put("kind", item.kind)
+                    put("authorPubkey", item.authorPubkey)
+                    put("authorName", item.authorName)
+                    put("createdAt", item.createdAt)
+                    put("payload", item.payload)
+                    put(
+                        "reactions",
+                        JsonArray(
+                            item.reactions.map { r ->
+                                buildJsonObject {
+                                    put("id", r.id)
+                                    put("authorPubkey", r.authorPubkey)
+                                    put("authorName", r.authorName)
+                                    put("emoji", r.emoji)
+                                    put("createdAt", r.createdAt)
+                                }
+                            }
+                        )
+                    )
+                }
+            }
             loading = false
             renderBody()
         }
@@ -79,7 +111,8 @@ class SwocialDialog : BaseSwonalDialog() {
         syncing = true
         renderBody()
         viewLifecycleOwner.lifecycleScope.launch {
-            runCatching { repo.api.syncSwocialFeed(uid) }
+            runCatching { repo.localNostr.syncFeed(uid) }
+            repo.notifyDirtySync()
             syncing = false
             loadSwocialData()
         }
@@ -168,7 +201,8 @@ class SwocialDialog : BaseSwonalDialog() {
 
             feedItems.forEach { post ->
                 val postId = post["id"]?.jsonPrimitive?.content.orEmpty()
-                val pubkey = post["pubkey"]?.jsonPrimitive?.content.orEmpty()
+                val pubkey = post["authorPubkey"]?.jsonPrimitive?.content
+                    ?: post["pubkey"]?.jsonPrimitive?.content.orEmpty()
                 val kind = post["kind"]?.jsonPrimitive?.intOrNull ?: 30101
                 val author = post["authorName"]?.jsonPrimitive?.content?.ifBlank { "Friend" } ?: "Friend"
                 val payload = runCatching { post["payload"]?.jsonObject }.getOrNull()
@@ -195,7 +229,9 @@ class SwocialDialog : BaseSwonalDialog() {
                     val rName = payload?.get("name")?.jsonPrimitive?.content ?: "Shared Routine"
                     "$author shared routine: $rName"
                 } else {
-                    val tName = payload?.get("templateName")?.jsonPrimitive?.content ?: "Workout Session"
+                    val tName = payload?.get("templateName")?.jsonPrimitive?.content
+                        ?: payload?.get("routineName")?.jsonPrimitive?.content
+                        ?: "Workout Session"
                     "$author completed $tName"
                 }
                 card.addView(TextView(requireContext()).apply {
@@ -209,7 +245,9 @@ class SwocialDialog : BaseSwonalDialog() {
                     payload?.get("description")?.jsonPrimitive?.content ?: "Custom Swonal workout template"
                 } else {
                     val vol = payload?.get("totalVolumeLb")?.jsonPrimitive?.doubleOrNull ?: 0.0
-                    val sets = payload?.get("totalSets")?.jsonPrimitive?.intOrNull ?: 0
+                    val sets = payload?.get("totalSets")?.jsonPrimitive?.intOrNull
+                        ?: payload?.get("setsCount")?.jsonPrimitive?.intOrNull
+                        ?: 0
                     val prs = payload?.get("prCount")?.jsonPrimitive?.intOrNull ?: 0
                     String.format(Locale.US, "Volume: %.0f LB • %d sets%s", vol, sets, if (prs > 0) " • 🏆 $prs PRs" else "")
                 }
@@ -227,7 +265,8 @@ class SwocialDialog : BaseSwonalDialog() {
                 }
                 actionRow.addView(makePillButton("💪 ${if (flexCount > 0) flexCount else ""}".trim()) {
                     viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching { repo.api.reactSwocialPost(uid, postId, pubkey, "💪") }
+                        runCatching { repo.localNostr.publishReaction(uid, postId, pubkey, "💪") }
+                        repo.notifyDirtySync()
                         loadSwocialData()
                     }
                 }.apply {
@@ -238,7 +277,8 @@ class SwocialDialog : BaseSwonalDialog() {
                 })
                 actionRow.addView(makePillButton("🔥 ${if (fireCount > 0) fireCount else ""}".trim()) {
                     viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching { repo.api.reactSwocialPost(uid, postId, pubkey, "🔥") }
+                        runCatching { repo.localNostr.publishReaction(uid, postId, pubkey, "🔥") }
+                        repo.notifyDirtySync()
                         loadSwocialData()
                     }
                 }.apply {
@@ -251,10 +291,11 @@ class SwocialDialog : BaseSwonalDialog() {
                 if (kind == 30102 && postId.isNotBlank()) {
                     actionRow.addView(makeAccentButton("Import Routine") {
                         viewLifecycleOwner.lifecycleScope.launch {
-                            runCatching { repo.api.importSwocialRoutine(uid, postId) }
+                            runCatching { repo.localNostr.importRoutine(uid, postId) }
                                 .onSuccess { tpl ->
                                     statusMessage = "Imported '${tpl.name}' into your Workout Library!"
                                     repo.refreshAppState()
+                                    repo.notifyDirtySync()
                                     renderBody()
                                 }
                                 .onFailure { err ->
@@ -318,8 +359,9 @@ class SwocialDialog : BaseSwonalDialog() {
                 val nick = nickInput.text?.toString()?.trim()
                 if (code.isNotBlank()) {
                     viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching { repo.api.addSwocialFriend(uid, code, nick) }
+                        runCatching { repo.localNostr.addFriend(uid, code, nick) }
                             .onSuccess {
+                                repo.notifyDirtySync()
                                 statusMessage = "Friend added! Syncing Swocial feed..."
                                 syncRelays()
                             }

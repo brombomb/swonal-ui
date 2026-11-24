@@ -291,7 +291,7 @@ class MusicPickerDialog : BaseSwonalDialog() {
                         setOnClickListener {
                             if (needsPairing) {
                                 val uid = activeSlice.activeUserId.orEmpty()
-                                val url = "${repo.uiStateFlow.value.serverUrl.trimEnd('/')}/api/spotify/speaker-auth/start?userId=$uid"
+                                val url = repo.buildSpeakerPairingUrl(uid)
                                 dismiss()
                                 InAppWebLauncher.open(requireContext(), url, "Pair Tonal Speakers", p)
                             } else {

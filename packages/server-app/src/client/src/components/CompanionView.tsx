@@ -216,8 +216,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          npub: newFriendCode.trim(),
-          nickname: newFriendNick.trim() || undefined,
+          npubOrHex: newFriendCode.trim(),
+          displayName: newFriendNick.trim() || undefined,
         }),
       });
       const data = await res.json();

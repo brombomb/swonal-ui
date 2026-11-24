@@ -517,7 +517,9 @@ object KioskPopups {
                         popup.dismiss()
                         if (needsPairing) {
                             val uid = ui.activeUser?.id.orEmpty()
-                            val url = "${ui.serverUrl.trimEnd('/')}/api/spotify/speaker-auth/start?userId=$uid"
+                            val app = context.applicationContext as? com.swonal.kiosk.SwonalApp
+                            val url = app?.repository?.buildSpeakerPairingUrl(uid)
+                                ?: "${ui.serverUrl.trimEnd('/')}/api/spotify/speaker-auth/start?userId=$uid"
                             InAppWebLauncher.open(context, url, "Pair Tonal Speakers", palette)
                         } else {
                             onSelectDevice(dev.id)

@@ -3,9 +3,15 @@ package com.swonal.kiosk.net
 import com.swonal.kiosk.audio.SwonalSoundEngine
 import com.swonal.kiosk.db.SwonalDatabase
 import com.swonal.kiosk.db.countDirtySyncRows
+import com.swonal.kiosk.engine.LocalAiCoachEngine
 import com.swonal.kiosk.engine.LocalWorkoutEngine
+import com.swonal.kiosk.integrations.LocalHomeAssistantClient
 import com.swonal.kiosk.model.*
+import com.swonal.kiosk.music.LocalLanMusicProviders
+import com.swonal.kiosk.music.LocalSpotifyController
+import com.swonal.kiosk.social.LocalNostrSwocialEngine
 import com.swonal.kiosk.util.PlaintextTestCipher
+import com.swonal.kiosk.util.SecretCipher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -157,10 +163,16 @@ class SwonalRepository(
 ) {
     private enum class TelemetrySource { NONE, SERVER, LOCAL }
 
+    private val secretCipher: SecretCipher = runCatching { prefs.secretCipher }.getOrElse { PlaintextTestCipher }
+
     val localDb: SwonalDatabase = SwonalDatabase(
         dbPath = localDbPath ?: ":memory:",
-        cipher = runCatching { prefs.secretCipher }.getOrElse { PlaintextTestCipher }
+        cipher = secretCipher
     )
+
+    val localAiCoach: LocalAiCoachEngine = LocalAiCoachEngine(localDb, secretCipher, tlsConfig)
+    val localHaClient: LocalHomeAssistantClient = LocalHomeAssistantClient(localDb, secretCipher, tlsConfig)
+    val localNostr: LocalNostrSwocialEngine = LocalNostrSwocialEngine(localDb, tlsConfig)
 
     private val _wsBroadcastFlow = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val wsBroadcastFlow: SharedFlow<String> = _wsBroadcastFlow.asSharedFlow()
@@ -179,13 +191,49 @@ class SwonalRepository(
         daemonSetWeight = { w, p, m -> setWeight(w, p, m, allowWhileEngaged = false) },
         daemonResetReps = { resetReps() },
         onSessionEvent = { evType, payload ->
+            handleLocalSessionEvent(evType, payload)
             sessionEventListener?.invoke(evType, payload)
         },
         onSessionCompletedHook = { completed ->
+            handleLocalSessionCompleted(completed)
             sessionCompletedListener?.invoke(completed)
             notifyDirtySync()
         }
     )
+
+    private fun handleLocalSessionEvent(evType: String, payload: JsonObject) {
+        scope.launch {
+            runCatching { localHaClient.publishEvent(evType, payload) }
+            runCatching { localHaClient.getStatus() }.onSuccess { ha ->
+                _uiStateFlow.update { it.copy(haStatus = ha) }
+            }
+        }
+    }
+
+    private fun handleLocalSessionCompleted(completed: WorkoutSession) {
+        val prLabels = _uiStateFlow.value.sessionPrHits.map {
+            "${it.exerciseName}: ${round(it.oneRepMaxEst).toInt()} lb 1RM"
+        }
+        scope.launch {
+            runCatching { localNostr.publishWorkout(completed, prLabels) }
+            runCatching {
+                localHaClient.publishEvent(
+                    "workout_completed",
+                    buildJsonObject {
+                        put("sessionId", completed.id)
+                        put("userId", completed.userId)
+                        put("routineName", completed.template?.name ?: "Free Lift")
+                        put("totalVolumeLb", round(completed.totalVolume).toInt())
+                        put("setsCount", completed.setLogs.size)
+                        put("prCount", prLabels.size)
+                    }
+                )
+            }
+            runCatching { localHaClient.getStatus() }.onSuccess { ha ->
+                _uiStateFlow.update { it.copy(haStatus = ha) }
+            }
+        }
+    }
 
     fun emitLocalBroadcast(type: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}) {
         val obj = buildJsonObject {
@@ -241,6 +289,11 @@ class SwonalRepository(
         scope = scope,
         uiAliveCheck = { isUiAliveForWatchdog() }
     )
+
+    val localSpotify: LocalSpotifyController = LocalSpotifyController(localDb, localDaemon, scope, tlsConfig)
+    val localLanMusic: LocalLanMusicProviders = LocalLanMusicProviders(localDb, secretCipher, localHaClient, tlsConfig)
+
+    fun buildSpeakerPairingUrl(userId: String): String = localSpotify.buildSpeakerPkceUrl(userId)
 
     private val _telemetryFlow = MutableStateFlow(TelemetryFrame())
     val telemetryFlow: StateFlow<TelemetryFrame> = _telemetryFlow.asStateFlow()
@@ -639,18 +692,58 @@ class SwonalRepository(
         }
     }
 
+    private fun hasRemoteSync(): Boolean =
+        prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()
+
+    private suspend fun fetchMusicStateForProvider(provider: String, userId: String): MusicPlaybackState {
+        if (provider == "spotify") {
+            return localSpotify.getPlaybackState(userId)
+        }
+        val lanState = localLanMusic.controlAction(provider, "state")
+        if (lanState.isConnected) return lanState
+        if (hasRemoteSync()) {
+            return runCatching { api.getMusicState(provider, userId) }.getOrDefault(lanState)
+        }
+        return lanState
+    }
+
     private suspend fun refreshAuxiliaryState() {
-        if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
-            runCatching { api.getMusicProviders() }.onSuccess { providers ->
-                _uiStateFlow.update { it.copy(musicProviders = providers) }
-            }
-            runCatching { api.getCoachConfig() }.onSuccess { cfg ->
-                _uiStateFlow.update { it.copy(coachConfig = cfg) }
+        val spotifyProvider = localSpotify.getProviderInfo()
+        val lanSecondary = localLanMusic.getSecondaryProviders()
+        var mergedProviders = listOf(spotifyProvider) + lanSecondary
+
+        if (hasRemoteSync()) {
+            runCatching { api.getMusicProviders() }.onSuccess { remoteProviders ->
+                val remoteById = remoteProviders.associateBy { it.id }
+                mergedProviders = mergedProviders.map { localInfo ->
+                    val r = remoteById[localInfo.id]
+                    if (r != null) {
+                        localInfo.copy(
+                            configured = localInfo.configured || r.configured,
+                            capabilities = MusicProviderCapabilities(
+                                supportsConnectDevices = localInfo.capabilities.supportsConnectDevices || r.capabilities.supportsConnectDevices,
+                                supportsVolumeDucking = localInfo.capabilities.supportsVolumeDucking || r.capabilities.supportsVolumeDucking,
+                                supportsPlaylists = localInfo.capabilities.supportsPlaylists || r.capabilities.supportsPlaylists
+                            )
+                        )
+                    } else {
+                        localInfo
+                    }
+                }
             }
             runCatching { api.getNetworkInfo() }.onSuccess { info ->
                 _uiStateFlow.update { it.copy(networkInfo = info) }
             }
         }
+        _uiStateFlow.update { it.copy(musicProviders = mergedProviders) }
+
+        runCatching { localAiCoach.getPublicConfig() }.onSuccess { cfg ->
+            _uiStateFlow.update { it.copy(coachConfig = cfg) }
+        }
+        runCatching { localHaClient.getStatus() }.onSuccess { ha ->
+            _uiStateFlow.update { it.copy(haStatus = ha) }
+        }
+
         val uid = _uiStateFlow.value.activeUser?.id
         if (uid != null) {
             refreshMusicAll(uid)
@@ -703,35 +796,45 @@ class SwonalRepository(
 
     private suspend fun refreshMusicAll(userId: String) {
         val provider = _uiStateFlow.value.preferredMusicProvider
-        runCatching { api.getMusicState(provider, userId) }
+        runCatching { fetchMusicStateForProvider(provider, userId) }
             .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
             .onFailure { err ->
                 if (err is ApiHttpException && err.statusCode == 401) {
                     _uiStateFlow.update { it.copy(musicState = it.musicState.copy(isConnected = false)) }
                 }
             }
-        runCatching { api.getMusicDevices(provider, userId) }
-            .onSuccess { devs ->
-                _uiStateFlow.update { it.copy(musicDevices = devs) }
-                // Default to on-device librespot ("Tonal Gym") if online and no speaker is currently active
-                val hasActive = devs.any { it.isActive } || !_uiStateFlow.value.musicState.activeDeviceId.isNullOrBlank()
-                val librespot = findLibrespotDevice(devs)
-                if (!hasActive && librespot != null && autoSelectedLibrespot.compareAndSet(false, true)) {
-                    runCatching { api.transferMusicDevice(provider, userId, librespot.id) }
-                        .onSuccess { st ->
-                            _uiStateFlow.update {
-                                it.copy(
-                                    musicState = st.copy(activeDeviceId = st.activeDeviceId ?: librespot.id),
-                                    musicDevices = devs.map { d -> d.copy(isActive = d.id == librespot.id) }
-                                )
+
+        if (provider == "spotify") {
+            runCatching { localSpotify.getDevices(userId) }
+                .onSuccess { devs ->
+                    _uiStateFlow.update { it.copy(musicDevices = devs) }
+                    val hasActive = devs.any { it.isActive } || !_uiStateFlow.value.musicState.activeDeviceId.isNullOrBlank()
+                    val librespot = findLibrespotDevice(devs)
+                    if (!hasActive && librespot != null && librespot.id != "tonal-gym-librespot" && autoSelectedLibrespot.compareAndSet(false, true)) {
+                        runCatching { localSpotify.transferPlayback(userId, librespot.id) }
+                            .onSuccess { st ->
+                                _uiStateFlow.update {
+                                    it.copy(
+                                        musicState = st.copy(activeDeviceId = st.activeDeviceId ?: librespot.id),
+                                        musicDevices = devs.map { d -> d.copy(isActive = d.id == librespot.id) }
+                                    )
+                                }
                             }
-                        }
+                    }
                 }
-            }
-        runCatching { api.getMusicPlaylists(provider, userId) }
-            .onSuccess { pls -> _uiStateFlow.update { it.copy(musicPlaylists = pls) } }
-        runCatching { api.getMusicFavorites(userId) }
-            .onSuccess { favs -> _uiStateFlow.update { it.copy(favoritePlaylistIds = favs.playlistIds.toSet()) } }
+            runCatching { localSpotify.getPlaylists(userId) }
+                .onSuccess { pls -> _uiStateFlow.update { it.copy(musicPlaylists = pls) } }
+        } else if (hasRemoteSync()) {
+            runCatching { api.getMusicDevices(provider, userId) }
+                .onSuccess { devs -> _uiStateFlow.update { it.copy(musicDevices = devs) } }
+            runCatching { api.getMusicPlaylists(provider, userId) }
+                .onSuccess { pls -> _uiStateFlow.update { it.copy(musicPlaylists = pls) } }
+        } else {
+            _uiStateFlow.update { it.copy(musicDevices = emptyList(), musicPlaylists = emptyList()) }
+        }
+
+        runCatching { localSpotify.getFavoritePlaylists(userId) }
+            .onSuccess { favs -> _uiStateFlow.update { it.copy(favoritePlaylistIds = favs.toSet()) } }
     }
 
     fun refreshDiagnostics() {
@@ -739,18 +842,30 @@ class SwonalRepository(
             refreshDaemonHealth()
             val cal = localDaemon.getCalibrationDirect()
                 ?: runCatching {
-                    if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) api.getCalibration() else null
+                    if (hasRemoteSync()) api.getCalibration() else null
                 }.getOrNull()
             if (cal != null) {
                 _uiStateFlow.update { it.copy(calibrationStatus = cal) }
             }
-            if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
+            runCatching { localHaClient.getStatus() }
+                .onSuccess { ha -> _uiStateFlow.update { it.copy(haStatus = ha) } }
+            runCatching { localAiCoach.getPublicConfig() }
+                .onSuccess { cfg -> _uiStateFlow.update { it.copy(coachConfig = cfg) } }
+            if (hasRemoteSync()) {
                 runCatching { api.getHomeAssistantStatus() }
-                    .onSuccess { ha -> _uiStateFlow.update { it.copy(haStatus = ha) } }
+                    .onSuccess { remoteHa ->
+                        _uiStateFlow.update { cur ->
+                            val localHa = cur.haStatus
+                            cur.copy(
+                                haStatus = remoteHa.copy(
+                                    webhookConfigured = remoteHa.webhookConfigured || (localHa?.webhookConfigured == true),
+                                    recentEvents = (remoteHa.recentEvents + (localHa?.recentEvents.orEmpty())).take(15)
+                                )
+                            )
+                        }
+                    }
                 runCatching { api.getNetworkInfo() }
                     .onSuccess { net -> _uiStateFlow.update { it.copy(networkInfo = net) } }
-                runCatching { api.getCoachConfig() }
-                    .onSuccess { cfg -> _uiStateFlow.update { it.copy(coachConfig = cfg) } }
             }
             val uid = _uiStateFlow.value.activeUser?.id
             if (uid != null) {
@@ -1020,8 +1135,8 @@ class SwonalRepository(
                 delay(2000L)
                 val ui = _uiStateFlow.value
                 val uid = ui.activeUser?.id
-                if (uiActive.get() && !ui.authRequired && ui.wsConnected && uid != null && ui.musicState.isPlaying) {
-                    runCatching { api.getMusicState(ui.preferredMusicProvider, uid) }
+                if (uiActive.get() && !ui.authRequired && uid != null && ui.musicState.isPlaying) {
+                    runCatching { fetchMusicStateForProvider(ui.preferredMusicProvider, uid) }
                         .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st) } }
                 }
             }
@@ -1675,6 +1790,27 @@ class SwonalRepository(
 
     // --- Music Actions ---
 
+    private suspend fun executeSecondaryMusicAction(
+        provider: String,
+        userId: String,
+        action: String,
+        volumePct: Int? = null
+    ): MusicPlaybackState {
+        val local = localLanMusic.controlAction(provider, action, volumePct)
+        if (local.isConnected) return local
+        if (hasRemoteSync()) {
+            return when (action) {
+                "play" -> api.playMusic(provider, userId)
+                "pause" -> api.pauseMusic(provider, userId)
+                "next" -> api.nextTrack(provider, userId)
+                "previous" -> api.previousTrack(provider, userId)
+                "volume" -> api.setMusicVolume(provider, userId, volumePct ?: 70)
+                else -> local
+            }
+        }
+        return local
+    }
+
     fun toggleMusicPlayPause() {
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
@@ -1683,10 +1819,14 @@ class SwonalRepository(
         val defaultDeviceId = resolvePreferredMusicDeviceId(ui)
         scope.launch {
             runCatching {
-                if (ui.musicState.isPlaying) {
-                    api.pauseMusic(provider, uid)
+                if (provider == "spotify") {
+                    if (ui.musicState.isPlaying) {
+                        localSpotify.pause(uid)
+                    } else {
+                        localSpotify.play(uid, deviceId = defaultDeviceId)
+                    }
                 } else {
-                    api.playMusic(provider, uid, deviceId = defaultDeviceId)
+                    executeSecondaryMusicAction(provider, uid, if (ui.musicState.isPlaying) "pause" else "play")
                 }
             }.onSuccess { st ->
                 _uiStateFlow.update { it.copy(musicState = st, musicError = null) }
@@ -1700,8 +1840,15 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         scope.launch {
-            runCatching { api.previousTrack(ui.preferredMusicProvider, uid) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.previousTrack(uid)
+                } else {
+                    executeSecondaryMusicAction(provider, uid, "previous")
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1711,8 +1858,15 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         scope.launch {
-            runCatching { api.nextTrack(ui.preferredMusicProvider, uid) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.nextTrack(uid)
+                } else {
+                    executeSecondaryMusicAction(provider, uid, "next")
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1722,9 +1876,16 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         _uiStateFlow.update { it.copy(musicState = it.musicState.copy(volumePct = volumePct)) }
         scope.launch {
-            runCatching { api.setMusicVolume(ui.preferredMusicProvider, uid, volumePct) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.setVolume(uid, volumePct)
+                } else {
+                    executeSecondaryMusicAction(provider, uid, "volume", volumePct)
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1734,9 +1895,18 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         val defaultDeviceId = resolvePreferredMusicDeviceId(ui)
         scope.launch {
-            runCatching { api.playMusic(ui.preferredMusicProvider, uid, contextUri = uri, deviceId = defaultDeviceId) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.play(uid, contextUri = uri, deviceId = defaultDeviceId)
+                } else if (hasRemoteSync()) {
+                    api.playMusic(provider, uid, contextUri = uri, deviceId = defaultDeviceId)
+                } else {
+                    localLanMusic.controlAction(provider, "play")
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1755,9 +1925,11 @@ class SwonalRepository(
 
     fun completeSpotifySpeakerAuth(codeOrUrl: String, onDone: (Boolean, String) -> Unit = { _, _ -> }) {
         val uid = _uiStateFlow.value.activeUser?.id
+        val fallbackUid = uid ?: _uiStateFlow.value.users.firstOrNull()?.id ?: "11111111-1111-4111-8111-111111111111"
         scope.launch {
-            runCatching { api.completeSpotifySpeakerAuth(uid, codeOrUrl) }
+            runCatching { localSpotify.exchangeKeymasterPkceCode(fallbackUid, codeOrUrl) }
                 .onSuccess {
+                    notifyDirtySync()
                     if (uid != null) {
                         delay(1500L)
                         refreshMusicAll(uid)
@@ -1774,8 +1946,17 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         scope.launch {
-            runCatching { api.transferMusicDevice(ui.preferredMusicProvider, uid, deviceId) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.transferPlayback(uid, deviceId)
+                } else if (hasRemoteSync()) {
+                    api.transferMusicDevice(provider, uid, deviceId)
+                } else {
+                    MusicPlaybackState(isConnected = false)
+                }
+            }
                 .onSuccess { st ->
                     _uiStateFlow.update { it.copy(musicState = st, musicError = null) }
                     refreshMusicAll(uid)
@@ -1788,8 +1969,11 @@ class SwonalRepository(
         if (_uiStateFlow.value.authRequired) return
         val uid = _uiStateFlow.value.activeUser?.id ?: return
         scope.launch {
-            runCatching { api.toggleMusicFavorite(uid, playlistId) }
-                .onSuccess { fav -> _uiStateFlow.update { it.copy(favoritePlaylistIds = fav.playlistIds.toSet()) } }
+            runCatching { localSpotify.toggleFavoritePlaylist(uid, playlistId) }
+                .onSuccess { favIds ->
+                    _uiStateFlow.update { it.copy(favoritePlaylistIds = favIds.toSet()) }
+                    notifyDirtySync()
+                }
         }
     }
 
@@ -1797,10 +1981,13 @@ class SwonalRepository(
         if (_uiStateFlow.value.authRequired) return
         val user = _uiStateFlow.value.activeUser ?: return
         scope.launch {
-            runCatching { api.patchUser(user.id, preferredMusicProvider = providerId) }
+            runCatching { localEngine.updateUser(user.id, preferredMusicProvider = providerId) }
                 .onSuccess { updated ->
-                    updateUserInState(updated)
-                    refreshMusicAll(updated.id)
+                    if (updated != null) {
+                        updateUserInState(updated)
+                        notifyDirtySync()
+                        refreshMusicAll(updated.id)
+                    }
                 }
         }
     }
@@ -1808,7 +1995,15 @@ class SwonalRepository(
     suspend fun loadPlaylistTracks(playlistId: String): Result<List<MusicTrack>> {
         val ui = _uiStateFlow.value
         val uid = ui.activeUser?.id ?: return Result.failure(IllegalStateException("No active user"))
-        return runCatching { api.getPlaylistTracks(ui.preferredMusicProvider, playlistId, uid) }
+        return runCatching {
+            if (ui.preferredMusicProvider == "spotify") {
+                localSpotify.getPlaylistTracks(playlistId, uid)
+            } else if (hasRemoteSync()) {
+                api.getPlaylistTracks(ui.preferredMusicProvider, playlistId, uid)
+            } else {
+                emptyList()
+            }
+        }
     }
 
     fun clearMusicError() {
@@ -1820,7 +2015,13 @@ class SwonalRepository(
         if (!ui.musicState.isPlaying || !ui.musicState.isConnected) return
         val uid = ui.activeUser?.id ?: return
         scope.launch {
-            runCatching { api.duckMusic(ui.preferredMusicProvider, uid, targetPct = 25, durationMs = durationMs) }
+            runCatching {
+                if (ui.preferredMusicProvider == "spotify") {
+                    localSpotify.duckVolume(uid, targetPct = 25, durationMs = durationMs)
+                } else if (hasRemoteSync()) {
+                    api.duckMusic(ui.preferredMusicProvider, uid, targetPct = 25, durationMs = durationMs)
+                }
+            }
         }
     }
 
@@ -1837,7 +2038,7 @@ class SwonalRepository(
         _uiStateFlow.update { it.copy(coachLoading = true) }
         scope.launch {
             runCatching {
-                api.askCoach(
+                localAiCoach.ask(
                     userId = uid,
                     prompt = trimmed,
                     exerciseName = ui.activeExercise?.name,
@@ -1889,9 +2090,10 @@ class SwonalRepository(
     fun saveCoachConfig(provider: String, model: String, apiKey: String?, baseUrl: String?) {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
-            runCatching { api.saveCoachConfig(provider, model, apiKey, baseUrl) }
+            runCatching { localAiCoach.setConfig(provider = provider, model = model, apiKey = apiKey, baseUrl = baseUrl) }
                 .onSuccess { cfg ->
                     _uiStateFlow.update { it.copy(coachConfig = cfg) }
+                    notifyDirtySync()
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage("AI Coach settings saved"))
                 }
                 .onFailure { err ->
@@ -1947,7 +2149,18 @@ class SwonalRepository(
     fun testHomeAssistant() {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
-            runCatching { api.testHomeAssistantEvent() }
+            runCatching {
+                localHaClient.publishEvent(
+                    "test",
+                    buildJsonObject {
+                        put("source", "kiosk")
+                        put("message", "Swonal Home Assistant webhook test")
+                    }
+                )
+                if (hasRemoteSync()) {
+                    runCatching { api.testHomeAssistantEvent() }
+                }
+            }
                 .onSuccess {
                     refreshDiagnostics()
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage("Home Assistant test event published"))
