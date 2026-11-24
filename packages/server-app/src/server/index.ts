@@ -27,7 +27,7 @@ import { ZodError } from 'zod';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { prisma } from './db';
 import { seedDatabase } from '../../prisma/seed';
-import { createSwonalMcpServer } from './mcp/mcpServer';
+import { createSwonalMcpServer, clearPendingQueuedWorkout, getPendingQueuedWorkout } from './mcp/mcpServer';
 import { musicRegistry } from './music/Registry';
 import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
@@ -35,6 +35,8 @@ import { createMusicRouter } from './routes/musicRoutes';
 import { createSpotifyRouter } from './routes/spotify';
 import { createAuthRouter } from './routes/authRoutes';
 import { createFriendsRouter } from './routes/friendsRoutes';
+import { createSyncRouter } from './routes/syncRoutes';
+import { startScheduledBackupLoop } from './services/backupService';
 import { getServerConfig } from './config';
 import { isRequestAuthenticated } from './services/authService';
 import { getEffectivePublicBaseUrl } from './services/runtimeSettings';
@@ -140,8 +142,27 @@ export async function createSwonalServer(
   app.use('/media', express.static(resolvedMediaDir));
 
   const httpServer = http.createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
+  const syncWss = new WebSocketServer({ noServer: true });
   const browserClients = new Set<WebSocket>();
+  const tonalSyncClients = new Set<WebSocket>();
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const pathname = (req.url || '/').split('?')[0];
+    if (pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/sync') {
+      syncWss.handleUpgrade(req, socket, head, (ws) => {
+        syncWss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  const stopBackupLoop = startScheduledBackupLoop(prisma);
 
   let daemonWs: WebSocket | null = null;
   let daemonConnected = false;
@@ -167,12 +188,29 @@ export async function createSwonalServer(
     },
   };
 
+  const broadcastToSyncClients = (payload: Record<string, unknown>) => {
+    const serialized = JSON.stringify(payload);
+    for (const client of tonalSyncClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(serialized);
+      }
+    }
+  };
+
   const broadcastToClients = (payload: Record<string, unknown>) => {
     const serialized = JSON.stringify(payload);
     for (const client of browserClients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(serialized);
       }
+    }
+    if (
+      payload.type === 'users_updated' ||
+      payload.type === 'user_updated' ||
+      payload.type === 'templates_updated' ||
+      payload.type === 'exercises_updated'
+    ) {
+      broadcastToSyncClients({ type: 'sync_poke' });
     }
   };
 
@@ -226,6 +264,7 @@ export async function createSwonalServer(
   };
   const onWorkoutQueued = (payload: unknown) => {
     broadcastToClients({ type: 'workout_queued', workout: payload });
+    broadcastToSyncClients({ type: 'workout_queued', workout: payload });
     void homeAssistantBus.publishSessionEvent('workout_queued', {
       userId: sessionCoordinator.getState().activeUserId,
       workout: payload,
@@ -392,7 +431,7 @@ export async function createSwonalServer(
           const sec = Number(msg.seconds ?? 60);
           sessionCoordinator.setRestTimer(Date.now() + sec * 1000);
         } else if (type === 'clear_queued_workout') {
-          sessionCoordinator.clearQueuedWorkout();
+          void clearPendingQueuedWorkout();
         } else if (type === 'music_updated') {
           broadcastToClients(msg);
         }
@@ -403,11 +442,54 @@ export async function createSwonalServer(
 
     client.on('close', () => {
       browserClients.delete(client);
-      if (browserClients.size === 0 && latestTelemetry.weight_enabled) {
+      if (browserClients.size === 0 && tonalSyncClients.size === 0 && latestTelemetry.weight_enabled) {
         console.warn('[SwonalServer] Last UI client disconnected while weight engaged — immediately disabling resistance.');
         sendToDaemon({ type: 'disable_weight' });
         fetch(`${daemonHttpUrl}/api/motor/disable`, { method: 'POST' }).catch(() => {});
       }
+    });
+  });
+
+  syncWss.on('connection', (client, req) => {
+    if (!isRequestAuthenticated(req)) {
+      client.close(4401, 'Unauthorized');
+      return;
+    }
+    tonalSyncClients.add(client);
+    client.send(JSON.stringify({ type: 'sync_hello', serverTimeMs: Date.now() }));
+    void getPendingQueuedWorkout()
+      .then((pending) => {
+        if (pending && client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'workout_queued', workout: pending }));
+        }
+      })
+      .catch(() => {});
+
+    client.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+        const type = String(msg.type || '');
+        if (type === 'ping') {
+          client.send(JSON.stringify({ type: 'pong', serverTimeMs: Date.now() }));
+        } else if (type === 'telemetry') {
+          latestTelemetry = msg;
+          broadcastToClients(msg);
+          publishHaState();
+        } else if (type === 'session_event' && typeof msg.eventType === 'string') {
+          void homeAssistantBus.publishSessionEvent(
+            msg.eventType,
+            (typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {}) as Record<string, unknown>
+          );
+        } else if (type === 'ack_queued_workout') {
+          void clearPendingQueuedWorkout();
+        }
+      } catch {
+        // Ignore invalid /ws/sync messages
+      }
+    });
+
+    client.on('close', () => {
+      tonalSyncClients.delete(client);
     });
   });
 
@@ -427,6 +509,14 @@ export async function createSwonalServer(
     next();
   });
 
+  app.use(
+    '/api/sync',
+    createSyncRouter({
+      broadcastToClients,
+      notifyTonalSyncPoke: () => broadcastToSyncClients({ type: 'sync_poke' }),
+      isTonalSyncConnected: () => tonalSyncClients.size > 0,
+    })
+  );
   app.use(
     '/api',
     createApiRouter({
@@ -549,6 +639,12 @@ export async function createSwonalServer(
         client.terminate();
       }
       browserClients.clear();
+      for (const client of tonalSyncClients) {
+        client.terminate();
+      }
+      tonalSyncClients.clear();
+      stopBackupLoop();
+      await new Promise<void>((resolve) => syncWss.close(() => resolve()));
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       await homeAssistantBus.close();

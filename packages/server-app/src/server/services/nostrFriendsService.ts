@@ -247,7 +247,7 @@ export async function publishToRelays(relays: string[], event: NostrEvent): Prom
 
 export async function listFriends(userId: string) {
   return prisma.friend.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
     orderBy: { displayName: 'asc' },
   });
 }
@@ -287,6 +287,7 @@ export async function addFriend(
     update: {
       displayName: displayName?.trim() ? displayName.trim() : undefined,
       npub,
+      deletedAt: null,
     },
   });
 
@@ -297,12 +298,16 @@ export async function addFriend(
 }
 
 export async function removeFriend(userId: string, friendId: string) {
-  return prisma.friend.delete({
+  await prisma.friend.updateMany({
     where: {
       id: friendId,
       userId,
     },
+    data: {
+      deletedAt: new Date(),
+    },
   });
+  return { deleted: true, id: friendId };
 }
 
 export async function updateUserFriendsSettings(

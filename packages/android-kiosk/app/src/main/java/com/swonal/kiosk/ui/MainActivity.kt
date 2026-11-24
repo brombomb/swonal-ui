@@ -231,9 +231,21 @@ class MainActivity : AppCompatActivity() {
      */
     private fun handleLaunchIntent(intent: Intent?) {
         if (!BuildConfig.DEBUG) return
+        val modeExtra = intent?.getStringExtra("sync_mode")?.trim()?.lowercase()
+        if (modeExtra == "standalone") {
+            app.repository.updateSyncConfiguration(
+                com.swonal.kiosk.net.SyncMode.STANDALONE,
+                "",
+                app.prefs.localDaemonUrl
+            )
+            return
+        }
         val urlExtra = intent?.getStringExtra("server_url")?.trim()
-        if (!urlExtra.isNullOrBlank() && urlExtra != app.prefs.serverUrl) {
-            app.repository.updateConnectionEndpoints(urlExtra, app.prefs.localDaemonUrl)
+        if (!urlExtra.isNullOrBlank()) {
+            val normalized = com.swonal.kiosk.net.SwonalPreferences.normalizeBaseUrl(urlExtra, "")
+            if (normalized.isNotBlank() && normalized != app.prefs.syncServerUrl) {
+                app.repository.updateConnectionEndpoints(normalized, app.prefs.localDaemonUrl)
+            }
         }
     }
 

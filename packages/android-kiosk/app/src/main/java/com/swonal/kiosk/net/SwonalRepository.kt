@@ -221,6 +221,7 @@ class SwonalRepository(
     )
 
     private fun handleLocalSessionEvent(evType: String, payload: JsonObject) {
+        cloudSyncManager.forwardSessionEvent(evType, payload)
         scope.launch {
             runCatching { localHaClient.publishEvent(evType, payload) }
             runCatching { localHaClient.getStatus() }.onSuccess { ha ->
@@ -311,6 +312,40 @@ class SwonalRepository(
 
     val localSpotify: LocalSpotifyController = LocalSpotifyController(localDb, localDaemon, scope, tlsConfig)
     val localLanMusic: LocalLanMusicProviders = LocalLanMusicProviders(localDb, secretCipher, localHaClient, tlsConfig)
+
+    val cloudSyncManager: com.swonal.kiosk.sync.CloudSyncManager = com.swonal.kiosk.sync.CloudSyncManager(
+        db = localDb,
+        engine = localEngine,
+        prefs = prefs,
+        scope = scope,
+        tlsConfig = tlsConfig,
+        onStatusUpdate = { connected, pending, lastMs, err ->
+            _uiStateFlow.update {
+                it.copy(
+                    syncConnected = connected,
+                    pendingSyncCount = pending,
+                    lastSyncedAtMs = lastMs,
+                    syncError = err
+                )
+            }
+        },
+        onDataPulled = { refreshAppState() },
+        onWorkoutQueued = { payload -> deliverSyncedQueuedWorkout(payload) }
+    )
+
+    init {
+        syncPokeListener = { cloudSyncManager.requestDebouncedSync() }
+        syncNowHandler = { cloudSyncManager.syncNow() }
+        restoreFromServerHandler = { cloudSyncManager.restoreFromServer() }
+    }
+
+    suspend fun deliverSyncedQueuedWorkout(payload: QueuedWorkoutPayload) {
+        localEngine.queueWorkout(payload)
+        emitLocalBroadcast("workout_queued") {
+            put("workout", SwonalJson.encodeToJsonElement(QueuedWorkoutPayload.serializer(), payload))
+        }
+        _effectsFlow.tryEmit(KioskEffect.ShowMessage("Workout queued from Home Server: ${payload.templateName}"))
+    }
 
     fun buildSpeakerPairingUrl(userId: String): String = localSpotify.buildSpeakerPkceUrl(userId)
 
@@ -468,6 +503,7 @@ class SwonalRepository(
                     if (ui.syncMode == SyncMode.STANDALONE || !ui.wsConnected || !ui.daemonConnected || serverStalled) {
                         handleTelemetryFrame(frame, TelemetrySource.LOCAL)
                     }
+                    cloudSyncManager.forwardTelemetry(frame)
                 }
             }
 
@@ -539,6 +575,7 @@ class SwonalRepository(
         prBannerJob = null
         serverWs?.close(1000, "App stopping")
         serverWs = null
+        cloudSyncManager.stop()
         localDaemon.stop()
         localDb.close()
     }
@@ -654,14 +691,11 @@ class SwonalRepository(
 
         refreshAuxiliaryState()
 
-        // 2. If user opted into Home / Cloud Server Sync and configured an external URL,
-        // connect background sync & optional server WS without ever blocking offline lifting.
+        // 2. Start or stop optional background Home / Cloud Server sync without blocking offline lifting
+        cloudSyncManager.startOrReconfigure()
         val externalSyncConfigured = prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()
-        if (externalSyncConfigured) {
-            syncPokeListener?.invoke()
-            if (hasApiClientOverride) {
-                startServerWsLoop()
-            }
+        if (externalSyncConfigured && hasApiClientOverride) {
+            startServerWsLoop()
         }
     }
 

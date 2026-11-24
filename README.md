@@ -21,19 +21,19 @@
 
 ---
 
-`swonal-ui` frees and modernizes the rooted **Tonal 1 (V1)** digital-weight home gym. It replaces proprietary cloud lock-in with a completely open, self-hosted, offline-first ecosystem featuring:
+`swonal-ui` frees and modernizes the rooted **Tonal 1 (V1)** digital-weight home gym. It replaces proprietary cloud lock-in with a **Standalone-First, Offline-Resilient** architecture running natively on the Tonal tablet — with an **optional Home / Cloud Sync Server** for power users:
 
 > [!CAUTION]
 > **Motorized Fitness Hardware Safety Warning (Beta Software):** `swonal-ui` directly controls physical motor resistance up to 200 lb on third-party hardware and is provided **AS IS** with no warranty. Always start with light weight (5–15 lb), verify your physical handle buttons and on-screen **WEIGHT OFF** fail-safe before lifting heavy, and never leave weight engaged unattended. You assume all risk of injury or hardware damage.
 
-- **Native 60fps Android Kiosk + In-App Auto-Updater**: Hardware-accelerated Canvas views rendered directly on the 1080x1920 portrait wall display, with automatic GitHub Releases update checks, human-readable **What's New** changelogs ([`CHANGELOG.md`](CHANGELOG.md)), and 1-tap silent root installation (blocked while weight is engaged for safety).
+- **100% Standalone On-Device Kiosk (`:3000` Embedded LAN Server)**: Runs directly on the 1080x1920 portrait wall display with zero external server required. Backed by an on-device bundled SQLite database (50 built-in exercises + SVG form diagrams), native **Routine Builder**, local progressive overload, CSV/JSON/SQLite backups, and an embedded `:3000` Companion Web & WebSocket server right on the Tonal tablet.
+- **Native 60fps Android Kiosk + In-App Auto-Updater**: Hardware-accelerated Canvas views rendered at 60fps, with automatic GitHub Releases update checks, human-readable **What's New** changelogs ([`CHANGELOG.md`](CHANGELOG.md)), and 1-tap silent root installation (blocked while weight is engaged for safety).
 - **Bi-Directional 30Hz Motor Bridge**: Real-time strain-gauge load sensing, automatic rep counting, velocity-based training (VBT), live Tonal V1 arm orientation decoding (`H 1–12`, `R 1–3`, `A 1–5` with per-axis color coding and moving/locked detection), and Smart Handle / Bar Control Module (`0x2003`) button toggle support.
 - **Routine Schedules & Free Lift Randomizer**: Assign weekdays (`S M T W T F S`) to any saved routine for 1-click **"Today's Routine"** loading right from the main screen, or tap the **`🎲`** dice button in the Free Lift Catalog to roll a random exercise.
 - **Multi-Layer Motor Safety & Fail-Safe Fast Path**: Instant `<5ms` emergency motor disengage (`WEIGHT OFF`) over local loopback, automatic weight shutoff on workout/exercise switch, 45-second cable inactivity auto-cutoff (`INACTIVITY_AUTO_CUTOFF`), instant disengage on kiosk disconnect or daemon shutdown, serialized async motor command lock, and monotonic watchdog protection.
-- **Decentralized P2P Friends (Swocial)**: Self-sovereign gym buddy network powered by Nostr (`Your Public Swocial Code`). Share workouts, exchange routine templates, and send encouragement (`💪`, `🔥`, `🏆`) peer-to-peer across home NATs without central servers or tracking.
-- **Mobile Companion Web App (`/companion`)**: Remote control, routine builder, friends feed, and live metrics from any smartphone on your local network.
-- **AI Addons for MCP & Voice**: Autonomous workout programming via Model Context Protocol (MCP) agents (Claude, Cursor), hands-free AirPods voice control, and real-time audio coaching routed directly to the Tonal speakers.
-- **Home Assistant Integration**: Real-time MQTT discovery and webhook event bus for smart home automations.
+- **On-Device Music, AI Voice Coach & Decentralized Swocial**: Pair Tonal Speakers directly via on-device Spotify Keymaster PKCE (plus optional LAN Plexamp / YouTube Music / HA speakers), trigger hands-free AirPods voice commands & BYOK LLM coaching locally, publish Home Assistant webhooks directly over LAN, and sync peer-to-peer workouts/routines via Nostr (`Your Public Swocial Code`).
+- **Mobile Companion Web App (`http://<TONAL_IP>:3000/companion`)**: Remote control, routine builder, workout history, and friends feed from any phone on your Wi-Fi network — served directly by the Tonal itself (no extra server needed!).
+- **Optional Power-User Home / Cloud Sync Server (`server-app`)**: Optionally pair an always-on Docker / Node.js `server-app` in **Menu → Standalone & Home Server Sync** for 24/7 MCP agent workout queuing (even while Tonal sleeps), centralized Home Assistant MQTT autodiscovery, automated daily rotating off-device SQLite backups, and seamless offline fallback whenever unreachable.
 
 ---
 
@@ -130,9 +130,34 @@ The built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs
 
 ---
 
-### Step 1: Deploy `server-app` (Your Home Server)
+### Step 1: Automated On-Device Installation (One Command — Standalone Default)
 
-Run `server-app` on any local server, Raspberry Pi, NAS, or desktop on your network (e.g. `192.168.1.100` or a local domain):
+Swonal Kiosk runs **100% standalone** directly on the Tonal tablet with zero separate server required. Run [`scripts/install-device.sh`](scripts/install-device.sh) over Wi-Fi ADB:
+
+```bash
+./scripts/install-device.sh \
+  --target <TONAL_IP>:5555 \
+  --allow-debug
+```
+
+*(Optionally pass `--server-url http://<SERVER_IP>:3000` if you also run the optional Home Sync Server below, or pair it anytime from the Kiosk UI under **Menu → Standalone & Home Server Sync**.)*
+
+#### What the Automated Installer Configures:
+- **Native Fullscreen Kiosk (`:3000` Embedded LAN Server)**: Deploys Swonal Kiosk with on-device SQLite persistence, built-in Web SPA (`http://<TONAL_IP>:3000/companion`), Nostr Swocial, Spotify Keymaster PKCE, and native Routine Builder.
+- **Embedded Browser Engine**: Prepares GeckoView ESR for high-performance rendering of `/history`, `/settings`, and `/admin` completely offline.
+- **Hardware Motor Bridge**: Configures the high-speed background service (`:8765`) that controls motor resistance and streams real-time 30Hz cable telemetry.
+- **Persistent Wireless ADB**: Keeps wireless access active across reboots so you can manage and update your Tonal without cables.
+- **Automatic Storage Maintenance**: Cleans temporary installation files, caches, and logs automatically so your Tonal never runs low on disk space.
+- **Fast Incremental Updates (`--sync`)**: Pushes only changed files in seconds when deploying updates:
+  ```bash
+  ./scripts/install-device.sh --target <TONAL_IP>:5555 --sync
+  ```
+
+---
+
+### Step 2 (Optional Power Users): Deploy `server-app` Home / Cloud Sync Server
+
+Only needed if you want **24/7 always-on MCP agent access**, centralized Home Assistant MQTT autodiscovery, automated daily rotating SQLite backups, or multi-device sync:
 
 #### Option A: Docker Compose (Recommended)
 
@@ -143,7 +168,7 @@ cd swonal-ui
 # Create configuration
 cp .env.example .env
 
-# Launch container with persistent SQLite database
+# Launch container with persistent SQLite database + rotating backups
 docker compose up -d --build server-app
 ```
 
@@ -159,31 +184,7 @@ npm run build
 npm start
 ```
 
-Verify that the dashboard opens cleanly at `http://<SERVER_IP>:3000`.
-
----
-
-### Step 2: Automated On-Device Installation (One Command)
-
-The automated script [`scripts/install-device.sh`](scripts/install-device.sh) handles the entire tablet deployment over Wi-Fi ADB:
-
-```bash
-./scripts/install-device.sh \
-  --target <TONAL_IP>:5555 \
-  --server-url http://<SERVER_IP>:3000 \
-  --allow-debug
-```
-
-#### What the Automated Installer Configures:
-- **Native Fullscreen Kiosk**: Deploys the Swonal Kiosk app with automatic server discovery, offline user and workout caching, and seamless background reconnection.
-- **Embedded Browser Engine**: Prepares the display runtime for high-performance rendering, ensuring smooth UI navigation and settings access without crashes.
-- **Hardware Motor Bridge**: Configures the high-speed background service that controls motor resistance and streams real-time cable telemetry.
-- **Persistent Wireless ADB**: Keeps wireless access active across reboots so you can manage and update your Tonal without cables.
-- **Automatic Storage Maintenance**: Cleans temporary installation files, caches, and logs automatically so your Tonal never runs low on disk space.
-- **Fast Incremental Updates (`--sync`)**: Pushes only changed files in seconds when deploying updates:
-  ```bash
-  ./scripts/install-device.sh --target <TONAL_IP>:5555 --sync
-  ```
+Verify that the dashboard opens cleanly at `http://<SERVER_IP>:3000`, then enter `http://<SERVER_IP>:3000` under **Menu → Standalone & Home Server Sync** on your Tonal. Once paired, `server-app` automatically syncs sessions, PRs, routines, and MCP queued workouts (`/api/sync/*` and `/ws/sync`), while Tonal seamlessly continues offline if your server reboots.
 
 ---
 
@@ -191,8 +192,8 @@ The automated script [`scripts/install-device.sh`](scripts/install-device.sh) ha
 
 Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 
-- **Switching Between Swonal & Stock Tonal**: Tap the menu at the top right of the screen and choose **"Exit to Stock Tonal"**. A floating button allows you to return to Swonal at any time without rebooting.
-- **Phone Companion & Swocial**: Open `http://<SERVER_IP>:3000/companion` on your smartphone (or scan the on-screen QR code) to queue exercises, adjust weight, view friends' workouts, and share routines.
+- **Switching Between Swonal & Stock Tonal**: Tap the menu at the top right of the screen and choose **"Stock Tonal UI"**. A floating button allows you to return to Swonal at any time without rebooting.
+- **Phone Companion & Swocial**: Open `http://<TONAL_IP>:3000/companion` on your smartphone (or scan the on-screen **Companion QR** modal) to queue exercises, adjust weight, build routines, view friends' workouts, and share routines directly over local Wi-Fi.
 - **Hardware Safety**: Pressing **WEIGHT OFF** immediately cuts cable tension locally (`<5ms`). Weights also automatically disengage when switching workouts/exercises, when the kiosk app disconnects, or after 45 seconds of cable inactivity. Optional `DAEMON_API_TOKEN` authentication protects `:8765` across the LAN.
 - **Remote Screen View**: View and control the Tonal display remotely from your computer using:
   ```bash
