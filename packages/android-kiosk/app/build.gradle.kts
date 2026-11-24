@@ -138,6 +138,7 @@ val syncWebAssets by tasks.registering {
             webAssetsDir.deleteRecursively()
             distClientDir.copyRecursively(webAssetsDir, overwrite = true)
         } else if (!file("${webAssetsDir.path}/index.html").exists()) {
+            logger.warn("syncWebAssets: packages/server-app/dist/client/index.html not found; writing fallback stub index.html. Run `npm run build` in packages/server-app first for full web SPA.")
             webAssetsDir.mkdirs()
             file("${webAssetsDir.path}/index.html").writeText(
                 """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Swonal</title></head><body style="background:#0A0D14;color:#E2E8F0;font-family:sans-serif;padding:24px;"><h2>Swonal Embedded Server</h2><p>Web SPA assets have not been built yet. Run <code>npm run build</code> in <code>packages/server-app</code>.</p></body></html>"""

@@ -300,8 +300,14 @@ class CloudSyncManager(
 
     private suspend fun deliverAndAckQueuedWorkout(base: String, payload: QueuedWorkoutPayload) {
         onWorkoutQueued(payload)
+        val ackJson = SwonalJson.encodeToString(
+            buildJsonObject {
+                put("templateId", payload.templateId)
+                put("queuedAt", payload.queuedAt)
+            }
+        )
         val req = buildAuthedRequest("$base/api/sync/ack-queued-workout")
-            .post("{}".toRequestBody(jsonMediaType))
+            .post(ackJson.toRequestBody(jsonMediaType))
             .build()
         runCatching {
             withContext(Dispatchers.IO) {
@@ -350,7 +356,13 @@ class CloudSyncManager(
                         }.getOrNull() ?: return
                         scope.launch(Dispatchers.IO) {
                             onWorkoutQueued(payload)
-                            runCatching { webSocket.send("""{"type":"ack_queued_workout"}""") }
+                            val ackMsg = SwonalJson.encodeToString(
+                                buildJsonObject {
+                                    put("type", "ack_queued_workout")
+                                    put("queuedAt", payload.queuedAt)
+                                }
+                            )
+                            runCatching { webSocket.send(ackMsg) }
                         }
                     }
                 }

@@ -26,6 +26,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FilterInputStream
@@ -58,7 +59,8 @@ class EmbeddedSwonalServer(
     data class RequestAuthContext(
         val isLoopback: Boolean,
         val authenticated: Boolean,
-        val authEnabled: Boolean
+        val authEnabled: Boolean,
+        val hasValidCredentials: Boolean = false
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -115,6 +117,10 @@ class EmbeddedSwonalServer(
     override fun serve(session: IHTTPSession): Response {
         val path = session.uri.orEmpty()
         if (isWebsocketRequested(session)) {
+            val origin = session.headers["origin"]
+            if (origin != null && !isAllowedOrigin(origin)) {
+                return textResponse(Response.Status.FORBIDDEN, "CORS origin not allowed")
+            }
             if (path != "/ws" && !path.startsWith("/ws/")) {
                 return applyCors(session, textResponse(Response.Status.NOT_FOUND, "Unknown WebSocket path"))
             }
@@ -247,16 +253,18 @@ class EmbeddedSwonalServer(
                 authSessions.remove(sessionId)
             }
         }
-        val bearer = extractBearerOrQueryToken(session)
+        val bearer = extractBearerToken(session)
         val validToken = if (!bearer.isNullOrBlank()) repo.localEngine.verifyApiToken(bearer) else false
+        val hasCredentials = validCookie || validToken
         val status = repo.localEngine.getAuthStatus(
             isLoopbackClient = isLoop,
-            isSessionAuthenticated = validCookie || validToken
+            isSessionAuthenticated = hasCredentials
         )
         return RequestAuthContext(
             isLoopback = isLoop,
             authenticated = status.authenticated,
-            authEnabled = status.enabled
+            authEnabled = status.enabled,
+            hasValidCredentials = hasCredentials
         )
     }
 
@@ -287,12 +295,12 @@ class EmbeddedSwonalServer(
         return null
     }
 
-    private fun extractBearerOrQueryToken(session: IHTTPSession): String? {
+    private fun extractBearerToken(session: IHTTPSession): String? {
         val auth = session.headers["authorization"]
         if (!auth.isNullOrBlank() && auth.startsWith("Bearer ", ignoreCase = true)) {
             return auth.substring(7).trim()
         }
-        return session.parameters["token"]?.firstOrNull()?.trim()
+        return null
     }
 
     private fun isLoopbackClient(session: IHTTPSession): Boolean {
@@ -308,50 +316,98 @@ class EmbeddedSwonalServer(
     }
 
     fun readRequestBody(session: IHTTPSession, maxBytes: Long = DEFAULT_JSON_MAX_BYTES): String {
-        val contentLength = session.headers["content-length"]?.toLongOrNull()
+        if (session.method !in setOf(Method.POST, Method.PUT, Method.PATCH, Method.DELETE)) {
+            return ""
+        }
+        val rawLen = session.headers["content-length"]?.trim()
+        val contentLength = if (!rawLen.isNullOrEmpty()) {
+            rawLen.toLongOrNull()?.takeIf { it >= 0L }
+                ?: throw IllegalArgumentException("Invalid Content-Length header")
+        } else {
+            null
+        }
         if (contentLength != null && contentLength > maxBytes) {
             throw PayloadTooLargeException("Body exceeds max limit (${maxBytes / (1024 * 1024)} MB)")
         }
-        return when (session.method) {
-            Method.POST -> {
-                val files = HashMap<String, String>()
-                session.parseBody(files)
-                files["postData"] ?: ""
-            }
-            Method.PUT -> {
-                val files = HashMap<String, String>()
-                session.parseBody(files)
-                val tmpPath = files["content"]
-                if (tmpPath != null) {
-                    val f = File(tmpPath)
-                    try {
-                        if (f.length() > maxBytes) {
-                            throw PayloadTooLargeException("Body exceeds max limit")
-                        }
-                        f.readText(Charsets.UTF_8)
-                    } finally {
-                        runCatching { f.delete() }
-                    }
-                } else {
-                    ""
-                }
-            }
-            Method.PATCH, Method.DELETE -> {
-                val len = contentLength ?: 0L
-                if (len <= 0L) return ""
-                if (len > maxBytes) throw PayloadTooLargeException("Body exceeds max limit")
-                val buf = ByteArray(len.toInt())
-                var offset = 0
-                val stream = session.inputStream
-                while (offset < buf.size) {
-                    val read = stream.read(buf, offset, buf.size - offset)
-                    if (read <= 0) break
-                    offset += read
-                }
-                String(buf, 0, offset, Charsets.UTF_8)
-            }
-            else -> ""
+        val transferEncoding = session.headers["transfer-encoding"]?.lowercase(Locale.US).orEmpty()
+        if (transferEncoding.contains("chunked")) {
+            return readChunkedBounded(session.inputStream, maxBytes)
         }
+        val len = contentLength ?: return ""
+        if (len == 0L) return ""
+        return readFixedBounded(session.inputStream, len, maxBytes)
+    }
+
+    private fun readFixedBounded(stream: InputStream, expectedBytes: Long, maxBytes: Long): String {
+        val out = ByteArrayOutputStream(minOf(expectedBytes, 8192L).toInt())
+        val buf = ByteArray(8192)
+        var remaining = expectedBytes
+        var total = 0L
+        while (remaining > 0L) {
+            val toRead = minOf(remaining, buf.size.toLong()).toInt()
+            val n = stream.read(buf, 0, toRead)
+            if (n <= 0) break
+            total += n
+            if (total > maxBytes) {
+                throw PayloadTooLargeException("Body exceeds max limit (${maxBytes / (1024 * 1024)} MB)")
+            }
+            out.write(buf, 0, n)
+            remaining -= n
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
+
+    private fun readChunkedBounded(stream: InputStream, maxBytes: Long): String {
+        val out = ByteArrayOutputStream(4096)
+        val buf = ByteArray(8192)
+        var total = 0L
+        while (true) {
+            val sizeLine = readCrLfLine(stream, 1024) ?: break
+            val hexLen = sizeLine.substringBefore(';').trim()
+            if (hexLen.isEmpty()) continue
+            val chunkSize = hexLen.toLongOrNull(16)?.takeIf { it >= 0L }
+                ?: throw IllegalArgumentException("Malformed HTTP chunk header")
+            if (chunkSize == 0L) {
+                while (true) {
+                    val trailer = readCrLfLine(stream, 1024)
+                    if (trailer.isNullOrEmpty()) break
+                }
+                break
+            }
+            if (total + chunkSize > maxBytes) {
+                throw PayloadTooLargeException("Body exceeds max limit (${maxBytes / (1024 * 1024)} MB)")
+            }
+            var remaining = chunkSize
+            while (remaining > 0L) {
+                val toRead = minOf(remaining, buf.size.toLong()).toInt()
+                val n = stream.read(buf, 0, toRead)
+                if (n <= 0) throw IllegalArgumentException("Unexpected EOF in chunked request body")
+                out.write(buf, 0, n)
+                total += n
+                remaining -= n
+            }
+            readCrLfLine(stream, 8)
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
+
+    private fun readCrLfLine(stream: InputStream, maxLineLen: Int): String? {
+        val sb = StringBuilder()
+        var prevCr = false
+        while (sb.length < maxLineLen) {
+            val b = stream.read()
+            if (b == -1) return if (sb.isEmpty()) null else sb.toString()
+            if (b == '\n'.code) {
+                return if (prevCr && sb.isNotEmpty() && sb[sb.length - 1] == '\r') {
+                    sb.substring(0, sb.length - 1)
+                } else {
+                    sb.toString()
+                }
+            }
+            prevCr = (b == '\r'.code)
+            sb.append(b.toChar())
+        }
+        throw IllegalArgumentException("Malformed HTTP chunk line")
     }
 
     fun jsonResponse(status: Response.Status, bodyJson: String): Response =
@@ -386,7 +442,9 @@ class EmbeddedSwonalServer(
 
     private fun isAllowedOrigin(origin: String): Boolean {
         val url = runCatching { URL(origin) }.getOrNull() ?: return false
-        val host = url.host.orEmpty().lowercase(Locale.US)
+        val proto = url.protocol.lowercase(Locale.US)
+        if (proto != "http" && proto != "https") return false
+        val host = url.host.orEmpty().lowercase(Locale.US).removePrefix("[").removeSuffix("]")
         if (host == "localhost" || host == "127.0.0.1" || host == "::1" || host.endsWith(".local")) {
             return true
         }
@@ -397,7 +455,7 @@ class EmbeddedSwonalServer(
         if (!publicOverride.isNullOrBlank()) {
             val pubUrl = runCatching { URL(publicOverride) }.getOrNull()
             if (pubUrl != null && pubUrl.protocol.equals(url.protocol, ignoreCase = true) &&
-                pubUrl.host.equals(url.host, ignoreCase = true) &&
+                pubUrl.host.orEmpty().removePrefix("[").removeSuffix("]").equals(host, ignoreCase = true) &&
                 effectivePort(pubUrl) == effectivePort(url)
             ) {
                 return true
@@ -495,20 +553,25 @@ class EmbeddedSwonalServer(
                         runCatching { send("""{"type":"error","message":"Invalid weight_lb"}""") }
                         return
                     }
-                    val profile = obj["profile"]?.jsonPrimitive?.contentOrNull
-                    val mod = obj["modifier_pct"]?.jsonPrimitive?.intOrNull
-                    repo.setWeight(w, profile, mod, allowWhileEngaged = true)
+                    val rawProfile = obj["profile"]?.jsonPrimitive?.contentOrNull?.trim()
+                    val profile = rawProfile?.uppercase(Locale.US)?.takeIf { it in VALID_WEIGHT_PROFILES }
+                    if (rawProfile != null && profile == null) {
+                        runCatching { send("""{"type":"error","message":"Invalid weight profile"}""") }
+                        return
+                    }
+                    val mod = obj["modifier_pct"]?.jsonPrimitive?.intOrNull?.coerceIn(0, 100)
+                    repo.setWeight(w, profile, mod, allowWhileEngaged = false)
                 }
                 "disable_weight" -> repo.disableWeight()
                 "enable_weight" -> {
-                    if (repo.isUiAliveForWatchdog()) {
+                    if (repo.isUiAliveForWatchdog() && repo.uiStateFlow.value.safetyEvent == null) {
                         repo.setWeightEnabled(true)
                     }
                 }
                 "toggle_weight" -> {
                     if (repo.isWeightCurrentlyEngaged()) {
                         repo.disableWeight()
-                    } else if (repo.isUiAliveForWatchdog()) {
+                    } else if (repo.isUiAliveForWatchdog() && repo.uiStateFlow.value.safetyEvent == null) {
                         repo.setWeightEnabled(true)
                     }
                 }
@@ -540,9 +603,11 @@ class EmbeddedSwonalServer(
 
     companion object {
         const val DEFAULT_JSON_MAX_BYTES = 2L * 1024 * 1024
-        const val RESTORE_JSON_MAX_BYTES = 25L * 1024 * 1024
+        const val RESTORE_JSON_MAX_BYTES = 10L * 1024 * 1024
         const val SESSION_TTL_MS = 30L * 24 * 60 * 60 * 1000L
         const val COOKIE_NAME = "swonal_session"
+
+        private val VALID_WEIGHT_PROFILES = setOf("STANDARD", "ECCENTRIC", "CHAINS", "SPOTTER", "BURNOUT")
 
         private val SAFE_SINGLE_FILE = Regex("^[A-Za-z0-9._-]+$")
         private val LAN_V4_10 = Regex("^10\\.\\d+\\.\\d+\\.\\d+$")

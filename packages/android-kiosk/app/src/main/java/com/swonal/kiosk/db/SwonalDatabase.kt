@@ -568,7 +568,8 @@ class SwonalDatabase(
     suspend fun listExercises(
         muscleGroup: String? = null,
         accessory: String? = null,
-        unilateral: Boolean? = null
+        unilateral: Boolean? = null,
+        searchQuery: String? = null
     ): List<Exercise> = withDb { c ->
         val sb = StringBuilder(
             "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url FROM exercises WHERE deleted_at_ms IS NULL"
@@ -585,6 +586,12 @@ class SwonalDatabase(
         if (unilateral != null) {
             sb.append(" AND unilateral = ?")
             args += if (unilateral) 1 else 0
+        }
+        if (!searchQuery.isNullOrBlank()) {
+            sb.append(" AND (name LIKE ? COLLATE NOCASE OR muscle_group LIKE ? COLLATE NOCASE)")
+            val pattern = "%${searchQuery.trim()}%"
+            args += pattern
+            args += pattern
         }
         sb.append(" ORDER BY muscle_group ASC, name ASC")
 
@@ -855,14 +862,17 @@ class SwonalDatabase(
         val id = UUID.randomUUID().toString()
         val nowMs = System.currentTimeMillis()
         val nowIso = IsoTime.formatUtc(nowMs)
-        val tplName = if (!templateId.isNullOrBlank()) {
-            c.prepare("SELECT name FROM workout_templates WHERE id = ?").useStmt { s ->
+        val resolvedTemplateId = if (!templateId.isNullOrBlank()) {
+            val found = c.prepare("SELECT name FROM workout_templates WHERE id = ? AND deleted_at_ms IS NULL").useStmt { s ->
                 s.bindText(1, templateId)
                 if (s.step()) s.getText(0) else null
             }
+            if (found != null) templateId to found else null to null
         } else {
-            null
+            null to null
         }
+        val effectiveTemplateId = resolvedTemplateId.first
+        val tplName = resolvedTemplateId.second
         c.prepare(
             """
             INSERT INTO workout_sessions(id, user_id, template_id, started_at, completed_at, total_volume, updated_at_ms, dirty_sync)
@@ -871,7 +881,7 @@ class SwonalDatabase(
         ).useStmt { s ->
             s.bindText(1, id)
             s.bindText(2, userId)
-            bindNullableText(s, 3, templateId)
+            bindNullableText(s, 3, effectiveTemplateId)
             s.bindText(4, nowIso)
             s.bindLong(5, nowMs)
             s.step()
@@ -879,7 +889,7 @@ class SwonalDatabase(
         WorkoutSession(
             id = id,
             userId = userId,
-            templateId = templateId,
+            templateId = effectiveTemplateId,
             startedAt = nowIso,
             completedAt = null,
             totalVolume = 0.0,

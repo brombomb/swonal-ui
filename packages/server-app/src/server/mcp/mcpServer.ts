@@ -173,7 +173,7 @@ export async function getUserStrengthHistory(params: {
   limit?: number;
   unit?: WeightUnit;
 }) {
-  const user = await prisma.user.findUnique({ where: { id: params.userId } });
+  const user = await prisma.user.findFirst({ where: { id: params.userId, deletedAt: null } });
   if (!user) throw new Error(`User not found: ${params.userId}`);
   const effectiveUnit: WeightUnit =
     params.unit ?? (user.weightUnit === 'KG' ? 'KG' : 'LB');
@@ -255,8 +255,8 @@ export async function updateCustomWorkoutTemplate(params: {
   blocks?: WorkoutBlockInput[];
   scheduleDays?: number[];
 }) {
-  const existing = await prisma.workoutTemplate.findUnique({
-    where: { id: params.templateId },
+  const existing = await prisma.workoutTemplate.findFirst({
+    where: { id: params.templateId, deletedAt: null },
     include: { user: true },
   });
   if (!existing) throw new Error(`Workout template not found: ${params.templateId}`);
@@ -322,7 +322,13 @@ export async function getPendingQueuedWorkout(): Promise<QueuedWorkoutPayload | 
   }
 }
 
-export async function clearPendingQueuedWorkout(): Promise<void> {
+export async function clearPendingQueuedWorkout(expectedQueuedAt?: string): Promise<void> {
+  if (expectedQueuedAt) {
+    const current = await getPendingQueuedWorkout();
+    if (current && current.queuedAt !== expectedQueuedAt) {
+      return;
+    }
+  }
   sessionCoordinator.clearQueuedWorkout();
   await prisma.appSetting.deleteMany({
     where: { key: 'pending_queued_workout' },

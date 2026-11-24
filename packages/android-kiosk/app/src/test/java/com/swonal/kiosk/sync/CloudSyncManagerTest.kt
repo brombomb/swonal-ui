@@ -2,7 +2,14 @@ package com.swonal.kiosk.sync
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.swonal.kiosk.db.StoredExerciseSyncRecord
+import com.swonal.kiosk.db.StoredPrSyncRecord
+import com.swonal.kiosk.db.StoredSessionSyncRecord
+import com.swonal.kiosk.db.StoredSetLogSyncRecord
+import com.swonal.kiosk.db.StoredUserSyncRecord
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.db.SyncPullResponse
+import com.swonal.kiosk.db.applyPulledSync
 import com.swonal.kiosk.db.countDirtySyncRows
 import com.swonal.kiosk.engine.LocalWorkoutEngine
 import com.swonal.kiosk.model.QueuedWorkoutPayload
@@ -18,6 +25,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -71,6 +79,7 @@ class CloudSyncManagerTest {
 
         val acked = AtomicBoolean(false)
         val pushedSeen = AtomicBoolean(false)
+        val ackQueuedAtSeen = AtomicBoolean(false)
         val mockServer = object : NanoHTTPD("127.0.0.1", 0) {
             override fun serve(session: IHTTPSession): Response {
                 return when (session.uri) {
@@ -101,6 +110,11 @@ class CloudSyncManagerTest {
                         )
                     }
                     "/api/sync/ack-queued-workout" -> {
+                        val files = HashMap<String, String>()
+                        runCatching { session.parseBody(files) }
+                        if (files["postData"].orEmpty().contains("2026-11-24T09:00:00Z")) {
+                            ackQueuedAtSeen.set(true)
+                        }
                         acked.set(true)
                         newFixedLengthResponse(Response.Status.OK, "application/json", """{"ok":true}""")
                     }
@@ -148,6 +162,7 @@ class CloudSyncManagerTest {
                 assertNotNull(deliveredQueue)
                 assertEquals("AI Hypertrophy Push", deliveredQueue?.templateName)
                 assertTrue(acked.get())
+                assertTrue(ackQueuedAtSeen.get())
             }
             syncManager.stop()
         } finally {
@@ -155,5 +170,102 @@ class CloudSyncManagerTest {
             mockServer.stop()
             dir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `applyPulledSync merges PR max on exercise remap, handles tombstoned FKs, and missing templateId falls back safely`() = runBlocking {
+        val db = SwonalDatabase(":memory:", PlaintextTestCipher)
+        val engine = LocalWorkoutEngine(db)
+        db.seedIfEmpty(
+            """
+            {
+              "users": [ { "id": "u-1", "name": "Alex", "weightUnit": "LB" } ],
+              "exercises": [
+                { "id": "ex-local", "name": "Incline Press", "muscleGroup": "Chest", "accessory": "HANDLES", "defaultWeight": 45, "unilateral": false, "armAngle": "LOW", "armRotation": "OUT", "railHeight": "BENCH" }
+              ]
+            }
+            """.trimIndent(),
+            includeDemoUsersAndRoutines = true
+        )
+        // Log high PR on local ID + lower PR already on canonical server ID
+        val s1 = engine.createSession("u-1")
+        engine.logSet(s1.id, "u-1", "ex-local", 1, "STANDARD", 0, 180.0, 5) // 1RM = 210.0
+
+        val now = System.currentTimeMillis()
+        db.applyPulledSync(
+            SyncPullResponse(
+                serverTimeMs = now,
+                users = listOf(
+                    StoredUserSyncRecord(
+                        id = "u-deleted",
+                        name = "Former User",
+                        avatarColor = "#3B82F6",
+                        preferredMusicProvider = "spotify",
+                        themeMode = "dark",
+                        accentColor = "#00F0FF",
+                        weightUnit = "LB",
+                        createdAt = "2026-01-01T00:00:00Z",
+                        updatedAt = "2026-01-02T00:00:00Z",
+                        updatedAtMs = now,
+                        deletedAtMs = now
+                    )
+                ),
+                exercises = listOf(
+                    StoredExerciseSyncRecord(
+                        id = "ex-canonical-srv",
+                        name = "Incline Press",
+                        muscleGroup = "Chest",
+                        accessory = "HANDLES",
+                        updatedAtMs = now + 100
+                    )
+                ),
+                personalRecords = listOf(
+                    StoredPrSyncRecord(
+                        id = "pr-srv",
+                        userId = "u-1",
+                        exerciseId = "ex-canonical-srv",
+                        oneRepMaxEst = 120.0,
+                        maxWeightLb = 100.0,
+                        updatedAt = "2026-01-02T00:00:00Z",
+                        updatedAtMs = now
+                    )
+                ),
+                sessions = listOf(
+                    StoredSessionSyncRecord(
+                        id = "sess-hist-deleted-user",
+                        userId = "u-deleted",
+                        templateId = null,
+                        startedAt = "2026-01-01T10:00:00Z",
+                        completedAt = "2026-01-01T10:30:00Z",
+                        totalVolume = 500.0,
+                        updatedAtMs = now
+                    )
+                ),
+                setLogs = listOf(
+                    StoredSetLogSyncRecord(
+                        id = "sl-hist-1",
+                        sessionId = "sess-hist-deleted-user",
+                        exerciseId = "ex-canonical-srv",
+                        setNumber = 1,
+                        mode = "standard",
+                        weightLb = 50.0,
+                        repsCompleted = 10,
+                        volumeLb = 500.0,
+                        timestamp = "2026-01-01T10:15:00Z",
+                        updatedAtMs = now
+                    )
+                )
+            )
+        )
+
+        val prs = db.listPrs("u-1")
+        val mergedPr = prs.firstOrNull { it.exerciseId == "ex-canonical-srv" }
+        assertNotNull(mergedPr)
+        assertEquals(180.0, mergedPr?.maxWeightLb)
+        assertTrue((mergedPr?.oneRepMaxEst ?: 0.0) >= 210.0)
+
+        // Creating a session with a templateId not yet present locally must not throw FK exception
+        val fallbackSession = engine.createSession("u-1", "template-not-yet-synced")
+        assertNull(fallbackSession.templateId)
     }
 }

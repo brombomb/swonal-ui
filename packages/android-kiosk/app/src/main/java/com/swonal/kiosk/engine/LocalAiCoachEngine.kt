@@ -9,6 +9,7 @@ import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.Units
 import com.swonal.kiosk.net.SwonalTlsConfig
 import com.swonal.kiosk.util.SecretCipher
+import com.swonal.kiosk.util.UrlSecurity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -130,7 +131,12 @@ class LocalAiCoachEngine(
             !apiKey.isNullOrBlank() -> cipher.encrypt(apiKey.trim())
             else -> cur.apiKeyEnc
         }
-        val nextBase = if (baseUrl != null) sanitizeHttpBaseUrl(baseUrl) else cur.baseUrl
+        val nextBase = when {
+            baseUrl != null -> sanitizeHttpBaseUrl(baseUrl, allowLoopback = nextProvider == "ollama")
+            providerChanged && nextProvider != "ollama" && !cur.baseUrl.isNullOrBlank() ->
+                runCatching { sanitizeHttpBaseUrl(cur.baseUrl, allowLoopback = false) }.getOrNull()
+            else -> cur.baseUrl
+        }
         val updated = StoredAiCoachConfig(nextProvider, nextModel, nextKeyEnc, nextBase?.takeIf { it.isNotBlank() })
         db.setSetting(SETTING_AI_COACH, SwonalJson.encodeToString(updated))
         return getPublicConfig()
@@ -236,7 +242,7 @@ class LocalAiCoachEngine(
         val unit = if (Units.isKg(user?.weightUnit ?: "LB")) "KG" else "LB"
         val prs = db.listPrs(userId).take(6)
         val recentSessions = db.listSessions(userId, limit = 3)
-        val action = detectVoiceCommand(prompt)
+        val action = detectVoiceCommand(prompt, defaultUnit = unit)
 
         val contextSummary = listOfNotNull(
             "Lifter: ${user?.name ?: "Athlete"} ($unit).",
@@ -283,7 +289,8 @@ class LocalAiCoachEngine(
                     val d = action.deltaLb ?: 0.0
                     val nextW = (curW + d).coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
                     val verb = if (d > 0) "Adding" else "Dropping"
-                    "$verb ${abs(d).let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }} $unit. Target is now ${Units.formatCompactWeight(nextW, unit)} $unit."
+                    val absDisplay = Units.formatCompactWeight(abs(d), unit)
+                    "$verb $absDisplay $unit. Target is now ${Units.formatCompactWeight(nextW, unit)} $unit."
                 }
                 "set_weight_target" -> "Setting target weight to ${Units.formatCompactWeight(action.targetLb ?: curW, unit)} $unit."
                 "set_mode" -> "Switched to ${(action.mode ?: "standard").lowercase(Locale.US)} mode. Lock in your form!"
@@ -447,16 +454,8 @@ class LocalAiCoachEngine(
         }
     }
 
-    private fun sanitizeHttpBaseUrl(raw: String): String {
-        val trimmed = raw.trim().removeSuffix("/")
-        if (trimmed.isEmpty()) return ""
-        val parsed = trimmed.toHttpUrlOrNull()
-            ?: throw IllegalArgumentException("Base URL must be a valid http:// or https:// URL")
-        require(parsed.scheme == "http" || parsed.scheme == "https") {
-            "Base URL must use http:// or https://"
-        }
-        return parsed.toString().removeSuffix("/")
-    }
+    private fun sanitizeHttpBaseUrl(raw: String, allowLoopback: Boolean = false): String =
+        UrlSecurity.sanitizeExternalUrl(raw, allowLoopback = allowLoopback)
 
     companion object {
         const val SETTING_AI_COACH = "ai_coach_config_json"
@@ -480,17 +479,18 @@ class LocalAiCoachEngine(
             "(?:\\d+(?:\\.\\d+)?|twenty[-\\s]five|thirty[-\\s]five|forty[-\\s]five|fifty[-\\s]five|sixty[-\\s]five|seventy[-\\s]five|eighty[-\\s]five|ninety[-\\s]five|one\\s+hundred|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)"
 
         private val ADD_REGEX = Regex(
-            "(?:add|increase(?:\\s+weight)?(?:\\s+by)?|plus|up(?:\\s+by)?|bump(?:\\s+up)?(?:\\s+by)?|heavier(?:\\s+by)?|raise(?:\\s+weight)?(?:\\s+by)?)\\s+($NUMBER_TOKEN)\\s*(?:lb|lbs|pound|pounds|kg|kilos)?",
+            "(?:add|increase(?:\\s+weight)?(?:\\s+by)?|plus|up(?:\\s+by)?|bump(?:\\s+up)?(?:\\s+by)?|heavier(?:\\s+by)?|raise(?:\\s+weight)?(?:\\s+by)?)\\s+($NUMBER_TOKEN)\\s*(lb|lbs|pound|pounds|kg|kilos)?\\b",
             RegexOption.IGNORE_CASE
         )
         private val DROP_REGEX = Regex(
-            "(?:drop|decrease(?:\\s+weight)?(?:\\s+by)?|lower(?:\\s+weight)?(?:\\s+by)?|reduce(?:\\s+weight)?(?:\\s+by)?|minus|subtract|down(?:\\s+by)?|lighter(?:\\s+by)?|remove)\\s+($NUMBER_TOKEN)\\s*(?:lb|lbs|pound|pounds|kg|kilos)?",
+            "(?:drop|decrease(?:\\s+weight)?(?:\\s+by)?|lower(?:\\s+weight)?(?:\\s+by)?|reduce(?:\\s+weight)?(?:\\s+by)?|minus|subtract|down(?:\\s+by)?|lighter(?:\\s+by)?|remove)\\s+($NUMBER_TOKEN)\\s*(lb|lbs|pound|pounds|kg|kilos)?\\b",
             RegexOption.IGNORE_CASE
         )
         private val TARGET_REGEX = Regex(
-            "(?:set\\s+(?:the\\s+)?weight\\s+(?:to\\s+)?|change\\s+(?:the\\s+)?weight\\s+to\\s+|make\\s+(?:it|the\\s+weight)\\s+|weight\\s+to\\s+)($NUMBER_TOKEN)\\s*(?:lb|lbs|pound|pounds|kg|kilos)?",
+            "(?:set\\s+(?:the\\s+)?weight\\s+(?:to\\s+)?|change\\s+(?:the\\s+)?weight\\s+to\\s+|make\\s+(?:it|the\\s+weight)\\s+|weight\\s+to\\s+)($NUMBER_TOKEN)\\s*(lb|lbs|pound|pounds|kg|kilos)?\\b",
             RegexOption.IGNORE_CASE
         )
+        private const val MAX_VOICE_DELTA_LB = 20.0
         private val SELECT_EX_REGEX = Regex(
             "^(?:switch\\s+(?:exercise\\s+|workout\\s+|movement\\s+)?to|change\\s+(?:exercise\\s+|workout\\s+|movement\\s+)?to|select\\s+exercise|load\\s+exercise|start\\s+exercise|do)\\s+(.+)$",
             RegexOption.IGNORE_CASE
@@ -520,19 +520,62 @@ class LocalAiCoachEngine(
             return if (num > 0.0) num else null
         }
 
-        fun detectVoiceCommand(prompt: String): ExtendedCoachSuggestedAction? {
+        private fun resolveSpokenUnit(rawSuffix: String?, defaultUnit: String): String {
+            val s = rawSuffix?.trim()?.lowercase(Locale.US).orEmpty()
+            return when {
+                s == "kg" || s == "kilos" -> "KG"
+                s == "lb" || s == "lbs" || s == "pound" || s == "pounds" -> "LB"
+                else -> if (Units.isKg(defaultUnit)) "KG" else "LB"
+            }
+        }
+
+        private fun roundHalfLb(lb: Double): Double =
+            kotlin.math.round(lb * 2.0) / 2.0
+
+        private fun toCanonicalDeltaLb(spokenVal: Double, unit: String): Double {
+            val rawLb = if (unit == "KG") spokenVal * Units.KG_TO_LB else spokenVal
+            return roundHalfLb(rawLb).coerceIn(0.5, MAX_VOICE_DELTA_LB)
+        }
+
+        private fun toCanonicalTargetLb(spokenVal: Double, unit: String): Double {
+            val rawLb = if (unit == "KG") spokenVal * Units.KG_TO_LB else spokenVal
+            return roundHalfLb(rawLb).coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
+        }
+
+        fun detectVoiceCommand(prompt: String, defaultUnit: String = "LB"): ExtendedCoachSuggestedAction? {
             val q = prompt.trim().lowercase(Locale.US).replace(Regex("[.!?]+$"), "")
-            ADD_REGEX.find(q)?.groupValues?.getOrNull(1)?.let { parseSpokenNumber(it) }?.let { delta ->
-                val fmt = if (delta % 1.0 == 0.0) delta.toInt().toString() else delta.toString()
-                return ExtendedCoachSuggestedAction("set_weight_delta", deltaLb = delta, label = "Add +$fmt lb")
+            ADD_REGEX.find(q)?.let { m ->
+                val rawNum = parseSpokenNumber(m.groupValues[1]) ?: return@let
+                val unit = resolveSpokenUnit(m.groupValues.getOrNull(2), defaultUnit)
+                val deltaLb = toCanonicalDeltaLb(rawNum, unit)
+                val fmt = if (rawNum % 1.0 == 0.0) rawNum.toInt().toString() else rawNum.toString()
+                return ExtendedCoachSuggestedAction(
+                    "set_weight_delta",
+                    deltaLb = deltaLb,
+                    label = "Add +$fmt ${unit.lowercase(Locale.US)}"
+                )
             }
-            DROP_REGEX.find(q)?.groupValues?.getOrNull(1)?.let { parseSpokenNumber(it) }?.let { delta ->
-                val fmt = if (delta % 1.0 == 0.0) delta.toInt().toString() else delta.toString()
-                return ExtendedCoachSuggestedAction("set_weight_delta", deltaLb = -delta, label = "Drop -$fmt lb")
+            DROP_REGEX.find(q)?.let { m ->
+                val rawNum = parseSpokenNumber(m.groupValues[1]) ?: return@let
+                val unit = resolveSpokenUnit(m.groupValues.getOrNull(2), defaultUnit)
+                val deltaLb = -toCanonicalDeltaLb(rawNum, unit)
+                val fmt = if (rawNum % 1.0 == 0.0) rawNum.toInt().toString() else rawNum.toString()
+                return ExtendedCoachSuggestedAction(
+                    "set_weight_delta",
+                    deltaLb = deltaLb,
+                    label = "Drop -$fmt ${unit.lowercase(Locale.US)}"
+                )
             }
-            TARGET_REGEX.find(q)?.groupValues?.getOrNull(1)?.let { parseSpokenNumber(it) }?.let { target ->
-                val fmt = if (target % 1.0 == 0.0) target.toInt().toString() else target.toString()
-                return ExtendedCoachSuggestedAction("set_weight_target", targetLb = target, label = "Set Weight to $fmt lb")
+            TARGET_REGEX.find(q)?.let { m ->
+                val rawNum = parseSpokenNumber(m.groupValues[1]) ?: return@let
+                val unit = resolveSpokenUnit(m.groupValues.getOrNull(2), defaultUnit)
+                val targetLb = toCanonicalTargetLb(rawNum, unit)
+                val fmt = if (rawNum % 1.0 == 0.0) rawNum.toInt().toString() else rawNum.toString()
+                return ExtendedCoachSuggestedAction(
+                    "set_weight_target",
+                    targetLb = targetLb,
+                    label = "Set Weight to $fmt ${unit.lowercase(Locale.US)}"
+                )
             }
 
             if (Regex("\\b(?:eccentric\\s+mode|switch\\s+to\\s+eccentric|turn\\s+on\\s+eccentric|enable\\s+eccentric)\\b").containsMatchIn(q)) {

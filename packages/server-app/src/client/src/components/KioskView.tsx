@@ -518,7 +518,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     if (!trimmed || !activeUser) return;
 
     // Zero-latency client-side voice command detection & immediate auto-execution
-    const fastAction = matchClientVoiceCommand(trimmed);
+    const fastAction = matchClientVoiceCommand(trimmed, activeUnit);
     let executedClientSide = false;
     let spokenConfirmation = '';
     if (fastAction) {
@@ -550,14 +550,22 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           reply: string;
           suggestedAction?: CoachSuggestedAction | null;
         };
-        const serverAction = data.suggestedAction ?? null;
-        setCoachAction(serverAction);
+        const rawServerAction = data.suggestedAction ?? null;
+        const safeServerAction =
+          rawServerAction &&
+          rawServerAction.type !== 'toggle_weight' &&
+          !(rawServerAction.type === 'set_weight_enabled' && rawServerAction.enabled)
+            ? rawServerAction.type === 'set_weight_delta' && rawServerAction.deltaLb !== undefined
+              ? { ...rawServerAction, deltaLb: Math.max(-20, Math.min(20, rawServerAction.deltaLb)) }
+              : rawServerAction
+            : null;
+        setCoachAction(safeServerAction);
 
-        if (serverAction && !executedClientSide) {
-          const confirmText = executeVoiceAction(serverAction);
+        if (safeServerAction && !executedClientSide) {
+          const confirmText = executeVoiceAction(safeServerAction);
           const finalReply = confirmText || data.reply;
           setCoachReply(finalReply);
-          showVoiceStatusToast(trimmed, finalReply, serverAction.label);
+          showVoiceStatusToast(trimmed, finalReply, safeServerAction.label);
           speakCoachAudio(finalReply, soundMuted);
         } else if (!executedClientSide) {
           setCoachReply(data.reply);

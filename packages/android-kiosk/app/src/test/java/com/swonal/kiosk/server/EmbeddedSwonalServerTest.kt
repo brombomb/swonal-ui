@@ -7,6 +7,7 @@ import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.net.LocalDaemonFailSafeClient
 import com.swonal.kiosk.net.SwonalPreferences
 import com.swonal.kiosk.net.SwonalRepository
+import com.swonal.kiosk.util.PlaintextTestCipher
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,10 +17,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -117,7 +121,8 @@ class EmbeddedSwonalServerTest {
                 uiAliveCheck = { true }
             ),
             localDbPath = ":memory:",
-            seedCatalogJson = seedJson
+            seedCatalogJson = seedJson,
+            secretCipherOverride = PlaintextTestCipher
         )
 
         runBlocking {
@@ -191,6 +196,29 @@ class EmbeddedSwonalServerTest {
                 val u = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
                 assertEquals("Jordan Updated", u["name"]!!.jsonPrimitive.content)
                 assertEquals("#FF5500", u["accentColor"]!!.jsonPrimitive.content)
+            }
+
+            // 3b. Exercise ?q= filter and Transfer-Encoding: chunked PATCH body support
+            http.newCall(Request.Builder().url("$baseUrl/api/exercises?q=bench").get().build()).execute().use { r ->
+                assertEquals(200, r.code)
+                val arr = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonArray
+                assertTrue(arr.any { it.jsonObject["id"]?.jsonPrimitive?.content == "ex-bench" })
+            }
+            http.newCall(Request.Builder().url("$baseUrl/api/exercises?q=nonexistent").get().build()).execute().use { r ->
+                assertEquals(200, r.code)
+                val arr = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonArray
+                assertEquals(0, arr.size)
+            }
+            val chunkedPatch = object : RequestBody() {
+                override fun contentType(): MediaType = jsonType
+                override fun writeTo(sink: BufferedSink) {
+                    sink.writeUtf8("""{"name":"Jordan Chunked"}""")
+                }
+            }
+            http.newCall(Request.Builder().url("$baseUrl/api/users/$createdUserId").patch(chunkedPatch).build()).execute().use { r ->
+                assertEquals(200, r.code)
+                val u = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+                assertEquals("Jordan Chunked", u["name"]!!.jsonPrimitive.content)
             }
 
             // 4. Create session, log set, export CSV
@@ -308,6 +336,52 @@ class EmbeddedSwonalServerTest {
             ).execute().use { r ->
                 assertEquals(200, r.code)
                 assertFalse(r.body?.string().isNullOrBlank())
+            }
+
+            // 8. CSWSH WebSocket Origin check rejects evil external origins with 403
+            val cswshLatch = CountDownLatch(1)
+            val cswshCode = AtomicInteger(0)
+            http.newWebSocket(
+                Request.Builder()
+                    .url("ws://127.0.0.1:${server.listeningPort}/ws")
+                    .header("Origin", "https://evil.example")
+                    .build(),
+                object : WebSocketListener() {
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        cswshCode.set(response?.code ?: -1)
+                        cswshLatch.countDown()
+                    }
+                }
+            )
+            assertTrue(cswshLatch.await(3, TimeUnit.SECONDS))
+            assertEquals(403, cswshCode.get())
+
+            // 9. Loopback logged-in client sees authenticated=true even when trustLocalhost=false
+            http.newCall(
+                Request.Builder().url("$baseUrl/api/auth/configure")
+                    .post("""{"enabled":true,"passcode":"2468","trustLocalhost":false}""".toRequestBody(jsonType))
+                    .build()
+            ).execute().use { r ->
+                assertEquals(200, r.code)
+            }
+            val localCookie: String
+            http.newCall(
+                Request.Builder().url("$baseUrl/api/auth/login")
+                    .post("""{"passcode":"2468"}""".toRequestBody(jsonType))
+                    .build()
+            ).execute().use { r ->
+                assertEquals(200, r.code)
+                localCookie = r.header("Set-Cookie")!!.substringBefore(';')
+            }
+            http.newCall(
+                Request.Builder().url("$baseUrl/api/auth/status")
+                    .header("Cookie", localCookie)
+                    .get()
+                    .build()
+            ).execute().use { r ->
+                assertEquals(200, r.code)
+                val st = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+                assertEquals("true", st["authenticated"]?.jsonPrimitive?.content)
             }
         } finally {
             server.stopServer()

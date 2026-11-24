@@ -160,11 +160,12 @@ class SwonalRepository(
     apiClientOverride: SwonalApiClient? = null,
     localDaemonOverride: LocalDaemonFailSafeClient? = null,
     localDbPath: String? = null,
-    private val seedCatalogJson: String? = null
+    private val seedCatalogJson: String? = null,
+    secretCipherOverride: SecretCipher? = null
 ) {
     private enum class TelemetrySource { NONE, SERVER, LOCAL }
 
-    private val secretCipher: SecretCipher = runCatching { prefs.secretCipher }.getOrElse { PlaintextTestCipher }
+    private val secretCipher: SecretCipher = secretCipherOverride ?: runCatching { prefs.secretCipher }.getOrElse { PlaintextTestCipher }
 
     val localDb: SwonalDatabase = SwonalDatabase(
         dbPath = localDbPath ?: ":memory:",
@@ -341,6 +342,7 @@ class SwonalRepository(
 
     suspend fun deliverSyncedQueuedWorkout(payload: QueuedWorkoutPayload) {
         localEngine.queueWorkout(payload)
+        cloudSyncManager.requestDebouncedSync()
         emitLocalBroadcast("workout_queued") {
             put("workout", SwonalJson.encodeToJsonElement(QueuedWorkoutPayload.serializer(), payload))
         }

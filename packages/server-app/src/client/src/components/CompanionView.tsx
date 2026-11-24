@@ -445,7 +445,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     if (!trimmed || !activeUser) return;
     setLastVoiceHeard(trimmed);
 
-    const fastAction = matchClientVoiceCommand(trimmed);
+    const fastAction = matchClientVoiceCommand(trimmed, activeUnit);
     let executedClientSide = false;
     if (fastAction) {
       executedClientSide = true;
@@ -474,11 +474,20 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           reply: string;
           suggestedAction?: CoachSuggestedAction | null;
         };
-        if (data.suggestedAction && !executedClientSide) {
-          const confirmText = executeCompanionVoiceAction(data.suggestedAction);
+        const rawServerAction = data.suggestedAction ?? null;
+        const safeServerAction =
+          rawServerAction &&
+          rawServerAction.type !== 'toggle_weight' &&
+          !(rawServerAction.type === 'set_weight_enabled' && rawServerAction.enabled)
+            ? rawServerAction.type === 'set_weight_delta' && rawServerAction.deltaLb !== undefined
+              ? { ...rawServerAction, deltaLb: Math.max(-20, Math.min(20, rawServerAction.deltaLb)) }
+              : rawServerAction
+            : null;
+        if (safeServerAction && !executedClientSide) {
+          const confirmText = executeCompanionVoiceAction(safeServerAction);
           const finalReply = confirmText || data.reply;
           setVoiceCoachReply(finalReply);
-          showToast(`${data.suggestedAction.label}: ${finalReply}`);
+          showToast(`${safeServerAction.label}: ${finalReply}`);
           speakCoachAudio(finalReply, soundMuted);
         } else if (!executedClientSide) {
           setVoiceCoachReply(data.reply);

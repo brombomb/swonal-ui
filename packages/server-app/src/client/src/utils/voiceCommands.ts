@@ -59,48 +59,73 @@ const NUMBER_TOKEN_PATTERN =
 /**
  * Fast client-side voice command matcher for zero-latency execution from AirPods / Bluetooth mics.
  */
-export function matchClientVoiceCommand(prompt: string): CoachSuggestedAction | null {
+export function matchClientVoiceCommand(
+  prompt: string,
+  activeUnit: WeightUnit = 'LB'
+): CoachSuggestedAction | null {
   const q = prompt.trim().toLowerCase().replace(/[.!?]+$/g, '');
   if (!q) return null;
 
+  const resolveSpokenUnit = (suffix?: string): WeightUnit => {
+    const s = suffix?.toLowerCase();
+    if (s === 'kg' || s === 'kilos') return 'KG';
+    if (s === 'lb' || s === 'lbs' || s === 'pound' || s === 'pounds') return 'LB';
+    return activeUnit === 'KG' ? 'KG' : 'LB';
+  };
+  const roundHalfLb = (lb: number) => Math.round(lb * 2) / 2;
+
   // 1. Weight adjustments (delta up / down with digits or number words)
   const addRegex = new RegExp(
-    `(?:add|increase(?:\\s+weight)?(?:\\s+by)?|plus|up(?:\\s+by)?|bump(?:\\s+up)?(?:\\s+by)?|heavier(?:\\s+by)?|raise(?:\\s+weight)?(?:\\s+by)?)\\s+(${NUMBER_TOKEN_PATTERN})\\s*(?:lb|lbs|pound|pounds|kg|kilos)?`,
+    `(?:add|increase(?:\\s+weight)?(?:\\s+by)?|plus|up(?:\\s+by)?|bump(?:\\s+up)?(?:\\s+by)?|heavier(?:\\s+by)?|raise(?:\\s+weight)?(?:\\s+by)?)\\s+(${NUMBER_TOKEN_PATTERN})\\s*(lb|lbs|pound|pounds|kg|kilos)?\\b`,
     'i'
   );
   const addMatch = q.match(addRegex);
   if (addMatch) {
-    const delta = parseSpokenNumber(addMatch[1]);
-    if (delta !== null) {
-      return { type: 'set_weight_delta', deltaLb: delta, label: `Add +${delta} lb` };
+    const rawNum = parseSpokenNumber(addMatch[1]);
+    if (rawNum !== null) {
+      const unit = resolveSpokenUnit(addMatch[2]);
+      const deltaLb = Math.max(0.5, Math.min(20, roundHalfLb(unit === 'KG' ? rawNum * KG_TO_LB : rawNum)));
+      return {
+        type: 'set_weight_delta',
+        deltaLb,
+        label: `Add +${rawNum} ${unit.toLowerCase()}`,
+      };
     }
   }
 
   const dropRegex = new RegExp(
-    `(?:drop|decrease(?:\\s+weight)?(?:\\s+by)?|lower(?:\\s+weight)?(?:\\s+by)?|reduce(?:\\s+weight)?(?:\\s+by)?|minus|subtract|down(?:\\s+by)?|lighter(?:\\s+by)?|remove)\\s+(${NUMBER_TOKEN_PATTERN})\\s*(?:lb|lbs|pound|pounds|kg|kilos)?`,
+    `(?:drop|decrease(?:\\s+weight)?(?:\\s+by)?|lower(?:\\s+weight)?(?:\\s+by)?|reduce(?:\\s+weight)?(?:\\s+by)?|minus|subtract|down(?:\\s+by)?|lighter(?:\\s+by)?|remove)\\s+(${NUMBER_TOKEN_PATTERN})\\s*(lb|lbs|pound|pounds|kg|kilos)?\\b`,
     'i'
   );
   const dropMatch = q.match(dropRegex);
   if (dropMatch) {
-    const delta = parseSpokenNumber(dropMatch[1]);
-    if (delta !== null) {
-      return { type: 'set_weight_delta', deltaLb: -delta, label: `Drop -${delta} lb` };
+    const rawNum = parseSpokenNumber(dropMatch[1]);
+    if (rawNum !== null) {
+      const unit = resolveSpokenUnit(dropMatch[2]);
+      const deltaLb = -Math.max(0.5, Math.min(20, roundHalfLb(unit === 'KG' ? rawNum * KG_TO_LB : rawNum)));
+      return {
+        type: 'set_weight_delta',
+        deltaLb,
+        label: `Drop -${rawNum} ${unit.toLowerCase()}`,
+      };
     }
   }
 
   // 2. Absolute weight target ("set weight to 50 pounds", "make it 45 lbs", "set weight 60", "weight to 35")
   const targetRegex = new RegExp(
-    `(?:set\\s+(?:the\\s+)?weight\\s+(?:to\\s+)?|change\\s+(?:the\\s+)?weight\\s+to\\s+|make\\s+(?:it|the\\s+weight)\\s+|weight\\s+to\\s+)(${NUMBER_TOKEN_PATTERN})\\s*(?:lb|lbs|pound|pounds|kg|kilos)?`,
+    `(?:set\\s+(?:the\\s+)?weight\\s+(?:to\\s+)?|change\\s+(?:the\\s+)?weight\\s+to\\s+|make\\s+(?:it|the\\s+weight)\\s+|weight\\s+to\\s+)(${NUMBER_TOKEN_PATTERN})\\s*(lb|lbs|pound|pounds|kg|kilos)?\\b`,
     'i'
   );
   const targetMatch = q.match(targetRegex);
   if (targetMatch) {
-    const targetLb = parseSpokenNumber(targetMatch[1]);
-    if (targetLb !== null) {
+    const rawNum = parseSpokenNumber(targetMatch[1]);
+    if (rawNum !== null) {
+      const unit = resolveSpokenUnit(targetMatch[2]);
+      const targetLb = Math.max(5, Math.min(200, roundHalfLb(unit === 'KG' ? rawNum * KG_TO_LB : rawNum)));
       return {
         type: 'set_weight_target',
         targetLb,
-        label: `Set Weight to ${targetLb} lb`,
+        label: `Set Weight to ${rawNum} ${unit.toLowerCase()}`,
       };
     }
   }
@@ -252,17 +277,18 @@ export function executeCoachSuggestedAction(
 
   switch (action.type) {
     case 'set_weight_delta': {
-      const delta = action.deltaLb ?? 0;
-      const deltaLbCanonical = handlers.activeUnit === 'KG' ? delta * KG_TO_LB : delta;
+      // deltaLb is ALWAYS canonical pounds from matchClientVoiceCommand / AI coach endpoints
+      const deltaLbCanonical = Math.max(-20, Math.min(20, action.deltaLb ?? 0));
       const nextLb = Math.max(5, Math.min(200, handlers.currentWeightLb + deltaLbCanonical));
       handlers.setTargetWeight(nextLb);
+      const dispDelta = formatDisplayWeight(Math.abs(deltaLbCanonical), handlers.activeUnit);
       const dispTarget = formatDisplayWeight(nextLb, handlers.activeUnit);
-      const verb = delta >= 0 ? 'Adding' : 'Dropping';
-      return `${verb} ${Math.abs(delta)} ${unitLabel}. Target is now ${dispTarget} ${unitLabel}.`;
+      const verb = deltaLbCanonical >= 0 ? 'Adding' : 'Dropping';
+      return `${verb} ${dispDelta} ${unitLabel}. Target is now ${dispTarget} ${unitLabel}.`;
     }
     case 'set_weight_target': {
-      const rawTarget = action.targetLb ?? handlers.currentWeightLb;
-      const targetLbCanonical = handlers.activeUnit === 'KG' ? rawTarget * KG_TO_LB : rawTarget;
+      // targetLb is ALWAYS canonical pounds
+      const targetLbCanonical = action.targetLb ?? handlers.currentWeightLb;
       const clampedLb = Math.max(5, Math.min(200, targetLbCanonical));
       handlers.setTargetWeight(clampedLb);
       const dispTarget = formatDisplayWeight(clampedLb, handlers.activeUnit);

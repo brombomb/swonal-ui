@@ -16,6 +16,7 @@ import com.swonal.kiosk.model.WorkoutSession
 import com.swonal.kiosk.model.WorkoutTemplate
 import com.swonal.kiosk.net.SwonalRepository
 import com.swonal.kiosk.util.IsoTime
+import com.swonal.kiosk.util.UrlSecurity
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response
@@ -126,10 +127,8 @@ class EmbeddedApiRouter(
             val body = parseJsonBody(session)
             val rawUrl = body["publicUrl"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (rawUrl.isNotEmpty()) {
-                require(rawUrl.startsWith("http://", ignoreCase = true) || rawUrl.startsWith("https://", ignoreCase = true)) {
-                    "publicUrl must start with http:// or https://"
-                }
-                repo.localDb.setSetting("public_url_override", rawUrl.removeSuffix("/"))
+                val safePublicUrl = UrlSecurity.sanitizeExternalUrl(rawUrl, allowLoopback = true)
+                repo.localDb.setSetting("public_url_override", safePublicUrl)
             } else {
                 repo.localDb.deleteSetting("public_url_override")
             }
@@ -150,7 +149,7 @@ class EmbeddedApiRouter(
     ): Response {
         return when {
             m == Method.GET && segs.getOrNull(2) == "status" -> {
-                val st = engine.getAuthStatus(auth.isLoopback, auth.authenticated && !auth.isLoopback)
+                val st = engine.getAuthStatus(auth.isLoopback, auth.hasValidCredentials)
                 jsonOk(SwonalJson.encodeToString(st))
             }
             m == Method.POST && segs.getOrNull(2) == "login" -> {
@@ -273,7 +272,11 @@ class EmbeddedApiRouter(
 
     private suspend fun handleExercises(session: IHTTPSession, m: Method, segs: List<String>): Response {
         if (segs.size == 2 && m == Method.GET) {
-            val list = engine.listExercises(queryParam(session, "muscleGroup"), queryParam(session, "q"))
+            val list = engine.listExercises(
+                muscleGroup = queryParam(session, "muscleGroup"),
+                accessory = queryParam(session, "accessory"),
+                searchQuery = queryParam(session, "q")
+            )
             return jsonOk(SwonalJson.encodeToString(ListSerializer(Exercise.serializer()), list))
         }
         if (segs.size == 2 && m == Method.POST) {
@@ -600,10 +603,17 @@ class EmbeddedApiRouter(
             }
             m == Method.POST && route == "mock/arm-positions" -> {
                 val b = parseJsonBody(session)
-                val (_, raw) = runCatching {
+                val (code, raw) = runCatching {
                     repo.localDaemon.postDirectJson("/api/mock/arm-positions", SwonalJson.encodeToString(b))
                 }.getOrDefault(503 to """{"error":"daemon unreachable"}""")
-                jsonOk(raw)
+                if (code in 200..299) {
+                    jsonOk(raw.ifBlank { """{"ok":true}""" })
+                } else {
+                    server.jsonResponse(
+                        Status.lookup(code) ?: Status.SERVICE_UNAVAILABLE,
+                        raw.ifBlank { """{"error":"Daemon error HTTP $code"}""" }
+                    )
+                }
             }
             m == Method.GET && route == "calibration" -> {
                 val cal = repo.localDaemon.getCalibrationDirect()
@@ -701,7 +711,46 @@ class EmbeddedApiRouter(
                     meanVelocity = b["meanVelocity"]?.jsonPrimitive?.doubleOrNull,
                     velocityDropPct = b["velocityDropPct"]?.jsonPrimitive?.doubleOrNull
                 )
-                jsonOk(SwonalJson.encodeToString(res))
+                // Clamp / sanitize HTTP-returned Coach actions against sudden load spikes or remote motor engagement
+                val rawAct = res["suggestedAction"] as? JsonObject
+                val cleanAction: kotlinx.serialization.json.JsonElement = if (rawAct != null) {
+                    val actType = rawAct["type"]?.jsonPrimitive?.contentOrNull
+                    when (actType) {
+                        "set_weight_delta" -> {
+                            val d = (rawAct["deltaLb"]?.jsonPrimitive?.doubleOrNull ?: 0.0)
+                                .coerceIn(-com.swonal.kiosk.net.SwonalRepository.MAX_COACH_DELTA_LB, com.swonal.kiosk.net.SwonalRepository.MAX_COACH_DELTA_LB)
+                            if (d == 0.0) kotlinx.serialization.json.JsonNull
+                            else buildJsonObject {
+                                put("type", "set_weight_delta")
+                                put("deltaLb", d)
+                                put("label", rawAct["label"]?.jsonPrimitive?.contentOrNull ?: "Adjust Weight")
+                            }
+                        }
+                        "set_weight_target" -> {
+                            val t = (rawAct["targetLb"]?.jsonPrimitive?.doubleOrNull ?: telemetry.targetWeightLb)
+                                .coerceIn(com.swonal.kiosk.model.Units.MIN_WEIGHT_LB, com.swonal.kiosk.model.Units.MAX_WEIGHT_LB)
+                            buildJsonObject {
+                                put("type", "set_weight_target")
+                                put("targetLb", t)
+                                put("label", rawAct["label"]?.jsonPrimitive?.contentOrNull ?: "Set Weight")
+                            }
+                        }
+                        "set_weight_enabled" -> {
+                            if (rawAct["enabled"]?.jsonPrimitive?.booleanOrNull == false) rawAct
+                            else kotlinx.serialization.json.JsonNull
+                        }
+                        "toggle_weight" -> kotlinx.serialization.json.JsonNull
+                        else -> rawAct
+                    }
+                } else {
+                    kotlinx.serialization.json.JsonNull
+                }
+                val sanitized = buildJsonObject {
+                    for ((k, v) in res) {
+                        if (k == "suggestedAction") put("suggestedAction", cleanAction) else put(k, v)
+                    }
+                }
+                jsonOk(SwonalJson.encodeToString(sanitized))
             }
             else -> server.jsonError(Status.NOT_FOUND, "Coach route not found")
         }
@@ -831,6 +880,7 @@ class EmbeddedApiRouter(
             m == Method.POST && route == "speaker-auth/complete" -> {
                 val b = parseJsonBody(session)
                 val codeOrUrl = b["code"]?.jsonPrimitive?.contentOrNull
+                    ?: b["codeOrUrl"]?.jsonPrimitive?.contentOrNull
                     ?: b["redirectUrl"]?.jsonPrimitive?.contentOrNull
                     ?: b["url"]?.jsonPrimitive?.contentOrNull
                     ?: throw IllegalArgumentException("Missing Spotify code or redirectUrl")

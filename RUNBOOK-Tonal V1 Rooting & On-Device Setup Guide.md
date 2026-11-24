@@ -16,8 +16,8 @@ Complete Guide to Rooting Tonal V1 (`tonal-freedom`), Blocking OTA Updates, and 
   * `mtkclient` repository  
   * `sedwardsnowden-hub/tonal-freedom` repository scripts  
   * **Magisk v27.0 APK** (`Magisk-v27.0.apk`)  
-  * **Termux APK** (Android 5/6 legacy compatible build from GitHub `termux-app` releases targeting API 21-23)  
-  * **Firefox v68.11.0 ESR APK** (or **Via Browser APK** — Android 6.0 compatible modern browser for the kiosk UI)
+  * **Termux APK** (Android 5/6 legacy compatible build — bundled in `packages/device-assets/` and auto-installed by `scripts/install-device.sh`)  
+  * **Swonal Native Kiosk APK** (`swonal-kiosk.apk` from [GitHub Releases](https://github.com/brombomb/swonal-ui/releases) — includes built-in GeckoView browser engine & `:3000` embedded Companion server; Firefox/Bromite are no longer required)
 
 # **Phase 1: Dump Partitions & Root with `mtkclient` (`tonal-freedom`)**
 
@@ -93,13 +93,27 @@ adb shell "su -c 'ls -l /dev/ttyACM0'"
 
 * **Verification:** Confirm `/dev/ttyACM0` is present (`crw-rw---- 1 system system` or `root`).
 
-# **Phase 3: Install the On-Device Environment (`swolectl` \+ `librespot` \+ Kiosk Browser)**
+# **Phase 3: Automated On-Device Swonal Installation (Recommended)**
 
-## **1\. Sideload the Browser & Termux (Android 6 Environment)**
+Once Wi-Fi ADB (`:5555`) is active from Phase 1/2, you do **not** need a separate home server or manual Magisk scripts. Run the automated installer from your laptop:
+
+```bash
+./scripts/install-device.sh --target <TONAL_LAN_IP>:5555
+```
+
+This automatically installs **Termux**, **Swonal Native Kiosk APK** (Standalone-First mode with embedded SQLite, `:3000` LAN Companion Web UI, and GeckoView ESR), **`librespot-aarch64`** (`99-swonal-librespot.sh`), and **`tonal-daemon`** (`98-swonal-daemon.sh`). Optionally pass `--server-url http://<SERVER_IP>:3000` only if pairing an external sync server.
+
+---
+
+# **Reference: Manual On-Device Installation (`swolectl` + `librespot` + `tonal-daemon`)**
+
+*(Use the manual steps below only if debugging or customizing the Termux/Magisk setup without `install-device.sh`.)*
+
+## **1\. Sideload Termux (Android 6 Environment)**
 
 ```
-adb install firefox-68.11.0.apk
-adb install termux-android6.apk
+adb install packages/device-assets/termux-android5-v0.119.0-beta.3.apk
+adb install path/to/swonal-kiosk.apk
 ```
 
 ## **2\. Install Python & `swolectl` Inside Termux on the Tonal**

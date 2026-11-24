@@ -12,6 +12,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.PI
 import kotlin.math.exp
@@ -49,7 +50,7 @@ class SwonalSoundEngine(context: Context) {
         .build()
 
     private val soundIds = ConcurrentHashMap<Cue, Int>()
-    private val readySampleIds = ConcurrentHashMap.newKeySet<Int>()
+    private val readySampleIds: MutableSet<Int> = Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
 
     @Volatile
     var muted: Boolean = false

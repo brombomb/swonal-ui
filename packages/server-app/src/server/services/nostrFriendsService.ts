@@ -117,8 +117,8 @@ export function normalizePubkey(input: string): { pubkeyHex: string; npub: strin
 }
 
 export async function getOrCreateUserIdentity(userId: string): Promise<NostrIdentity> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -196,8 +196,8 @@ async function getUserSecretKey(userId: string): Promise<{
   relays: string[];
   name: string;
 }> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -260,8 +260,8 @@ export async function addFriend(
   const { pubkeyHex, npub } = normalizePubkey(npubOrHex);
 
   // Prevent adding own key
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { nostrPubKeyHex: true },
   });
   if (user?.nostrPubKeyHex && user.nostrPubKeyHex.toLowerCase() === pubkeyHex.toLowerCase()) {
@@ -343,8 +343,8 @@ export async function publishWorkout(
   userId: string,
   summary: WorkoutSummaryPayload
 ): Promise<NostrEvent | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { shareWorkouts: true, name: true },
   });
   if (!user || !user.shareWorkouts) {
@@ -572,8 +572,8 @@ export async function syncFeed(userId: string): Promise<{ syncedCount: number }>
   const friends = await prisma.friend.findMany({
     where: { userId },
   });
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { nostrPubKeyHex: true, nostrRelays: true, name: true },
   });
 
@@ -676,8 +676,8 @@ export async function getFeed(userId: string, limit = 50): Promise<FeedItem[]> {
   const friends = await prisma.friend.findMany({
     where: { userId },
   });
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { nostrPubKeyHex: true, name: true },
   });
 

@@ -1,5 +1,8 @@
 package com.swonal.kiosk.util
 
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.URL
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
@@ -162,5 +165,62 @@ object CryptoCompat {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val bytes = factory.generateSecret(spec).encoded
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+}
+
+/**
+ * Validates external integration URLs against SSRF into loopback daemon/services or link-local metadata endpoints.
+ * Private LAN hosts (192.168.x.x, 10.x.x.x, 172.16-31.x.x, *.local) remain allowed for Home Assistant & LAN music.
+ */
+object UrlSecurity {
+    fun sanitizeExternalUrl(raw: String, allowLoopback: Boolean = false): String {
+        val trimmed = raw.trim().removeSuffix("/")
+        if (trimmed.isEmpty()) return ""
+        val parsed = runCatching { URL(trimmed) }.getOrNull()
+            ?: throw IllegalArgumentException("URL must be a valid http:// or https:// URL")
+        val proto = parsed.protocol.lowercase(Locale.US)
+        require(proto == "http" || proto == "https") {
+            "URL must use http:// or https://"
+        }
+        require(parsed.userInfo.isNullOrEmpty()) {
+            "URL must not contain embedded credentials"
+        }
+        val host = parsed.host.orEmpty().lowercase(Locale.US).removePrefix("[").removeSuffix("]")
+        require(host.isNotEmpty()) { "URL host is required" }
+        require(host != "metadata.google.internal" && host != "0.0.0.0") {
+            "Blocked internal metadata or wildcard address"
+        }
+        if (host.startsWith("169.254.") || host.startsWith("fe80:") || host.startsWith("fec0:")) {
+            throw IllegalArgumentException("Blocked link-local metadata IP address")
+        }
+        if (!allowLoopback) {
+            require(!isLoopbackHostOrIp(host)) {
+                "Loopback addresses (localhost / 127.0.0.0/8 / ::1) are not allowed for this integration"
+            }
+        }
+        return trimmed
+    }
+
+    fun isLoopbackHostOrIp(rawHost: String): Boolean {
+        val host = rawHost.lowercase(Locale.US).removePrefix("[").removeSuffix("]")
+        if (host == "localhost" || host.endsWith(".localhost") || host == "::1" || host == "0:0:0:0:0:0:0:1") {
+            return true
+        }
+        if (host.startsWith("127.")) return true
+        // Reject hex/octal multi-radix IPv4 loopback notation (e.g., 0x7f.0.0.1 or 0177.0.0.1)
+        if (host.split('.').any { it.startsWith("0x") || (it.length > 1 && it.startsWith("0") && it.all(Char::isDigit)) }) {
+            return true
+        }
+        // Handle decimal single-integer IPv4 loopback form
+        if (host.all { it.isDigit() }) {
+            val asLong = host.toLongOrNull() ?: return false
+            if ((asLong ushr 24) == 127L) return true
+        }
+        val addr = runCatching {
+            if (host.all { it.isDigit() || it == '.' } || host.contains(':')) {
+                InetAddress.getByName(host)
+            } else null
+        }.getOrNull()
+        return addr != null && (addr.isLoopbackAddress || (addr is Inet4Address && (addr.address.firstOrNull()?.toInt()?.and(0xFF) == 127)))
     }
 }

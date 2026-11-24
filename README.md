@@ -62,38 +62,38 @@
 
 Because Tonal V1 is a **single, standardized, fixed hardware platform** (MediaTek MT8173, portrait 1080x1920, Android 6.0 Marshmallow with Magisk root), pre-built binaries are distributed directly — **no Android build tools or complex toolchains required**:
 
-### 1. Pre-Built Android Kiosk APK
-Download the latest `swonal-kiosk.apk` from [GitHub Releases](https://github.com/brombomb/swonal-ui/releases) and install via Wi-Fi ADB:
+### 1. Pre-Built Android Kiosk APK (100% Standalone Default)
+Download the latest `swonal-kiosk.apk` from [GitHub Releases](https://github.com/brombomb/swonal-ui/releases) and install via Wi-Fi ADB (or deploy all-in-one with `./scripts/install-device.sh --target <TONAL_IP>:5555`):
 
 ```bash
 adb connect <TONAL_IP>:5555
 adb install -r swonal-kiosk.apk
 ```
 
-### 2. Pre-Built Server Container
-Run the server app instantly on your home server, NAS, or desktop using Docker:
+Everything works locally on the Tonal tablet with zero external server required — on-device SQLite DB (50 exercises + SVG diagrams), native Routine Builder, Spotify Keymaster PKCE speaker pairing, offline/BYOK AI Voice Coach, Home Assistant webhooks, Nostr Swocial, and the embedded `:3000` Companion Web UI (`http://<TONAL_IP>:3000/companion`).
+
+### 2. Optional Pre-Built Sync Server Container (Power Users)
+Run `server-app` optionally on your home server, NAS, or VPS if you want **24/7 always-on MCP workout queuing** (delivering routines even when the Tonal was asleep), centralized Home Assistant MQTT discovery, multi-device web access, and daily rotating SQLite backups:
 
 ```bash
 docker run -d \
   --name swonal-server \
   --restart unless-stopped \
   -p 3000:3000 \
-  -e TONAL_DAEMON_URL=http://<TONAL_IP>:8765 \
-  -e TONAL_DAEMON_WS_URL=ws://<TONAL_IP>:8765/ws \
-  -v swonal-data:/app/data \
+  -v swonal-data:/data \
   ghcr.io/brombomb/swonal-ui:latest
 ```
 
-Automated builds and releases are produced continuously by the [.github/workflows/release.yml](.github/workflows/release.yml) CI/CD pipeline whenever a release tag is pushed.
+Once running, enter `http://<SERVER_IP>:3000` under **Menu → Standalone & Home Server Sync** on your Tonal (paired tablets sync idempotently via `/api/sync/*` and `/ws/sync`). Automated builds and releases are produced continuously by [.github/workflows/release.yml](.github/workflows/release.yml) whenever a release tag is pushed.
 
 ---
 
-## AI Addons for MCP & Voice (Work in Progress)
+## AI Addons for MCP & Voice
 
 Swonal includes first-class AI extensibility designed for modern LLMs and agentic workflows:
 
-### Model Context Protocol (MCP) Server
-The built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs, and lifter PRs directly to AI tools like **Claude Desktop**, **Cursor**, **Gemini CLI**, or custom Python agents:
+### Model Context Protocol (MCP) Server (Optional Always-On Sync Server)
+When running the optional `server-app` sync server, the built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs, and lifter PRs directly to AI tools like **Claude Desktop**, **Cursor**, **Gemini CLI**, or custom Python agents — including **24/7 offline-Tonal queueing** (routines queued via MCP while the Tonal is asleep persist in `AppSetting.pending_queued_workout` and automatically appear on screen when Tonal wakes):
 
 - **Transports**:
   - HTTP Server-Sent Events (SSE): `http://<SERVER_IP>:3000/mcp/sse`
@@ -104,7 +104,7 @@ The built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs
   - `swonal://session/active`: Live in-progress workout session telemetry.
 - **Tools**:
   - `create_workout_template`: Build personalized multi-block workout routines.
-  - `queue_workout_for_session`: Queue an AI-programmed routine directly onto the Tonal screen.
+  - `queue_workout_for_session`: Queue an AI-programmed routine directly onto the Tonal screen (even offline, synced via `/ws/sync` & `/api/sync/pull`).
   - `update_weight`: Set precise target digital weight and training mode.
   - `log_set`: Automatically record completed sets with RPE and volume tracking.
 
@@ -115,7 +115,7 @@ The built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs
   - **Dynamic Training Modes**: *"Switch to chains mode"*, *"Eccentric mode"*, *"Spotter mode"*, *"Burnout mode"*, *"Standard mode"*.
   - **Workouts & Exercises**: *"Next exercise"*, *"Previous exercise"*, *"Switch to Barbell Bicep Curl"*, *"Skip rest"*, *"Complete set"*.
 - **Live Audio Encouragement & VBT Coaching**: Speaks real-time coaching cues directly into your AirPods on weight engage, rep milestones (first rep, halfway, final 2 reps, target reached), PR celebrations (*"Boom! New personal record!"*), and >=25% velocity drop fatigue alerts.
-- **Built-In Offline Coach + BYOK LLM Support**: Works 100% offline out-of-the-box, or connect any OpenAI, Anthropic, Google Gemini, or local Ollama model (`0600` encrypted server storage).
+- **Built-In Offline Coach + BYOK LLM Support**: Works 100% offline out-of-the-box on the Tonal, or connect OpenAI, Anthropic, Google Gemini, or local Ollama directly from the tablet (API keys encrypted at rest with **Android Keystore AES-256-GCM** via `SecretCipher`, and `0600` encrypted storage if using the optional server).
 
 ---
 
@@ -125,8 +125,8 @@ The built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs
 
 1. **Rooted Tonal V1 Tablet**: Running Android 6.0 Marshmallow with Magisk v27+ installed and active.
    - *If your device is not yet rooted, follow the step-by-step guide in [RUNBOOK-Tonal V1 Rooting & On-Device Setup Guide.md](RUNBOOK-Tonal%20V1%20Rooting%20&%20On-Device%20Setup%20Guide.md) using `mtkclient`.*
-2. **Wi-Fi Connection**: Both your host server/laptop and the Tonal tablet connected to the same local network.
-3. **Host Tools**: `docker` (or Node.js 22+ & Python 3.11+), and Android platform-tools (`adb`).
+2. **Wi-Fi Connection**: Connected to your home network (for Phone Companion at `http://<TONAL_IP>:3000/companion`, Nostr relays, Spotify, and ADB install).
+3. **Host Tools**: Android platform-tools (`adb`) for Standalone installation; `docker` or Node.js 22+ only needed if running the optional Sync Server or building from source.
 
 ---
 
@@ -194,7 +194,7 @@ Once installed, Swonal Kiosk automatically boots on the Tonal wall display:
 
 - **Switching Between Swonal & Stock Tonal**: Tap the menu at the top right of the screen and choose **"Stock Tonal UI"**. A floating button allows you to return to Swonal at any time without rebooting.
 - **Phone Companion & Swocial**: Open `http://<TONAL_IP>:3000/companion` on your smartphone (or scan the on-screen **Companion QR** modal) to queue exercises, adjust weight, build routines, view friends' workouts, and share routines directly over local Wi-Fi.
-- **Hardware Safety**: Pressing **WEIGHT OFF** immediately cuts cable tension locally (`<5ms`). Weights also automatically disengage when switching workouts/exercises, when the kiosk app disconnects, or after 45 seconds of cable inactivity. Optional `DAEMON_API_TOKEN` authentication protects `:8765` across the LAN.
+- **Hardware Safety**: Pressing **WEIGHT OFF** immediately cuts cable tension locally (`<5ms`). Weights also automatically disengage when switching workouts/exercises, when the kiosk app disconnects (or the `tonal-daemon` watchdog triggers — while remote `/companion` phone disconnects leave active Kiosk resistance untouched), or after 45 seconds of cable inactivity. Optional `DAEMON_API_TOKEN` authentication protects `:8765` across the LAN.
 - **Remote Screen View**: View and control the Tonal display remotely from your computer using:
   ```bash
   ./scripts/scrcpy.sh
@@ -222,8 +222,9 @@ npx prisma db push && npx tsx prisma/seed.ts
 npm test
 npm run dev
 
-# 3. In another terminal, verify End-to-End communication
-node scripts/verify-e2e.mjs
+# 3. Verify Android Kiosk (JUnit 5 tests, embedded :3000 server, and release APK)
+cd ../android-kiosk
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 ```
 
 ---

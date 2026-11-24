@@ -203,8 +203,9 @@ class LocalWorkoutEngine(
     suspend fun listExercises(
         muscleGroup: String? = null,
         accessory: String? = null,
-        unilateral: Boolean? = null
-    ): List<Exercise> = db.listExercises(muscleGroup, accessory, unilateral)
+        unilateral: Boolean? = null,
+        searchQuery: String? = null
+    ): List<Exercise> = db.listExercises(muscleGroup, accessory, unilateral, searchQuery)
 
     suspend fun createExercise(
         name: String,

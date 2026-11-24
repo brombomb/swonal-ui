@@ -578,6 +578,27 @@ private fun SwonalDatabase.remapExerciseIdUnlocked(c: SQLiteConnection, oldId: S
         s.bindText(2, oldId)
         s.step()
     }
+    // Preserve maximum PR records when merging oldId -> newId for overlapping (user_id, exercise_id) pairs
+    c.prepare(
+        """
+        UPDATE personal_records SET
+            one_rep_max_est = MAX(
+                one_rep_max_est,
+                COALESCE((SELECT p2.one_rep_max_est FROM personal_records p2 WHERE p2.user_id = personal_records.user_id AND p2.exercise_id = ?), 0.0)
+            ),
+            max_weight_lb = MAX(
+                max_weight_lb,
+                COALESCE((SELECT p2.max_weight_lb FROM personal_records p2 WHERE p2.user_id = personal_records.user_id AND p2.exercise_id = ?), 0.0)
+            )
+        WHERE exercise_id = ? AND user_id IN (SELECT user_id FROM personal_records WHERE exercise_id = ?)
+        """.trimIndent()
+    ).useStmt { s ->
+        s.bindText(1, oldId)
+        s.bindText(2, oldId)
+        s.bindText(3, newId)
+        s.bindText(4, oldId)
+        s.step()
+    }
     c.prepare("DELETE FROM personal_records WHERE exercise_id = ? AND user_id IN (SELECT user_id FROM personal_records WHERE exercise_id = ?)").useStmt { s ->
         s.bindText(1, oldId)
         s.bindText(2, newId)
@@ -657,6 +678,9 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
                 theme_mode = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.theme_mode ELSE users.theme_mode END,
                 accent_color = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.accent_color ELSE users.accent_color END,
                 weight_unit = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.weight_unit ELSE users.weight_unit END,
+                nostr_pub_key_hex = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms AND excluded.nostr_pub_key_hex IS NOT NULL THEN excluded.nostr_pub_key_hex ELSE users.nostr_pub_key_hex END,
+                nostr_npub = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms AND excluded.nostr_npub IS NOT NULL THEN excluded.nostr_npub ELSE users.nostr_npub END,
+                nostr_relays_json = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms AND excluded.nostr_relays_json IS NOT NULL THEN excluded.nostr_relays_json ELSE users.nostr_relays_json END,
                 share_workouts = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.share_workouts ELSE users.share_workouts END,
                 demo_pip_enabled = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.demo_pip_enabled ELSE users.demo_pip_enabled END,
                 updated_at = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.updated_at ELSE users.updated_at END,
@@ -780,7 +804,11 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
                 created_at, updated_at, updated_at_ms, deleted_at_ms, dirty_sync
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(user_id, pubkey_hex) DO UPDATE SET
+                npub = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms THEN excluded.npub ELSE friends.npub END,
                 display_name = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms THEN excluded.display_name ELSE friends.display_name END,
+                avatar_url = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms THEN excluded.avatar_url ELSE friends.avatar_url END,
+                relays_json = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms THEN excluded.relays_json ELSE friends.relays_json END,
+                last_seen_at = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms AND excluded.last_seen_at IS NOT NULL THEN excluded.last_seen_at ELSE friends.last_seen_at END,
                 deleted_at_ms = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms THEN excluded.deleted_at_ms ELSE friends.deleted_at_ms END,
                 updated_at = CASE WHEN excluded.updated_at_ms >= friends.updated_at_ms THEN excluded.updated_at ELSE friends.updated_at END,
                 updated_at_ms = MAX(friends.updated_at_ms, excluded.updated_at_ms),
@@ -798,9 +826,9 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
 }
 
 suspend fun SwonalDatabase.exportRestoreBundle(): RestoreBundleDto = withDb { c ->
-    // Collect all rows regardless of dirty_sync
+    // Collect all rows including tombstones so FK parents (users/exercises/templates) never dangle on restore
     val users = mutableListOf<StoredUserSyncRecord>()
-    c.prepare("SELECT id, name, avatar_color, preferred_music_provider, theme_mode, accent_color, weight_unit, nostr_pub_key_hex, nostr_npub, nostr_relays_json, share_workouts, demo_pip_enabled, created_at, updated_at, updated_at_ms, deleted_at_ms FROM users WHERE deleted_at_ms IS NULL").useStmt { s ->
+    c.prepare("SELECT id, name, avatar_color, preferred_music_provider, theme_mode, accent_color, weight_unit, nostr_pub_key_hex, nostr_npub, nostr_relays_json, share_workouts, demo_pip_enabled, created_at, updated_at, updated_at_ms, deleted_at_ms FROM users").useStmt { s ->
         while (s.step()) {
             users += StoredUserSyncRecord(
                 id = s.getText(0), name = s.getText(1), avatarColor = s.getText(2),
@@ -813,7 +841,7 @@ suspend fun SwonalDatabase.exportRestoreBundle(): RestoreBundleDto = withDb { c 
         }
     }
     val exercises = mutableListOf<StoredExerciseSyncRecord>()
-    c.prepare("SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, deleted_at_ms FROM exercises WHERE deleted_at_ms IS NULL").useStmt { s ->
+    c.prepare("SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, deleted_at_ms FROM exercises").useStmt { s ->
         while (s.step()) {
             exercises += StoredExerciseSyncRecord(
                 id = s.getText(0), name = s.getText(1), muscleGroup = s.getText(2), accessory = s.getText(3),
@@ -824,7 +852,7 @@ suspend fun SwonalDatabase.exportRestoreBundle(): RestoreBundleDto = withDb { c 
         }
     }
     val templates = mutableListOf<StoredTemplateSyncRecord>()
-    c.prepare("SELECT id, user_id, name, description, blocks_json, schedule_days_json, created_at, updated_at, updated_at_ms, deleted_at_ms FROM workout_templates WHERE deleted_at_ms IS NULL").useStmt { s ->
+    c.prepare("SELECT id, user_id, name, description, blocks_json, schedule_days_json, created_at, updated_at, updated_at_ms, deleted_at_ms FROM workout_templates").useStmt { s ->
         while (s.step()) {
             val days = getNullableText(s, 5)?.let { runCatching { SwonalJson.decodeFromString<List<Int>>(it) }.getOrDefault(emptyList()) }.orEmpty()
             templates += StoredTemplateSyncRecord(
@@ -864,7 +892,7 @@ suspend fun SwonalDatabase.exportRestoreBundle(): RestoreBundleDto = withDb { c 
         }
     }
     val friends = mutableListOf<StoredFriendRecord>()
-    c.prepare("SELECT id, user_id, npub, pubkey_hex, display_name, avatar_url, relays_json, last_seen_at, created_at, updated_at, updated_at_ms, deleted_at_ms FROM friends WHERE deleted_at_ms IS NULL").useStmt { s ->
+    c.prepare("SELECT id, user_id, npub, pubkey_hex, display_name, avatar_url, relays_json, last_seen_at, created_at, updated_at, updated_at_ms, deleted_at_ms FROM friends").useStmt { s ->
         while (s.step()) {
             friends += StoredFriendRecord(
                 id = s.getText(0), userId = s.getText(1), npub = s.getText(2), pubkeyHex = s.getText(3),

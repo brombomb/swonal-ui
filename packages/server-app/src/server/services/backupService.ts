@@ -33,8 +33,7 @@ export async function createRotatingSqliteBackup(
   if (fs.existsSync(targetPath)) {
     fs.unlinkSync(targetPath);
   }
-  const safePath = targetPath.replace(/'/g, "''");
-  await prisma.$executeRawUnsafe(`VACUUM INTO '${safePath}'`);
+  await prisma.$executeRaw`VACUUM INTO ${targetPath}`;
 
   const entries = fs
     .readdirSync(backupDir)

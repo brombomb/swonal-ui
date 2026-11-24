@@ -196,8 +196,26 @@ describe('Optional Server Sync, Tombstones, 24/7 MCP Queue & Backups', () => {
     });
     expect(receivedOnWs).toContain(seededTpl!.id);
 
-    // Acknowledge clears pending queue
-    const ackRes = await fetch(`${baseUrl}/api/sync/ack-queued-workout`, { method: 'POST' });
+    // Acknowledge with stale queuedAt must NOT clear a newly queued workout
+    const ackStaleRes = await fetch(`${baseUrl}/api/sync/ack-queued-workout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queuedAt: '2020-01-01T00:00:00.000Z' }),
+    });
+    expect(ackStaleRes.status).toBe(200);
+
+    const pullStillQueued = await fetch(`${baseUrl}/api/sync/pull?since=0`);
+    const stillJson = (await pullStillQueued.json()) as {
+      pendingQueuedWorkout: { templateId: string; queuedAt: string } | null;
+    };
+    expect(stillJson.pendingQueuedWorkout?.queuedAt).toBe(queued.queuedAt);
+
+    // Matching queuedAt cleanly clears pending queue
+    const ackRes = await fetch(`${baseUrl}/api/sync/ack-queued-workout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queuedAt: queued.queuedAt }),
+    });
     expect(ackRes.status).toBe(200);
 
     const pullAfter = await fetch(`${baseUrl}/api/sync/pull?since=0`);
@@ -205,7 +223,7 @@ describe('Optional Server Sync, Tombstones, 24/7 MCP Queue & Backups', () => {
     expect(afterJson.pendingQueuedWorkout).toBeNull();
   });
 
-  it('propagates soft-delete tombstones via /api/sync/pull and creates rotating SQLite backups', async () => {
+  it('propagates soft-delete tombstones via /api/sync/pull and /api/sync/restore-bundle and creates rotating SQLite backups', async () => {
     const tplId = `tombstone-tpl-${Date.now()}`;
     createdTemplateIds.push(tplId);
     const beforeMs = Date.now() - 1000;
@@ -245,6 +263,33 @@ describe('Optional Server Sync, Tombstones, 24/7 MCP Queue & Backups', () => {
     const tomb = pull.templates.find((t) => t.id === tplId);
     expect(tomb).toBeDefined();
     expect(tomb?.deletedAtMs).not.toBeNull();
+
+    // Restore bundle also retains soft-deleted parent tombstones so foreign keys hold on restore
+    const restoreRes = await fetch(`${baseUrl}/api/sync/restore-bundle`);
+    expect(restoreRes.status).toBe(200);
+    const restoreJson = (await restoreRes.json()) as {
+      templates: Array<{ id: string; deletedAtMs: number | null }>;
+    };
+    const restoredTomb = restoreJson.templates.find((t) => t.id === tplId);
+    expect(restoredTomb?.deletedAtMs).not.toBeNull();
+
+    // CSWSH check: disallowed external WebSocket Origin is rejected with 403
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(`${wsUrl}/ws`, { headers: { Origin: 'https://evil.example' } });
+        ws.on('open', () => {
+          ws.close();
+          reject(new Error('Expected CSWSH upgrade to be rejected'));
+        });
+        ws.on('unexpected-response', (_req, res) => {
+          expect(res.statusCode).toBe(403);
+          resolve();
+        });
+        ws.on('error', () => {
+          resolve();
+        });
+      })
+    ).resolves.toBeUndefined();
 
     // Backup service snapshot check
     const snapPath = await createRotatingSqliteBackup(prisma, tempBackupDir);

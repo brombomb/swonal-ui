@@ -4,7 +4,7 @@
 
 ## **Executive Summary**
 
-The `swonal-ui` system is an open-source, dual-tier architecture engineered to extend and modernize the rooted **Tonal 1 (V1)** smart home gym platform. By decoupling low-level hardware motor control from the modern web application stack, this project enables advanced workout modes, robust local control, custom dynamic load modulation, dynamic BLE device integration, and local Spotify media orchestration—all operating natively on hardware without requiring additional single-board computers (such as a Raspberry Pi).
+The `swonal-ui` system is an open-source, **standalone-first** architecture engineered to extend and modernize the rooted **Tonal 1 (V1)** smart home gym platform. All core features — low-level hardware motor control (`tonal-daemon`), 60fps native Android Kiosk UI (`android-kiosk`), local SQLite persistence, Spotify PKCE speaker pairing, AI Voice Coach (local rules + BYOK/Ollama), Nostr Swocial, Home Assistant webhooks, Routine Builder, and the embedded `:3000` LAN web server serving the mobile Companion / History / Settings SPA — run **100% on-device on the Tonal V1 tablet** with full offline resilience. Power users can optionally pair an external `packages/server-app` container on a home server, NAS, or cloud VM for bidirectional background sync (`/api/sync/*`, `/ws/sync`), 24/7 offline-Tonal MCP workout queueing, centralized Home Assistant MQTT discovery, and daily rotating SQLite backups.
 
 ---
 

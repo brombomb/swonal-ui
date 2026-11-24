@@ -6,21 +6,21 @@ Context, hardware constraints, design decisions, and operational playbooks for c
 
 ## 1. Repository Architecture
 
-- **`packages/server-app`** (`@swonal-ui/server-app`, Node 22 / Express / Prisma SQLite / Vite + React 18 / Tailwind CSS, port `3000`)
-  - Serves the Kiosk UI (`/`), Mobile Companion UI (`/companion`), History (`/history`), Settings (`/settings`), Admin (`/admin`), WebSocket hub (`/ws`), REST API (`/api/*`), and MCP SSE/stdio endpoints (`/mcp/*`).
-  - Canonical weight storage is always **pounds (`LB`, `5.0–200.0 lb`)**; `KG` conversion (`1 lb = 0.45359237 kg`) happens at display/API boundaries.
-  - Velocity displays as **`in/s`** (`cm/s / 2.54`) when `activeUnit === 'LB'` and **`cm/s`** when `KG`.
+- **`packages/android-kiosk`** (`com.swonal.kiosk`, Kotlin, Classic Android Views + XML/ViewBinding + Custom `Canvas`, `minSdk = 23`, `targetSdk = 34`, `compileSdk = 35`, `arm64-v8a`)
+  - **Standalone-First Core (Default):** Runs 100% serverlessly on the Tonal V1 wall screen (`1080x1920`, `Physical density: 213dpi`) and supports optional Home/Cloud Server Sync via `CloudSyncManager` (`com.swonal.kiosk.sync`).
+  - **On-Device Persistence (`SwonalDatabase`, `androidx.sqlite:sqlite-bundled` 2.5.1):** Bundled SQLite 3.46+ with WAL mode, seeded from `assets/seed/seed_catalog.json` (50 exercises) + 9 SVG form diagrams (`assets/media/`), plus sync tombstones (`deleted_at_ms`), `VACUUM INTO` backups, and **Android Keystore AES-256-GCM** encryption (`SecretCipher`).
+  - **On-Device Engines:** `LocalWorkoutEngine` (sessions, PRs, progressive overload, Partner Work-In, CSV/JSON exports, PBKDF2 passcode lock), `LocalAiCoachEngine` (voice commands + offline coach + BYOK LLMs), `LocalSpotifyController` (Keymaster S256 PKCE + `:8765` librespot provisioning + 429 backoff), `LocalLanMusicProviders`, `LocalNostrSwocialEngine` (pure-Kotlin BIP-340 Schnorr + NIP-19 in `NostrCrypto`), and `LocalHomeAssistantClient`.
+  - **Embedded `:3000` Server (`EmbeddedSwonalServer` / `EmbeddedApiRouter` via `NanoWSD`):** Serves the Vite-compiled React SPA bundled in `assets/web/` (synced by Gradle `syncWebAssets` from `packages/server-app/dist/client`), `/api/*` REST parity, `/ws` Companion socket (never disengaging weight when a phone disconnects while Kiosk UI heartbeat is alive), and path-traversal-guarded `/media/*`.
+  - **Native 60fps Hot Path & Dialogs:** Separates 30Hz telemetry (`telemetryFlow`, `vbtFlow`) from discrete UI state (`uiStateFlow`); includes native `RoutineBuilderDialog` and `ServerSyncSettingsDialog`; embeds **Mozilla GeckoView 140 ESR (`arm64-v8a`)** in `SwonalWebActivity` for `/history`, `/settings`, and `/admin`; includes `StockOverlayService` (`TYPE_SYSTEM_ERROR`, `RootShell`) LockTask escape hatch and `LocalDaemonFailSafeClient` (`127.0.0.1:8765`).
+  - **Android 6.0 (API 23) Constraints:** Never use `java.time.*`, `java.util.Base64`, or API 24+ `Map.getOrDefault`/`computeIfAbsent` in `packages/android-kiosk` — use `CompatUtil` (`Base64Compat`, `IsoTime`, `CryptoCompat`). All external HTTPS/WSS OkHttp clients must wire `SwonalTlsConfig` (`@raw/swonal_extra_roots`), and all `@Serializable` packages must be kept in `app/proguard-rules.pro`.
 - **`packages/tonal-daemon`** (Python 3.11+, FastAPI + WebSockets on port `8765`)
   - Runs on the Tonal V1 under Termux + Magisk `service.d` (`start-daemon.sh`).
-  - Bridges `/dev/ttyACM0` via `swolectl` (`from swolectl import Controller, SafetyPolicy` in `src/motor_bridge.py`, reading live `telemetry`, `cart_position` `0x1020`, `column_rotation` `0x1021`, and `arm_positions` `0x1025` including lock-pin flags), BLE accessories (`bleak`), and Stock <-> Custom mode switching.
+  - Bridges `/dev/ttyACM0` via `swolectl` (`from swolectl import Controller, SafetyPolicy` in `src/motor_bridge.py`, reading live `telemetry`, `cart_position` `0x1020`, `column_rotation` `0x1021`, and `arm_positions` `0x1025` including lock-pin flags), BLE accessories (`bleak`), librespot speaker control (`/api/spotify/*`), and Stock <-> Custom mode switching.
   - Supports `--mock` mode (`python -m src.main --mock`) for offline 30Hz simulation on a dev machine.
   - `swolectl` is **not on PyPI** — it is specified in `packages/tonal-daemon/pyproject.toml` as `swolectl @ git+https://github.com/d4l3k/swolectl.git`.
-- **`packages/android-kiosk`** (`com.swonal.kiosk`, Kotlin, Classic Android Views + XML/ViewBinding + Custom `Canvas`, `minSdk = 23`, `compileSdk = 35`, `arm64-v8a`)
-  - Native 60fps Android 6.0 kiosk app & optional `CATEGORY_HOME` launcher replacing Bromite on the Tonal V1 wall screen (`1080x1920`, `Physical density: 213dpi`).
-  - Separates 30Hz telemetry (`telemetryFlow`, `vbtFlow`) from discrete workout/session/music state (`uiStateFlow`) with diffed hot-path caches, tactile `PressFeedback`, and zero-allocation Canvas rendering (`AtmosphericBackdropView` bitmap cache, `LoadDialView`, `CableTravelView`, `SymmetrySliderView`, `VelocityGaugeView`).
-  - Embeds **Mozilla GeckoView 140 ESR (`arm64-v8a`)** in `SwonalWebActivity` so `/history`, `/settings`, and `/admin` open 100% in-app on Android 6.0 (replacing obsolete System WebView v44 without launching an external browser).
-  - Includes Music Dock active speaker picker (defaulting to on-device `librespot` / `"Tonal Gym"`), Tonal hardware volume slider (`AudioManager.STREAM_MUSIC`), simplified `"Menu"` dialog (Stock Tonal UI + History / Settings / Admin; Termux/Magisk hidden unless Developer Mode is unlocked via 5× tap on Diagnostics title), bundled modern Root CAs (`res/raw/swonal_extra_roots.pem`), static `Inter` & `JetBrains Mono` TTFs, Android Keystore AES-256-GCM secret storage, origin-scoped `CookieJar`, and a Phase 3 local loopback fail-safe (`LocalDaemonFailSafeClient` targeting `http://127.0.0.1:8765`) with UI-liveness-gated watchdog pings.
-  - **Stock Mode Escape Hatch & Kiosk Pinning Protection**: Stock Tonal UI (`com.tonal.apps.machineclient2.beta`) and `com.tonal.tonallauncher` enter Android `LockTaskMode` (`START_RETURN_LOCK_TASK_MODE_VIOLATION = 5`), trapping the user in full-screen immersive mode. Swonal Kiosk provides a persistent `StockOverlayService` floating pill (`TYPE_SYSTEM_ERROR`, `shown=true`, layer 231000) with `RootShell` that broadcasts `com.tonal.apps.machineclient2.EXIT_KIOSK`, terminates stock processes, and restores `com.swonal.kiosk/.ui.MainActivity` along with `BootReceiver` handling.
+- **`packages/server-app`** (`@swonal-ui/server-app`, Node 22 / Express / Prisma SQLite / Vite + React 18 / Tailwind CSS, port `3000`)
+  - **Optional Power-User Sync Server & SPA Build Source:** Its compiled Vite React UI (`dist/client/`) is bundled directly into the Android Kiosk APK (`assets/web/`). When deployed optionally as an always-on Docker/Node server, it provides bi-directional `/api/sync/*` (LWW, tombstones, max-envelope PRs, idempotent `SetLog`, exercise name remap) + `/ws/sync`, 24/7 MCP queueing (`AppSetting.pending_queued_workout`), HA MQTT autodiscovery, and daily rotating `VACUUM INTO` backups (`backupService.ts`).
+  - Canonical weight storage is always **pounds (`LB`, `5.0–200.0 lb`)**; `KG` conversion (`1 lb = 0.45359237 kg`) happens at display/API boundaries; velocity displays in **`in/s`** (`cm/s / 2.54`) for `LB` and **`cm/s`** for `KG`.
 - **`packages/device-assets`**
   - Tracked APKs (< 100 MB GitHub limit):
     - `termux-android5-v0.119.0-beta.3.apk` (`77.87 MB`, Android 5/6 universal Termux)
@@ -102,19 +102,12 @@ Context, hardware constraints, design decisions, and operational playbooks for c
 Run after every change before committing or restarting the server:
 
 ```sh
-# Server + Client tests, typecheck, and production bundle
-cd packages/server-app
-npm test && npm run typecheck && npm run build
+# Clean-room full CI check (workflows + server-app + tonal-daemon + android-kiosk, isolated from .env & swonal.db)
+./scripts/ci-local.sh
 
-# Python daemon tests
-cd ../tonal-daemon
-.venv/bin/pytest
-
-# Native Android Kiosk unit tests & debug APK build
-cd ../android-kiosk
-./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+# Release APK check (verifies R8 minification & resource shrinking + bundled web assets)
+cd packages/android-kiosk && ./gradlew :app:assembleRelease --no-daemon
 
 # Installer / boot script syntax check
-cd ../..
 bash -n scripts/install-device.sh && sh -n packages/tonal-daemon/start-daemon.sh
 ```

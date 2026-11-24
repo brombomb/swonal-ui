@@ -49,8 +49,7 @@ class SwonalPreferences(context: Context) {
     val secretCipher: SecretCipher = object : SecretCipher {
         override fun encrypt(plaintext: String): String {
             if (plaintext.isBlank()) return ""
-            return runCatching { ENC_PREFIX + encryptForPref(plaintext) }
-                .getOrElse { "" }
+            return ENC_PREFIX + encryptForPref(plaintext)
         }
 
         override fun decrypt(stored: String): String? {
@@ -291,6 +290,7 @@ class SwonalPreferences(context: Context) {
         fun isLoopbackOrPrivateHost(host: String): Boolean {
             val h = host.lowercase().removePrefix("[").removeSuffix("]")
             if (isLoopbackHost(h)) return true
+            if (h.endsWith(".local")) return true
             if (h.startsWith("10.") || h.startsWith("192.168.")) return true
             if (h.startsWith("172.")) {
                 val second = h.split(".").getOrNull(1)?.toIntOrNull()

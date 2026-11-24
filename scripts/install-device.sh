@@ -105,7 +105,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate SERVER_URL strictly to prevent adb shell injection
-if [[ ! "${SERVER_URL}" =~ ^https?://[A-Za-z0-9._:/?=\&%-]+$ ]]; then
+if [[ -n "${SERVER_URL}" && ! "${SERVER_URL}" =~ ^https?://[A-Za-z0-9._:/?=\&%-]+$ ]]; then
   echo "Error: Invalid --server-url '${SERVER_URL}'. Must start with http:// or https:// without shell metacharacters." >&2
   exit 1
 fi
@@ -512,9 +512,10 @@ if [[ "${USE_BROMITE}" -eq 0 && -n "${KIOSK_APK}" ]]; then
     echo "==> Step 4/4: Launching Swonal Native Kiosk (Home Server Sync: ${SERVER_URL})..."
     "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity --es server_url '${SERVER_URL}'" || \
       echo "  [info] Launch Swonal Kiosk manually from the Android launcher"
+    echo "  [note] Release builds ignore ADB --es extras for launch security; if not debug, pair under Menu -> Standalone & Home Server Sync."
   else
     echo "==> Step 4/4: Launching Swonal Native Kiosk (Standalone Offline-First Mode)..."
-    "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity --es sync_mode standalone" || \
+    "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity" || \
       echo "  [info] Launch Swonal Kiosk manually from the Android launcher"
   fi
 else

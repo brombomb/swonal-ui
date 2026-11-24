@@ -6,6 +6,7 @@ import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.net.SwonalTlsConfig
 import com.swonal.kiosk.util.IsoTime
 import com.swonal.kiosk.util.SecretCipher
+import com.swonal.kiosk.util.UrlSecurity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -164,16 +165,8 @@ class LocalHomeAssistantClient(
         }.getOrDefault(emptyList())
     }
 
-    private fun sanitizeUrl(raw: String): String {
-        val trimmed = raw.trim().removeSuffix("/")
-        if (trimmed.isEmpty()) return ""
-        val parsed = trimmed.toHttpUrlOrNull()
-            ?: throw IllegalArgumentException("URL must be valid http:// or https://")
-        require(parsed.scheme == "http" || parsed.scheme == "https") {
-            "URL must use http:// or https://"
-        }
-        return parsed.toString().removeSuffix("/")
-    }
+    private fun sanitizeUrl(raw: String): String =
+        UrlSecurity.sanitizeExternalUrl(raw, allowLoopback = false)
 
     companion object {
         const val SETTING_HA_CONFIG = "ha_config_json"

@@ -282,10 +282,14 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
               },
             });
             acceptedCounts.exercises += 1;
-          } else if (ex.updatedAtMs > existing.updatedAt.getTime()) {
+          } else if (ex.updatedAtMs >= existing.updatedAt.getTime()) {
+            const nameConflict = existing.name !== ex.name
+              ? await tx.exercise.findFirst({ where: { name: ex.name, NOT: { id: existing.id } } })
+              : null;
             await tx.exercise.update({
               where: { id: existing.id },
               data: {
+                ...(nameConflict ? {} : { name: ex.name }),
                 muscleGroup: ex.muscleGroup,
                 accessory: ex.accessory,
                 recommendedHeight: ex.recommendedHeight,
@@ -510,9 +514,12 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
     }
   });
 
-  async function buildPullPayload(sinceMs: number, includeDeleted: boolean) {
+  async function buildPullPayload(sinceMs: number, includeParentTombstones: boolean) {
     const sinceDate = sinceMs > 0 ? new Date(sinceMs) : null;
     const serverTimeMs = Date.now();
+    // Always include parent tombstones on full pulls/restore bundles so foreign-key integrity
+    // never breaks when historical sessions/logs reference soft-deleted users, exercises, or routines.
+    const includeDeleted = includeParentTombstones || sinceMs === 0;
 
     const [users, exercises, templates, sessions, setLogs, prs, friends, pendingQueuedWorkout] =
       await Promise.all([
@@ -538,11 +545,11 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
           orderBy: { createdAt: 'desc' },
         }),
         prisma.workoutSession.findMany({
-          where: sinceDate ? { startedAt: { gte: new Date(Math.max(0, sinceMs - 86_400_000)) } } : undefined,
+          where: sinceDate ? { updatedAt: { gte: sinceDate } } : undefined,
           orderBy: { startedAt: 'desc' },
         }),
         prisma.setLog.findMany({
-          where: sinceDate ? { timestamp: { gte: sinceDate } } : undefined,
+          where: sinceDate ? { updatedAt: { gte: sinceDate } } : undefined,
           orderBy: { timestamp: 'asc' },
         }),
         prisma.personalRecord.findMany({
@@ -610,7 +617,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
         startedAt: s.startedAt.toISOString(),
         completedAt: s.completedAt ? s.completedAt.toISOString() : null,
         totalVolume: s.totalVolume,
-        updatedAtMs: (s.completedAt ?? s.startedAt).getTime(),
+        updatedAtMs: Math.max(s.updatedAt.getTime(), (s.completedAt ?? s.startedAt).getTime()),
       })),
       setLogs: setLogs.map((l) => ({
         id: l.id,
@@ -624,7 +631,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
         volumeLb: l.volumeLb,
         rpe: l.rpe,
         timestamp: l.timestamp.toISOString(),
-        updatedAtMs: l.timestamp.getTime(),
+        updatedAtMs: Math.max(l.updatedAt.getTime(), l.timestamp.getTime()),
       })),
       personalRecords: prs.map((p) => ({
         id: p.id,
@@ -664,9 +671,11 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
     }
   });
 
-  router.post('/ack-queued-workout', async (_req, res, next) => {
+  router.post('/ack-queued-workout', async (req, res, next) => {
     try {
-      await clearPendingQueuedWorkout();
+      const body = req.body as { queuedAt?: unknown } | undefined;
+      const queuedAt = typeof body?.queuedAt === 'string' ? body.queuedAt : undefined;
+      await clearPendingQueuedWorkout(queuedAt);
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -675,7 +684,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
 
   const handleRestoreBundle = async (_req: unknown, res: { json: (v: unknown) => void }, next: (e: unknown) => void) => {
     try {
-      const bundle = await buildPullPayload(0, false);
+      const bundle = await buildPullPayload(0, true);
       res.json({
         version: 1,
         exportedAt: new Date().toISOString(),

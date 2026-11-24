@@ -25,7 +25,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -401,7 +403,7 @@ class LocalSpotifyController(
         }
         val body = SwonalJson.encodeToString(
             buildJsonObject {
-                put("device_ids", SwonalJson.parseToJsonElement("""["$resolvedId"]"""))
+                put("device_ids", buildJsonArray { add(JsonPrimitive(resolvedId)) })
                 put("play", true)
             }
         )
@@ -417,7 +419,7 @@ class LocalSpotifyController(
         val bodyObj = buildJsonObject {
             if (!contextUri.isNullOrBlank()) {
                 if (contextUri.contains(":track:")) {
-                    put("uris", SwonalJson.parseToJsonElement("""["$contextUri"]"""))
+                    put("uris", buildJsonArray { add(JsonPrimitive(contextUri)) })
                 } else {
                     put("context_uri", contextUri)
                 }

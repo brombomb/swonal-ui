@@ -12,6 +12,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -24,10 +25,20 @@ class LocalAiCoachEngineTest {
         assertEquals("set_weight_delta", addTen?.type)
         assertEquals(10.0, addTen?.deltaLb)
 
-        val dropDecimal = LocalAiCoachEngine.detectVoiceCommand("drop 2.5 kg")
-        assertNotNull(dropDecimal)
-        assertEquals("set_weight_delta", dropDecimal?.type)
-        assertEquals(-2.5, dropDecimal?.deltaLb)
+        val dropDecimalKg = LocalAiCoachEngine.detectVoiceCommand("drop 2.5 kg")
+        assertNotNull(dropDecimalKg)
+        assertEquals("set_weight_delta", dropDecimalKg?.type)
+        assertEquals(-5.5, dropDecimalKg?.deltaLb)
+
+        val dropDecimalLb = LocalAiCoachEngine.detectVoiceCommand("drop 2.5 lb")
+        assertNotNull(dropDecimalLb)
+        assertEquals(-2.5, dropDecimalLb?.deltaLb)
+
+        val kgDefault = LocalAiCoachEngine.detectVoiceCommand("add 5", defaultUnit = "KG")
+        assertEquals(11.0, kgDefault?.deltaLb)
+
+        val clampedDelta = LocalAiCoachEngine.detectVoiceCommand("add 50 lb")
+        assertEquals(20.0, clampedDelta?.deltaLb)
 
         val target = LocalAiCoachEngine.detectVoiceCommand("set weight to forty five lb")
         assertNotNull(target)
@@ -135,5 +146,16 @@ class LocalAiCoachEngineTest {
         assertEquals("openai", resp.provider)
         assertEquals("Bearer sk-test-secret-6789", seenAuthHeader)
         assertTrue(resp.reply.contains("Solid bar speed"))
+
+        // SSRF guard: cloud providers must reject loopback and metadata URLs, while Ollama permits localhost
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { coach.setConfig(provider = "openai", baseUrl = "http://127.0.0.1:8765") }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { coach.setConfig(provider = "openai", baseUrl = "http://169.254.169.254/latest") }
+        }
+        val ollamaCfg = coach.setConfig(provider = "ollama", baseUrl = "http://localhost:11434")
+        assertEquals("ollama", ollamaCfg.provider)
+        assertEquals("http://localhost:11434", ollamaCfg.baseUrl)
     }
 }

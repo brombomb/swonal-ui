@@ -86,43 +86,45 @@ export async function createSwonalServer(
     options.daemonWsUrl ?? serverConfig.TONAL_DAEMON_WS_URL;
   const connectDaemonWs = options.connectDaemonWs ?? true;
 
+  const isAllowedOrigin = (origin: string): boolean => {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+      }
+      const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      const isLocalOrLan =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '::1' ||
+        host.endsWith('.local') ||
+        /^10\.\d+\.\d+\.\d+$/.test(host) ||
+        /^192\.168\.\d+\.\d+$/.test(host) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host);
+
+      const publicBase = getEffectivePublicBaseUrl();
+      let isPublicOrigin = false;
+      if (publicBase) {
+        try {
+          isPublicOrigin = new URL(publicBase).origin === parsed.origin;
+        } catch {
+          isPublicOrigin = false;
+        }
+      }
+      return isLocalOrLan || isPublicOrigin;
+    } catch {
+      return false;
+    }
+  };
+
   const app = express();
-  app.set('trust proxy', 1);
+  app.set('trust proxy', 'loopback');
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin) {
+        if (!origin || isAllowedOrigin(origin)) {
           callback(null, true);
           return;
-        }
-        try {
-          const parsed = new URL(origin);
-          const host = parsed.hostname.toLowerCase();
-          const isLocalOrLan =
-            host === 'localhost' ||
-            host === '127.0.0.1' ||
-            host === '::1' ||
-            host.endsWith('.local') ||
-            /^10\.\d+\.\d+\.\d+$/.test(host) ||
-            /^192\.168\.\d+\.\d+$/.test(host) ||
-            /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host);
-
-          const publicBase = getEffectivePublicBaseUrl();
-          let isPublicOrigin = false;
-          if (publicBase) {
-            try {
-              isPublicOrigin = new URL(publicBase).origin === parsed.origin;
-            } catch {
-              isPublicOrigin = false;
-            }
-          }
-
-          if (isLocalOrLan || isPublicOrigin) {
-            callback(null, true);
-            return;
-          }
-        } catch {
-          // Invalid Origin URL
         }
         callback(new Error('CORS origin not allowed'));
       },
@@ -148,6 +150,12 @@ export async function createSwonalServer(
   const tonalSyncClients = new Set<WebSocket>();
 
   httpServer.on('upgrade', (req, socket, head) => {
+    const origin = req.headers.origin;
+    if (origin && !isAllowedOrigin(origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const pathname = (req.url || '/').split('?')[0];
     if (pathname === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => {
@@ -380,11 +388,44 @@ export async function createSwonalServer(
 
         if (DAEMON_FORWARD_TYPES.has(type)) {
           if (type === 'set_weight') {
+            if (latestTelemetry.weight_enabled) {
+              client.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: 'Cannot change weight from remote WebSocket while resistance is engaged',
+                })
+              );
+              return;
+            }
             const w = Number(msg.weight_lb);
             if (!Number.isFinite(w) || w < 5 || w > 200) {
               client.send(JSON.stringify({ type: 'error', message: `Invalid weight_lb: ${msg.weight_lb}` }));
               return;
             }
+            if (msg.profile !== undefined) {
+              const p = String(msg.profile).trim().toUpperCase();
+              if (!['STANDARD', 'ECCENTRIC', 'CHAINS', 'SPOTTER', 'BURNOUT'].includes(p)) {
+                client.send(JSON.stringify({ type: 'error', message: `Invalid weight profile: ${msg.profile}` }));
+                return;
+              }
+              msg.profile = p.toLowerCase();
+            }
+            if (msg.modifier_pct !== undefined) {
+              const mod = Number(msg.modifier_pct);
+              msg.modifier_pct = Number.isFinite(mod) ? Math.max(0, Math.min(100, Math.round(mod))) : 0;
+            }
+          }
+          if (
+            (type === 'enable_weight' || (type === 'toggle_weight' && !latestTelemetry.weight_enabled)) &&
+            latestTelemetry.safety_event
+          ) {
+            client.send(
+              JSON.stringify({
+                type: 'error',
+                message: `Cannot engage weight during active safety event: ${latestTelemetry.safety_event}`,
+              })
+            );
+            return;
           }
           const sent = sendToDaemon(msg);
           if (!sent && type === 'set_weight') {
@@ -442,8 +483,13 @@ export async function createSwonalServer(
 
     client.on('close', () => {
       browserClients.delete(client);
-      if (browserClients.size === 0 && tonalSyncClients.size === 0 && latestTelemetry.weight_enabled) {
-        console.warn('[SwonalServer] Last UI client disconnected while weight engaged — immediately disabling resistance.');
+      if (
+        process.env.SWONAL_LEGACY_WS_WATCHDOG === '1' &&
+        browserClients.size === 0 &&
+        tonalSyncClients.size === 0 &&
+        latestTelemetry.weight_enabled
+      ) {
+        console.warn('[SwonalServer] Legacy WS watchdog: last client disconnected while weight engaged — disabling resistance.');
         sendToDaemon({ type: 'disable_weight' });
         fetch(`${daemonHttpUrl}/api/motor/disable`, { method: 'POST' }).catch(() => {});
       }
@@ -481,7 +527,8 @@ export async function createSwonalServer(
             (typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {}) as Record<string, unknown>
           );
         } else if (type === 'ack_queued_workout') {
-          void clearPendingQueuedWorkout();
+          const queuedAt = typeof msg.queuedAt === 'string' ? msg.queuedAt : undefined;
+          void clearPendingQueuedWorkout(queuedAt);
         }
       } catch {
         // Ignore invalid /ws/sync messages
@@ -537,7 +584,7 @@ export async function createSwonalServer(
   >();
 
   app.get('/mcp/sse', async (req, res) => {
-    if (!isRequestAuthenticated(req)) {
+    if (!isRequestAuthenticated(req, { allowQueryToken: true })) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
@@ -554,7 +601,7 @@ export async function createSwonalServer(
   });
 
   app.post('/mcp/messages', async (req, res) => {
-    if (!isRequestAuthenticated(req)) {
+    if (!isRequestAuthenticated(req, { allowQueryToken: true })) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }

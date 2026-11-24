@@ -8,6 +8,7 @@ import com.swonal.kiosk.model.MusicProviderInfo
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.net.SwonalTlsConfig
 import com.swonal.kiosk.util.SecretCipher
+import com.swonal.kiosk.util.UrlSecurity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -193,13 +194,8 @@ class LocalLanMusicProviders(
         }
     }
 
-    private fun sanitizeHttpUrl(raw: String): String {
-        val trimmed = raw.trim().removeSuffix("/")
-        if (trimmed.isEmpty()) return ""
-        val parsed = trimmed.toHttpUrlOrNull() ?: throw IllegalArgumentException("Invalid URL")
-        require(parsed.scheme == "http" || parsed.scheme == "https") { "Must use http:// or https://" }
-        return parsed.toString().removeSuffix("/")
-    }
+    private fun sanitizeHttpUrl(raw: String): String =
+        UrlSecurity.sanitizeExternalUrl(raw, allowLoopback = false)
 
     companion object {
         const val SETTING_LAN_MUSIC = "lan_music_providers_json"
