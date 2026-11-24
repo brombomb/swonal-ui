@@ -86,6 +86,22 @@ docker run -d \
 
 Once running, enter `http://<SERVER_IP>:3000` under **Menu → Standalone & Home Server Sync** on your Tonal (paired tablets sync idempotently via `/api/sync/*` and `/ws/sync`). Automated builds and releases are produced continuously by [.github/workflows/release.yml](.github/workflows/release.yml) whenever a release tag is pushed.
 
+### Standalone (Serverless) vs. Optional Sync Server
+
+| Capability | Standalone (Serverless — Default) | + Optional Home / Cloud Server (`server-app`) |
+| --- | --- | --- |
+| **Hardware Needed** | Just the rooted Tonal V1 tablet (zero external server) | Tonal V1 + any always-on Docker host, NAS, Raspberry Pi, or VPS |
+| **Workouts, PRs & Analytics** | 100% local on-device SQLite (`BundledSQLiteDriver`, 50 exercises + 9 SVGs, full offline resilience) | Same on-device SQLite + bidirectional background sync (`/api/sync/*`, `/ws/sync`) |
+| **Motor Control & Safety** | Direct local loopback (`127.0.0.1:8765`, `<5ms` `WEIGHT OFF` & dead-man's switch) | Identical local `<5ms` safety on Tonal (server never sits in the safety loop) |
+| **Phone Companion & Web UI** | Served directly from Tonal's embedded `:3000` LAN server (`http://<TONAL_IP>:3000/companion`, `/history`, `/settings`) while Tonal is awake | Always-on web dashboard (`http://<SERVER_IP>:3000`) accessible even when Tonal is asleep, plus live telemetry relay |
+| **Routine Builder** | Native Kiosk dialog + embedded `/settings` web UI | Native Kiosk + always-on web UI + remote creation via MCP |
+| **AI Voice Coach** | Offline local heuristic coach + direct BYOK (OpenAI, Anthropic, Gemini, Ollama) from the tablet | Same on-device coach + server-side coach endpoint |
+| **MCP (Claude / ChatGPT)** | Not always-on (tablet sleeps between workouts) | **24/7 always-on MCP server** (SSE & stdio) — LLMs inspect history/PRs and queue workouts anytime; routines auto-deliver when Tonal wakes |
+| **Music (Spotify & LAN)** | On-device Spotify Keymaster PKCE speaker pairing (`librespot`), Plexamp, YTM Desktop, HA media players | Same on-device playback + server-side provider management |
+| **Home Assistant** | Direct outbound LAN/HTTPS webhooks & REST service calls from the tablet | Full centralized **MQTT Discovery** (live sensors/entities) + webhooks |
+| **Nostr Swocial** | On-device secp256k1/Schnorr signing & relay feed | Synced friends/profiles + server-side relay access |
+| **Backups & Recovery** | Manual JSON/CSV export & restore via embedded `:3000` | **Automated daily rotating SQLite backups** (`VACUUM INTO`, 7-day retention) + 1-tap full restore to a replacement tablet |
+
 ---
 
 ## AI Addons for MCP & Voice

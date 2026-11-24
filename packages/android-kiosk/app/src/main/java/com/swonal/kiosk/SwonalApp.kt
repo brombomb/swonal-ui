@@ -112,13 +112,15 @@ class SwonalApp : Application(), ImageLoaderFactory {
             mediaAssetOpener = { name -> runCatching { assets.open("media/$name") }.getOrNull() }
         )
 
+        val preferredPort = SwonalPreferences.DEFAULT_EMBEDDED_PORT
         val primary = runCatching {
-            createServer(3000).also { it.startServer() }
+            createServer(preferredPort).also { it.startServer() }
         }.getOrElse {
             runCatching { createServer(0).also { it.startServer() } }.getOrNull()
         }
         if (primary != null) {
             embeddedServer = primary
+            prefs.embeddedPort = primary.listeningPort
             repository.attachEmbeddedServer(
                 primary.listeningPort,
                 com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
