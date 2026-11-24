@@ -49,6 +49,7 @@ data class KioskUiState(
     val pendingSyncCount: Int = 0,
     val lastSyncedAtMs: Long? = null,
     val syncError: String? = null,
+    val localWebServerUrl: String = SwonalPreferences.DEFAULT_SERVER_URL,
     val serverUrl: String = SwonalPreferences.DEFAULT_SERVER_URL,
     val localDaemonUrl: String = SwonalPreferences.DEFAULT_DAEMON_URL,
     val wsConnected: Boolean = false,
@@ -181,6 +182,24 @@ class SwonalRepository(
     var syncPokeListener: (() -> Unit)? = null
 
     @Volatile
+    var syncNowHandler: (suspend () -> Result<Unit>)? = null
+
+    @Volatile
+    var restoreFromServerHandler: (suspend () -> Result<Unit>)? = null
+
+    suspend fun triggerSyncNow(): Result<Unit> {
+        val handler = syncNowHandler
+            ?: return Result.failure(IllegalStateException("Server sync is only active in Home/Cloud Server Sync mode"))
+        return handler()
+    }
+
+    suspend fun restoreFromSyncServer(): Result<Unit> {
+        val handler = restoreFromServerHandler
+            ?: return Result.failure(IllegalStateException("Configure Home/Cloud Server Sync URL first"))
+        return handler()
+    }
+
+    @Volatile
     var sessionCompletedListener: ((WorkoutSession) -> Unit)? = null
 
     @Volatile
@@ -294,6 +313,50 @@ class SwonalRepository(
     val localLanMusic: LocalLanMusicProviders = LocalLanMusicProviders(localDb, secretCipher, localHaClient, tlsConfig)
 
     fun buildSpeakerPairingUrl(userId: String): String = localSpotify.buildSpeakerPkceUrl(userId)
+
+    @Volatile
+    var embeddedServerPort: Int = 3000
+        private set
+
+    fun latestTelemetryFrame(): TelemetryFrame = _telemetryFlow.value
+
+    fun attachEmbeddedServer(port: Int, lanIps: List<String>) {
+        embeddedServerPort = port
+        val localUrl = "http://127.0.0.1:$port"
+        _uiStateFlow.update { cur ->
+            val primary = lanIps.firstOrNull()
+            val curPublicOverride = cur.networkInfo?.publicUrlOverride
+            val effectivePublic = curPublicOverride?.takeIf { it.isNotBlank() } ?: cur.networkInfo?.publicUrl
+            cur.copy(
+                localWebServerUrl = localUrl,
+                networkInfo = NetworkInfo(
+                    primaryIp = primary,
+                    ips = lanIps,
+                    port = port,
+                    publicUrl = effectivePublic,
+                    publicUrlOverride = curPublicOverride,
+                    companionBaseUrl = effectivePublic?.trimEnd('/') ?: primary?.let { "http://$it:$port" }
+                )
+            )
+        }
+    }
+
+    suspend fun getEffectiveNetworkInfo(): NetworkInfo {
+        val ips = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+        val publicOverride = runCatching { localDb.getSetting("public_url_override") }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+        val primary = ips.firstOrNull()
+        val port = embeddedServerPort
+        val info = NetworkInfo(
+            primaryIp = primary,
+            ips = ips,
+            port = port,
+            publicUrl = publicOverride,
+            publicUrlOverride = publicOverride,
+            companionBaseUrl = publicOverride?.trimEnd('/') ?: primary?.let { "http://$it:$port" }
+        )
+        _uiStateFlow.update { it.copy(networkInfo = info) }
+        return info
+    }
 
     private val _telemetryFlow = MutableStateFlow(TelemetryFrame())
     val telemetryFlow: StateFlow<TelemetryFrame> = _telemetryFlow.asStateFlow()
@@ -743,6 +806,7 @@ class SwonalRepository(
         runCatching { localHaClient.getStatus() }.onSuccess { ha ->
             _uiStateFlow.update { it.copy(haStatus = ha) }
         }
+        runCatching { getEffectiveNetworkInfo() }
 
         val uid = _uiStateFlow.value.activeUser?.id
         if (uid != null) {
@@ -1195,6 +1259,20 @@ class SwonalRepository(
             localDaemon.emergencyDisableWeight()
         }
         sendWs(buildJsonObject { put("type", "disable_weight") })
+    }
+
+    fun setWeightEnabled(enabled: Boolean) {
+        if (!enabled) {
+            disableWeight()
+            return
+        }
+        if (!isUiAliveForWatchdog()) {
+            _effectsFlow.tryEmit(KioskEffect.ShowMessage("Cannot engage motor while Kiosk UI is inactive or locked"))
+            return
+        }
+        if (!isWeightCurrentlyEngaged()) {
+            toggleWeight()
+        }
     }
 
     suspend fun disableWeightAndAwait(): Boolean {

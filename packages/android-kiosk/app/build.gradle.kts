@@ -126,3 +126,26 @@ dependencies {
 configurations.matching { it.name.contains("UnitTest") }.configureEach {
     exclude(group = "androidx.sqlite", module = "sqlite-bundled-android")
 }
+
+val syncWebAssets by tasks.registering {
+    val distClientDir = file("../../server-app/dist/client")
+    val webAssetsDir = file("src/main/assets/web")
+    inputs.dir(distClientDir).optional()
+    outputs.dir(webAssetsDir)
+    doLast {
+        val builtIndex = file("../../server-app/dist/client/index.html")
+        if (builtIndex.exists()) {
+            webAssetsDir.deleteRecursively()
+            distClientDir.copyRecursively(webAssetsDir, overwrite = true)
+        } else if (!file("${webAssetsDir.path}/index.html").exists()) {
+            webAssetsDir.mkdirs()
+            file("${webAssetsDir.path}/index.html").writeText(
+                """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Swonal</title></head><body style="background:#0A0D14;color:#E2E8F0;font-family:sans-serif;padding:24px;"><h2>Swonal Embedded Server</h2><p>Web SPA assets have not been built yet. Run <code>npm run build</code> in <code>packages/server-app</code>.</p></body></html>"""
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn(syncWebAssets)
+}

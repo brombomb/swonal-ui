@@ -24,6 +24,8 @@ class SwonalApp : Application(), ImageLoaderFactory {
         private set
     lateinit var librespotAudioBridge: LibrespotAudioBridge
         private set
+    var embeddedServer: com.swonal.kiosk.server.EmbeddedSwonalServer? = null
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -51,6 +53,7 @@ class SwonalApp : Application(), ImageLoaderFactory {
             localDbPath = localDbFile.absolutePath,
             seedCatalogJson = seedCatalogJson
         )
+        startEmbeddedCompanionServer()
         com.swonal.kiosk.ui.SwonalWebActivity.warmup(this)
 
         // Synchronize STREAM_SYSTEM to media volume so system UI doesn't blast deafening clicks
@@ -97,5 +100,29 @@ class SwonalApp : Application(), ImageLoaderFactory {
             }
             .crossfade(150)
             .build()
+    }
+
+    private fun startEmbeddedCompanionServer() {
+        val mediaDir = java.io.File(filesDir, "media").apply { mkdirs() }
+        fun createServer(port: Int) = com.swonal.kiosk.server.EmbeddedSwonalServer(
+            repo = repository,
+            port = port,
+            mediaDir = mediaDir,
+            webAssetOpener = { relPath -> runCatching { assets.open("web/$relPath") }.getOrNull() },
+            mediaAssetOpener = { name -> runCatching { assets.open("media/$name") }.getOrNull() }
+        )
+
+        val primary = runCatching {
+            createServer(3000).also { it.startServer() }
+        }.getOrElse {
+            runCatching { createServer(0).also { it.startServer() } }.getOrNull()
+        }
+        if (primary != null) {
+            embeddedServer = primary
+            repository.attachEmbeddedServer(
+                primary.listeningPort,
+                com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+            )
+        }
     }
 }

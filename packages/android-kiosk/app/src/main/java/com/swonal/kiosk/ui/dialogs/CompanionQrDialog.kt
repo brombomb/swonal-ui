@@ -119,7 +119,11 @@ class CompanionQrDialog : BaseSwonalDialog() {
         root.addView(urlLabel)
 
         root.addView(makeAccentButton("Open /companion Directly") {
-            openSafeHttpUrl(selectedUrl)
+            if (selectedUrl.isBlank()) {
+                Toast.makeText(requireContext(), "Connect Tonal to Wi-Fi to access Phone Companion", Toast.LENGTH_SHORT).show()
+            } else {
+                openSafeHttpUrl(selectedUrl)
+            }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -127,22 +131,34 @@ class CompanionQrDialog : BaseSwonalDialog() {
             ).apply { topMargin = dp(10) }
         })
 
+        val discoveredIps = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+        val effectiveIps = discoveredIps.ifEmpty { ui.networkInfo?.ips.orEmpty() }
+        val effectivePort = repo.embeddedServerPort.takeIf { it > 0 } ?: (ui.networkInfo?.port ?: 3000)
         val candidates = buildCandidateUrls(
-            serverUrl = ui.serverUrl,
+            syncMode = ui.syncMode,
+            syncServerUrl = ui.syncServerUrl,
             publicUrl = ui.networkInfo?.publicUrl,
-            ips = ui.networkInfo?.ips.orEmpty(),
-            port = ui.networkInfo?.port ?: 3000,
+            ips = effectiveIps,
+            port = effectivePort,
             activeSessionId = ui.sessionState.activeSessionId
         )
-        selectedUrl = candidates.firstOrNull()?.second ?: "${ui.serverUrl}/companion"
+        selectedUrl = candidates.firstOrNull()?.second.orEmpty()
         renderCandidates(candidates)
-        updateQr(selectedUrl)
+        if (selectedUrl.isNotBlank()) {
+            qrImage.alpha = 1f
+            updateQr(selectedUrl)
+        } else {
+            qrImage.alpha = 0.2f
+            qrImage.setImageDrawable(null)
+            urlLabel.text = "Connect Tonal to Wi-Fi for Phone Companion"
+        }
 
         return root
     }
 
     private fun buildCandidateUrls(
-        serverUrl: String,
+        syncMode: com.swonal.kiosk.net.SyncMode,
+        syncServerUrl: String,
         publicUrl: String?,
         ips: List<String>,
         port: Int,
@@ -157,11 +173,11 @@ class CompanionQrDialog : BaseSwonalDialog() {
         if (!publicUrl.isNullOrBlank()) {
             list += "Public URL" to "${publicUrl.trimEnd('/')}$suffix"
         }
-        ips.forEach { ip ->
+        ips.filter { it != "127.0.0.1" && it != "localhost" }.forEach { ip ->
             list += "LAN $ip" to "http://$ip:$port$suffix"
         }
-        if (list.isEmpty()) {
-            list += "Server" to "${serverUrl.trimEnd('/')}$suffix"
+        if (syncMode == com.swonal.kiosk.net.SyncMode.SERVER_SYNC && syncServerUrl.isNotBlank()) {
+            list += "Home Server" to "${syncServerUrl.trimEnd('/')}$suffix"
         }
         return list.distinctBy { it.second }
     }

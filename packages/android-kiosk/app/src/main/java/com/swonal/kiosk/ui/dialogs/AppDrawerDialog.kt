@@ -33,7 +33,7 @@ class AppDrawerDialog : BaseSwonalDialog() {
         val ui = repo.uiStateFlow.value
         val p = palette
         val d = resources.displayMetrics.density
-        val serverUrl = ui.serverUrl.trimEnd('/')
+        val localWebUrl = ui.localWebServerUrl.trimEnd('/')
 
         val root = createCardRoot(20)
         root.addView(createDialogHeader("Menu"))
@@ -48,11 +48,11 @@ class AppDrawerDialog : BaseSwonalDialog() {
             return root
         }
 
-        // Primary Swonal Views (open seamlessly in-app)
+        // Primary Swonal Views (open seamlessly in-app from embedded :3000 server)
         val sections = listOf(
-            Triple("History & PRs", "Workout log, volume trends, and personal records", "$serverUrl/history"),
-            Triple("Application Settings", "Preferences, AI Coach configuration, Spotify & security", "$serverUrl/settings"),
-            Triple("Admin & Exercises", "Exercise catalog, media loops, and hardware calibration", "$serverUrl/admin")
+            Triple("History & PRs", "Workout log, volume trends, and personal records", "$localWebUrl/history"),
+            Triple("Application Settings", "Preferences, AI Coach configuration, Spotify & security", "$localWebUrl/settings"),
+            Triple("Admin & Exercises", "Exercise catalog, media loops, and hardware calibration", "$localWebUrl/admin")
         )
         sections.forEach { (title, subtitle, url) ->
             root.addView(makeMenuCard(title, subtitle, d) {
@@ -60,6 +60,22 @@ class AppDrawerDialog : BaseSwonalDialog() {
                 openSafeHttpUrl(url, title)
             })
         }
+
+        root.addView(makeMenuCard(
+            "Standalone & Home Server Sync",
+            if (ui.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) {
+                "Running 100% locally on Tonal — optionally pair a Home Server"
+            } else {
+                "Synced with Home Server (${ui.pendingSyncCount} pending)"
+            },
+            d
+        ) {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("server_sync") == null) {
+                ServerSyncSettingsDialog().show(fm, "server_sync")
+            }
+        })
 
         root.addView(makeDivider())
 
