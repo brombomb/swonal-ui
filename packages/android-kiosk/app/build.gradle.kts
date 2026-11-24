@@ -130,7 +130,7 @@ configurations.matching { it.name.contains("UnitTest") }.configureEach {
 val syncWebAssets by tasks.registering {
     val distClientDir = file("../../server-app/dist/client")
     val webAssetsDir = file("src/main/assets/web")
-    inputs.dir(distClientDir).optional()
+    inputs.files(fileTree(distClientDir))
     outputs.dir(webAssetsDir)
     doLast {
         val builtIndex = file("../../server-app/dist/client/index.html")

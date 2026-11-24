@@ -135,8 +135,6 @@ class CompanionQrDialog : BaseSwonalDialog() {
         val effectiveIps = discoveredIps.ifEmpty { ui.networkInfo?.ips.orEmpty() }
         val effectivePort = repo.embeddedServerPort.takeIf { it > 0 } ?: (ui.networkInfo?.port ?: 3000)
         val candidates = buildCandidateUrls(
-            syncMode = ui.syncMode,
-            syncServerUrl = ui.syncServerUrl,
             publicUrl = ui.networkInfo?.publicUrl,
             ips = effectiveIps,
             port = effectivePort,
@@ -157,8 +155,6 @@ class CompanionQrDialog : BaseSwonalDialog() {
     }
 
     private fun buildCandidateUrls(
-        syncMode: com.swonal.kiosk.net.SyncMode,
-        syncServerUrl: String,
         publicUrl: String?,
         ips: List<String>,
         port: Int,
@@ -175,9 +171,6 @@ class CompanionQrDialog : BaseSwonalDialog() {
         }
         ips.filter { it != "127.0.0.1" && it != "localhost" }.forEach { ip ->
             list += "LAN $ip" to "http://$ip:$port$suffix"
-        }
-        if (syncMode == com.swonal.kiosk.net.SyncMode.SERVER_SYNC && syncServerUrl.isNotBlank()) {
-            list += "Home Server" to "${syncServerUrl.trimEnd('/')}$suffix"
         }
         return list.distinctBy { it.second }
     }
