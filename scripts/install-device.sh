@@ -110,6 +110,12 @@ if [[ -n "${SERVER_URL}" && ! "${SERVER_URL}" =~ ^https?://[A-Za-z0-9._:/?=\&%-]
   exit 1
 fi
 
+if [[ "${USE_BROMITE}" -eq 1 && -z "${SERVER_URL}" ]]; then
+  echo "Error: --bromite browser-only mode requires --server-url http://<SERVER_IP>:3000 (Bromite does not host the embedded :3000 server)." >&2
+  echo "       For standalone mode, omit --bromite and install the Swonal Native Kiosk APK." >&2
+  exit 1
+fi
+
 if ! command -v adb >/dev/null 2>&1; then
   echo "Error: 'adb' is not installed or not in PATH. Install Android platform-tools first." >&2
   exit 1
@@ -211,6 +217,12 @@ if [[ -z "${KIOSK_APK}" ]]; then
       break
     fi
   done
+fi
+
+if [[ "${USE_BROMITE}" -eq 0 && -z "${KIOSK_APK}" && -z "${SERVER_URL}" ]]; then
+  echo "Error: Standalone mode requires the Swonal Native Kiosk APK (embedded :3000 server), but no APK was found." >&2
+  echo "       Build packages/android-kiosk (:app:assembleRelease), pass --kiosk-apk <path>, or pass --bromite --server-url http://<SERVER_IP>:3000." >&2
+  exit 1
 fi
 
 INSTALL_FLAGS=(-r)
@@ -515,8 +527,9 @@ if [[ "${USE_BROMITE}" -eq 0 && -n "${KIOSK_APK}" ]]; then
     echo "  [note] Release builds ignore ADB --es extras for launch security; if not debug, pair under Menu -> Standalone & Home Server Sync."
   else
     echo "==> Step 4/4: Launching Swonal Native Kiosk (Standalone Offline-First Mode)..."
-    "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity" || \
+    "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity --es sync_mode standalone" || \
       echo "  [info] Launch Swonal Kiosk manually from the Android launcher"
+    echo "  [note] Release builds ignore ADB --es extras; if switching an already-paired tablet to Standalone, select Standalone under Menu -> Standalone & Home Server Sync."
   fi
 else
   TARGET_WEB_URL="${SERVER_URL:-http://127.0.0.1:3000}"

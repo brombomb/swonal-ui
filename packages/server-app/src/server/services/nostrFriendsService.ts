@@ -570,7 +570,7 @@ export async function publishReaction(
 
 export async function syncFeed(userId: string): Promise<{ syncedCount: number }> {
   const friends = await prisma.friend.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
   });
   const user = await prisma.user.findFirst({
     where: { id: userId, deletedAt: null },
@@ -674,7 +674,7 @@ export async function syncFeed(userId: string): Promise<{ syncedCount: number }>
 
 export async function getFeed(userId: string, limit = 50): Promise<FeedItem[]> {
   const friends = await prisma.friend.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
   });
   const user = await prisma.user.findFirst({
     where: { id: userId, deletedAt: null },

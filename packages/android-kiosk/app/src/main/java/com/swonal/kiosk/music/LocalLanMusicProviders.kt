@@ -55,6 +55,9 @@ class LocalLanMusicProviders(
         connectTimeout(3, TimeUnit.SECONDS)
         readTimeout(5, TimeUnit.SECONDS)
         writeTimeout(3, TimeUnit.SECONDS)
+        dns(UrlSecurity.createSafeDns(allowLoopback = false))
+        followRedirects(false)
+        followSslRedirects(false)
         if (tlsConfig != null) {
             sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager)
         }
@@ -124,9 +127,13 @@ class LocalLanMusicProviders(
                     else -> ""
                 }
                 if (path.isNotBlank()) {
+                    val plexToken = cfg.plexTokenEnc?.takeIf { it.isNotBlank() }?.let { cipher.decrypt(it) }
                     runCatching {
-                        val req = Request.Builder().url("${cfg.plexampUrl.removeSuffix("/")}$path").get().build()
-                        client.newCall(req).execute().close()
+                        val reqBuilder = Request.Builder().url("${cfg.plexampUrl.removeSuffix("/")}$path").get()
+                        if (!plexToken.isNullOrBlank()) {
+                            reqBuilder.header("X-Plex-Token", plexToken)
+                        }
+                        client.newCall(reqBuilder.build()).execute().close()
                     }
                 }
                 MusicPlaybackState(isPlaying = action != "pause", isConnected = true)

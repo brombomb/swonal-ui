@@ -1,16 +1,18 @@
 package com.swonal.kiosk.util
 
+import okhttp3.Dns
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.URL
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Android 6.0 (API 23) + Host JVM compatible utilities.
@@ -160,11 +162,36 @@ object CryptoCompat {
         )
     }
 
-    private fun derivePbkdf2(passcode: String, salt: String): String {
-        val spec = PBEKeySpec(passcode.toCharArray(), salt.toByteArray(Charsets.UTF_8), 65_536, 256)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val bytes = factory.generateSecret(spec).encoded
-        return bytes.joinToString("") { "%02x".format(it) }
+    /**
+     * Pure RFC 2898 PBKDF2-HMAC-SHA256 using javax.crypto.Mac("HmacSHA256") which is available
+     * since Android API 1 (unlike SecretKeyFactory("PBKDF2WithHmacSHA256") which requires API 26+).
+     * Produces identical byte-for-byte output to PBKDF2WithHmacSHA256 (65,536 iterations, 256-bit key).
+     */
+    internal fun derivePbkdf2(passcode: String, salt: String, iterations: Int = 65_536, dkLenBytes: Int = 32): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(passcode.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        val saltBytes = salt.toByteArray(Charsets.UTF_8)
+        val hLen = mac.macLength
+        val blocks = (dkLenBytes + hLen - 1) / hLen
+        val out = ByteArray(blocks * hLen)
+        val saltPlusIdx = ByteArray(saltBytes.size + 4)
+        System.arraycopy(saltBytes, 0, saltPlusIdx, 0, saltBytes.size)
+        for (blockIdx in 1..blocks) {
+            saltPlusIdx[saltBytes.size] = (blockIdx ushr 24).toByte()
+            saltPlusIdx[saltBytes.size + 1] = (blockIdx ushr 16).toByte()
+            saltPlusIdx[saltBytes.size + 2] = (blockIdx ushr 8).toByte()
+            saltPlusIdx[saltBytes.size + 3] = blockIdx.toByte()
+            var u = mac.doFinal(saltPlusIdx)
+            val t = u.copyOf()
+            for (i in 1 until iterations) {
+                u = mac.doFinal(u)
+                for (j in t.indices) {
+                    t[j] = (t[j].toInt() xor u[j].toInt()).toByte()
+                }
+            }
+            System.arraycopy(t, 0, out, (blockIdx - 1) * hLen, hLen)
+        }
+        return out.copyOf(dkLenBytes).joinToString("") { "%02x".format(it) }
     }
 }
 
@@ -221,6 +248,39 @@ object UrlSecurity {
                 InetAddress.getByName(host)
             } else null
         }.getOrNull()
-        return addr != null && (addr.isLoopbackAddress || (addr is Inet4Address && (addr.address.firstOrNull()?.toInt()?.and(0xFF) == 127)))
+        return addr != null && isLoopbackAddress(addr)
+    }
+
+    fun isLoopbackAddress(addr: InetAddress): Boolean {
+        if (addr.isLoopbackAddress) return true
+        if (addr is Inet4Address && (addr.address.firstOrNull()?.toInt()?.and(0xFF) == 127)) return true
+        return false
+    }
+
+    fun isBlockedResolvedAddress(addr: InetAddress, allowLoopback: Boolean): Boolean {
+        if (addr.isAnyLocalAddress || addr.isLinkLocalAddress || addr.isMulticastAddress) return true
+        if (addr is Inet4Address) {
+            val b0 = addr.address[0].toInt() and 0xFF
+            val b1 = addr.address[1].toInt() and 0xFF
+            if (b0 == 0 || (b0 == 169 && b1 == 254)) return true
+        }
+        if (!allowLoopback && isLoopbackAddress(addr)) return true
+        return false
+    }
+
+    /**
+     * OkHttp Dns wrapper that enforces SSRF IP restrictions on the actual resolved DNS records
+     * used by the socket connection (preventing DNS-rebinding bypasses of hostname-only checks).
+     */
+    fun createSafeDns(allowLoopback: Boolean = false, delegate: Dns = Dns.SYSTEM): Dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val resolved = delegate.lookup(hostname)
+            if (resolved.isEmpty()) throw UnknownHostException("No addresses resolved for $hostname")
+            val blocked = resolved.firstOrNull { isBlockedResolvedAddress(it, allowLoopback) }
+            if (blocked != null) {
+                throw UnknownHostException("Blocked SSRF target address ${blocked.hostAddress} for host $hostname")
+            }
+            return resolved
+        }
     }
 }

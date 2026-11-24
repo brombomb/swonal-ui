@@ -8,6 +8,19 @@ const MAX_BACKUPS = 7;
 export function getDefaultBackupDir(): string {
   const custom = process.env.SWONAL_BACKUP_DIR?.trim();
   if (custom) return path.resolve(custom);
+  const dbUrl = process.env.DATABASE_URL?.trim();
+  if (dbUrl?.startsWith('file:')) {
+    const rawPath = dbUrl.slice('file:'.length).split('?')[0];
+    if (rawPath && rawPath !== ':memory:') {
+      const resolvedDb = path.isAbsolute(rawPath)
+        ? rawPath
+        : path.resolve(process.cwd(), 'prisma', rawPath);
+      return path.join(path.dirname(resolvedDb), 'backups');
+    }
+  }
+  if (fs.existsSync('/data')) {
+    return '/data/backups';
+  }
   return path.resolve(__dirname, '../../../prisma/data/backups');
 }
 

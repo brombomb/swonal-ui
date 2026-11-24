@@ -78,10 +78,17 @@ class LocalAiCoachEngine(
         readTimeout(10, TimeUnit.SECONDS)
         writeTimeout(10, TimeUnit.SECONDS)
         callTimeout(11, TimeUnit.SECONDS)
+        dns(UrlSecurity.createSafeDns(allowLoopback = false))
+        followRedirects(false)
+        followSslRedirects(false)
         if (tlsConfig != null) {
             sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager)
         }
     }.build()
+
+    private val ollamaClient: OkHttpClient = httpClientOverride ?: client.newBuilder()
+        .dns(UrlSecurity.createSafeDns(allowLoopback = true))
+        .build()
 
     private suspend fun loadStored(): StoredAiCoachConfig {
         val raw = db.getSetting(SETTING_AI_COACH) ?: return StoredAiCoachConfig()
@@ -439,7 +446,7 @@ class LocalAiCoachEngine(
                         .url(url)
                         .post(SwonalJson.encodeToString(body).toRequestBody(jsonMediaType))
                         .build()
-                    client.newCall(req).execute().use { resp ->
+                    ollamaClient.newCall(req).execute().use { resp ->
                         val raw = resp.body?.string().orEmpty()
                         if (!resp.isSuccessful) return@use null to "Ollama HTTP ${resp.code}: ${raw.take(160)}"
                         val el = SwonalJson.parseToJsonElement(raw).jsonObject

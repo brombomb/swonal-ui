@@ -259,7 +259,7 @@ class AiCoachService {
       const rawNum = parseSpokenNumber(addMatch[1]);
       if (rawNum !== null) {
         const spokenUnit = resolveUnit(addMatch[2]);
-        const deltaLb = Math.max(0.5, Math.min(20, toCanonicalLb(rawNum, spokenUnit, true)));
+        const deltaLb = Math.max(0.5, Math.min(20, toCanonicalLb(rawNum, spokenUnit, false)));
         return {
           type: 'set_weight_delta',
           deltaLb,
@@ -277,7 +277,7 @@ class AiCoachService {
       const rawNum = parseSpokenNumber(dropMatch[1]);
       if (rawNum !== null) {
         const spokenUnit = resolveUnit(dropMatch[2]);
-        const deltaLb = -Math.max(0.5, Math.min(20, toCanonicalLb(rawNum, spokenUnit, true)));
+        const deltaLb = -Math.max(0.5, Math.min(20, toCanonicalLb(rawNum, spokenUnit, false)));
         return {
           type: 'set_weight_delta',
           deltaLb,

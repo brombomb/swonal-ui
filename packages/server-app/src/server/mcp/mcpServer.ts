@@ -280,32 +280,45 @@ export async function updateCustomWorkoutTemplate(params: {
   });
 }
 
+let queueMutationChain: Promise<void> = Promise.resolve();
+
+function withQueuedWorkoutLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queueMutationChain.then(fn, fn);
+  queueMutationChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export async function queueWorkoutForSession(params: {
   userId: string;
   templateId: string;
 }): Promise<QueuedWorkoutPayload> {
-  const template = await prisma.workoutTemplate.findFirst({
-    where: { id: params.templateId, deletedAt: null },
-  });
-  if (!template) {
-    throw new Error(`Workout template not found: ${params.templateId}`);
-  }
+  return withQueuedWorkoutLock(async () => {
+    const template = await prisma.workoutTemplate.findFirst({
+      where: { id: params.templateId, deletedAt: null },
+    });
+    if (!template) {
+      throw new Error(`Workout template not found: ${params.templateId}`);
+    }
 
-  const payload: QueuedWorkoutPayload = {
-    userId: params.userId,
-    templateId: template.id,
-    templateName: template.name,
-    description: template.description,
-    blocks: JSON.parse(template.blocksJson),
-    queuedAt: new Date().toISOString(),
-  };
-  await prisma.appSetting.upsert({
-    where: { key: 'pending_queued_workout' },
-    create: { key: 'pending_queued_workout', value: JSON.stringify(payload) },
-    update: { value: JSON.stringify(payload) },
+    const payload: QueuedWorkoutPayload = {
+      userId: params.userId,
+      templateId: template.id,
+      templateName: template.name,
+      description: template.description,
+      blocks: JSON.parse(template.blocksJson),
+      queuedAt: new Date().toISOString(),
+    };
+    await prisma.appSetting.upsert({
+      where: { key: 'pending_queued_workout' },
+      create: { key: 'pending_queued_workout', value: JSON.stringify(payload) },
+      update: { value: JSON.stringify(payload) },
+    });
+    sessionCoordinator.queueWorkout(payload);
+    return payload;
   });
-  sessionCoordinator.queueWorkout(payload);
-  return payload;
 }
 
 export async function getPendingQueuedWorkout(): Promise<QueuedWorkoutPayload | null> {
@@ -323,15 +336,36 @@ export async function getPendingQueuedWorkout(): Promise<QueuedWorkoutPayload | 
 }
 
 export async function clearPendingQueuedWorkout(expectedQueuedAt?: string): Promise<void> {
-  if (expectedQueuedAt) {
-    const current = await getPendingQueuedWorkout();
-    if (current && current.queuedAt !== expectedQueuedAt) {
-      return;
-    }
-  }
-  sessionCoordinator.clearQueuedWorkout();
-  await prisma.appSetting.deleteMany({
-    where: { key: 'pending_queued_workout' },
+  return withQueuedWorkoutLock(async () => {
+    await prisma.$transaction(async (tx) => {
+      if (expectedQueuedAt) {
+        const row = await tx.appSetting.findUnique({
+          where: { key: 'pending_queued_workout' },
+        });
+        if (row) {
+          let storedQueuedAt: string | undefined;
+          try {
+            storedQueuedAt = (JSON.parse(row.value) as { queuedAt?: string }).queuedAt;
+          } catch {
+            storedQueuedAt = undefined;
+          }
+          if (storedQueuedAt && storedQueuedAt !== expectedQueuedAt) {
+            return;
+          }
+          await tx.appSetting.deleteMany({
+            where: { key: 'pending_queued_workout', value: row.value },
+          });
+        }
+        if (sessionCoordinator.getState().queuedWorkout?.queuedAt === expectedQueuedAt) {
+          sessionCoordinator.clearQueuedWorkout();
+        }
+        return;
+      }
+      await tx.appSetting.deleteMany({
+        where: { key: 'pending_queued_workout' },
+      });
+      sessionCoordinator.clearQueuedWorkout();
+    });
   });
 }
 

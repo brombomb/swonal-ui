@@ -44,6 +44,9 @@ class LocalHomeAssistantClient(
         connectTimeout(4, TimeUnit.SECONDS)
         readTimeout(5, TimeUnit.SECONDS)
         writeTimeout(4, TimeUnit.SECONDS)
+        dns(UrlSecurity.createSafeDns(allowLoopback = false))
+        followRedirects(false)
+        followSslRedirects(false)
         if (tlsConfig != null) {
             sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager)
         }

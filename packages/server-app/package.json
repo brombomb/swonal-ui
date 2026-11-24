@@ -11,7 +11,7 @@
     "build:server": "esbuild src/server/index.ts src/server/mcp/stdio.ts --bundle --platform=node --target=node22 --outdir=dist/server --packages=external",
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "mcp:stdio": "tsx src/server/mcp/stdio.ts"

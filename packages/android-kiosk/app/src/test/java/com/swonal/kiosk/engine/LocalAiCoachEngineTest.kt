@@ -1,8 +1,11 @@
 package com.swonal.kiosk.engine
 
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.util.CryptoCompat
 import com.swonal.kiosk.util.PlaintextTestCipher
+import com.swonal.kiosk.util.UrlSecurity
 import kotlinx.coroutines.runBlocking
+import okhttp3.Dns
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -157,5 +160,31 @@ class LocalAiCoachEngineTest {
         val ollamaCfg = coach.setConfig(provider = "ollama", baseUrl = "http://localhost:11434")
         assertEquals("ollama", ollamaCfg.provider)
         assertEquals("http://localhost:11434", ollamaCfg.baseUrl)
+
+        // API 23 PBKDF2-HMAC-SHA256 matches RFC 7914 / standard test vector (password, salt, c=1, dkLen=32)
+        assertEquals(
+            "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b",
+            CryptoCompat.derivePbkdf2("password", "salt", iterations = 1, dkLenBytes = 32)
+        )
+        val hashed = CryptoCompat.hashPasscode("2468")
+        assertTrue(CryptoCompat.verifyPasscode("2468", hashed))
+
+        // DNS-rebinding SSRF guard rejects loopback and metadata resolved IPs while allowing LAN IPs
+        val loopbackDns = UrlSecurity.createSafeDns(
+            allowLoopback = false,
+            delegate = object : Dns {
+                override fun lookup(hostname: String) = listOf(java.net.InetAddress.getByName("127.0.0.1"))
+            }
+        )
+        assertThrows(java.net.UnknownHostException::class.java) {
+            loopbackDns.lookup("evil-rebind.example")
+        }
+        val lanDns = UrlSecurity.createSafeDns(
+            allowLoopback = false,
+            delegate = object : Dns {
+                override fun lookup(hostname: String) = listOf(java.net.InetAddress.getByName("192.168.1.50"))
+            }
+        )
+        assertEquals("192.168.1.50", lanDns.lookup("homeassistant.local").first().hostAddress)
     }
 }
