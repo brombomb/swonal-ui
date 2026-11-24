@@ -107,9 +107,22 @@ dependencies {
     // Native QR Code generation
     implementation("com.google.zxing:core:3.5.3")
 
-    // Unit Tests (JUnit 5 + MockWebServer)
+    // Bundled Modern SQLite (SQLite 3.46+ for API 23 compatibility & UPSERT/WAL/VACUUM INTO)
+    implementation("androidx.sqlite:sqlite:2.5.1")
+    implementation("androidx.sqlite:sqlite-bundled:2.5.1")
+
+    // Embedded lightweight HTTP & WebSocket server for serverless LAN Companion & local web views
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+
+    // Unit Tests (JUnit 5 + MockWebServer + Host JVM Bundled SQLite)
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("androidx.sqlite:sqlite-bundled-jvm:2.5.1")
+}
+
+configurations.matching { it.name.contains("UnitTest") }.configureEach {
+    exclude(group = "androidx.sqlite", module = "sqlite-bundled-android")
 }

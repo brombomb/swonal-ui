@@ -1,7 +1,11 @@
 package com.swonal.kiosk.net
 
 import com.swonal.kiosk.audio.SwonalSoundEngine
+import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.db.countDirtySyncRows
+import com.swonal.kiosk.engine.LocalWorkoutEngine
 import com.swonal.kiosk.model.*
+import com.swonal.kiosk.util.PlaintextTestCipher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +37,12 @@ import kotlin.math.ceil
 import kotlin.math.round
 
 data class KioskUiState(
+    val syncMode: SyncMode = SyncMode.STANDALONE,
+    val syncServerUrl: String = "",
+    val syncConnected: Boolean = false,
+    val pendingSyncCount: Int = 0,
+    val lastSyncedAtMs: Long? = null,
+    val syncError: String? = null,
     val serverUrl: String = SwonalPreferences.DEFAULT_SERVER_URL,
     val localDaemonUrl: String = SwonalPreferences.DEFAULT_DAEMON_URL,
     val wsConnected: Boolean = false,
@@ -120,11 +130,14 @@ data class KioskUiState(
     val musicConfigured: Boolean
         get() = musicProviders.any { it.configured } || musicState.isConnected
 
+    val isStandaloneMode: Boolean
+        get() = syncMode == SyncMode.STANDALONE
+
     val isUsingLocalFailSafe: Boolean
-        get() = (!wsConnected || !daemonConnected) && localFailSafeConnected
+        get() = syncMode == SyncMode.SERVER_SYNC && (!wsConnected || !daemonConnected) && localFailSafeConnected
 
     val hardwareConnected: Boolean
-        get() = (wsConnected && daemonConnected) || localFailSafeConnected
+        get() = localFailSafeConnected || (wsConnected && daemonConnected)
 }
 
 sealed interface KioskEffect {
@@ -134,13 +147,65 @@ sealed interface KioskEffect {
 }
 
 class SwonalRepository(
-    private val prefs: SwonalPreferences,
+    val prefs: SwonalPreferences,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    tlsConfig: SwonalTlsConfig? = null,
+    val tlsConfig: SwonalTlsConfig? = null,
     apiClientOverride: SwonalApiClient? = null,
-    localDaemonOverride: LocalDaemonFailSafeClient? = null
+    localDaemonOverride: LocalDaemonFailSafeClient? = null,
+    localDbPath: String? = null,
+    private val seedCatalogJson: String? = null
 ) {
     private enum class TelemetrySource { NONE, SERVER, LOCAL }
+
+    val localDb: SwonalDatabase = SwonalDatabase(
+        dbPath = localDbPath ?: ":memory:",
+        cipher = runCatching { prefs.secretCipher }.getOrElse { PlaintextTestCipher }
+    )
+
+    private val _wsBroadcastFlow = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    val wsBroadcastFlow: SharedFlow<String> = _wsBroadcastFlow.asSharedFlow()
+
+    @Volatile
+    var syncPokeListener: (() -> Unit)? = null
+
+    @Volatile
+    var sessionCompletedListener: ((WorkoutSession) -> Unit)? = null
+
+    @Volatile
+    var sessionEventListener: ((String, JsonObject) -> Unit)? = null
+
+    val localEngine: LocalWorkoutEngine = LocalWorkoutEngine(
+        db = localDb,
+        daemonSetWeight = { w, p, m -> setWeight(w, p, m, allowWhileEngaged = false) },
+        daemonResetReps = { resetReps() },
+        onSessionEvent = { evType, payload ->
+            sessionEventListener?.invoke(evType, payload)
+        },
+        onSessionCompletedHook = { completed ->
+            sessionCompletedListener?.invoke(completed)
+            notifyDirtySync()
+        }
+    )
+
+    fun emitLocalBroadcast(type: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}) {
+        val obj = buildJsonObject {
+            put("type", type)
+            extra()
+        }
+        _wsBroadcastFlow.tryEmit(SwonalJson.encodeToString(obj))
+    }
+
+    fun emitRawLocalBroadcast(jsonText: String) {
+        _wsBroadcastFlow.tryEmit(jsonText)
+    }
+
+    fun notifyDirtySync() {
+        scope.launch {
+            val dirty = runCatching { localDb.countDirtySyncRows() }.getOrDefault(0)
+            _uiStateFlow.update { it.copy(pendingSyncCount = dirty) }
+            syncPokeListener?.invoke()
+        }
+    }
 
     private val lastUiHeartbeatMs = AtomicLong(System.currentTimeMillis())
     private val uiActive = AtomicBoolean(true)
@@ -156,6 +221,8 @@ class SwonalRepository(
             lastUiHeartbeatMs.set(System.currentTimeMillis())
         }
     }
+
+    private val hasApiClientOverride = apiClientOverride != null
 
     val api: SwonalApiClient = apiClientOverride ?: SwonalApiClient(
         baseUrlProvider = { prefs.serverUrl },
@@ -191,9 +258,11 @@ class SwonalRepository(
 
     private val _uiStateFlow = MutableStateFlow(
         KioskUiState(
+            syncMode = prefs.syncMode,
+            syncServerUrl = prefs.syncServerUrl,
             serverUrl = prefs.serverUrl,
             localDaemonUrl = prefs.localDaemonUrl,
-            authRequired = prefs.lastKnownAuthEnabled,
+            authRequired = false,
             telemetryDisplayMode = prefs.telemetryDisplayMode,
             soundMuted = prefs.soundMuted,
             developerMode = prefs.developerMode,
@@ -260,9 +329,27 @@ class SwonalRepository(
 
             managedJobs += scope.launch {
                 localDaemon.localTelemetry.collect { frame ->
+                    emitRawLocalBroadcast(
+                        SwonalJson.encodeToString(
+                            buildJsonObject {
+                                put("type", "telemetry")
+                                put("mode", frame.mode)
+                                put("weight_enabled", frame.weightEnabled)
+                                put("target_weight_lb", frame.targetWeightLb)
+                                put("applied_resistance_lb", frame.appliedResistanceLb)
+                                put("profile_mode", frame.profileMode)
+                                put("modifier_pct", frame.modifierPct)
+                                put("rep_count", frame.repCount)
+                                put("accessory", frame.accessory)
+                                put("left_cable", SwonalJson.encodeToJsonElement(CableData.serializer(), frame.leftCable))
+                                put("right_cable", SwonalJson.encodeToJsonElement(CableData.serializer(), frame.rightCable))
+                                put("arm_positions", SwonalJson.encodeToJsonElement(ArmPositions.serializer(), frame.armPositions))
+                            }
+                        )
+                    )
                     val ui = _uiStateFlow.value
                     val serverStalled = (System.currentTimeMillis() - lastServerTelemetryAtMs) > 500L
-                    if (!ui.wsConnected || !ui.daemonConnected || serverStalled) {
+                    if (ui.syncMode == SyncMode.STANDALONE || !ui.wsConnected || !ui.daemonConnected || serverStalled) {
                         handleTelemetryFrame(frame, TelemetrySource.LOCAL)
                     }
                 }
@@ -270,10 +357,45 @@ class SwonalRepository(
 
             managedJobs += scope.launch {
                 localDaemon.localSafety.collect { event ->
-                    val ui = _uiStateFlow.value
-                    if (!ui.wsConnected || !ui.daemonConnected) {
-                        handleSafetyEvent(event)
+                    handleSafetyEvent(event)
+                    emitLocalBroadcast("safety_event") {
+                        put("reason", event.reason)
+                        event.delta?.let { put("delta", it) }
+                        put("timestamp", event.timestamp)
                     }
+                }
+            }
+
+            managedJobs += scope.launch {
+                localDaemon.localHandleEvents.collect { ev ->
+                    emitLocalBroadcast("handle_event") {
+                        put("action", ev.action)
+                        put("source", ev.source)
+                    }
+                    when (ev.action) {
+                        "spotify_next" -> refreshMusicNow()
+                        "emergency_stop" -> disableWeight()
+                    }
+                }
+            }
+
+            managedJobs += scope.launch {
+                localDaemon.localErrors.collect { errMsg ->
+                    _effectsFlow.tryEmit(KioskEffect.ShowMessage(errMsg))
+                }
+            }
+
+            managedJobs += scope.launch {
+                localEngine.sessionStateFlow.collect { sState ->
+                    _uiStateFlow.update { it.copy(sessionState = sState) }
+                    emitRawLocalBroadcast(
+                        SwonalJson.encodeToString(
+                            buildJsonObject {
+                                put("type", "session_state")
+                                put("state", SwonalJson.encodeToJsonElement(SharedSessionState.serializer(), sState))
+                            }
+                        )
+                    )
                 }
             }
         }
@@ -302,26 +424,33 @@ class SwonalRepository(
         serverWs?.close(1000, "App stopping")
         serverWs = null
         localDaemon.stop()
+        localDb.close()
     }
 
-    fun updateConnectionEndpoints(
-        newServerUrl: String,
+    @Volatile
+    private var localDbInitialized = false
+
+    fun updateSyncConfiguration(
+        newSyncMode: SyncMode,
+        newSyncServerUrl: String,
         newLocalDaemonUrl: String,
         newApiToken: String? = null,
         clearToken: Boolean = false
     ) {
-        val oldServerUrl = prefs.serverUrl
-        val normalizedServer = SwonalPreferences.normalizeBaseUrl(newServerUrl, SwonalPreferences.DEFAULT_SERVER_URL)
-        val originChanged = !SwonalPreferences.sameOrigin(oldServerUrl, normalizedServer)
+        val oldSyncUrl = prefs.syncServerUrl
+        val normalizedSync = newSyncServerUrl.trim().let {
+            if (it.isEmpty()) "" else SwonalPreferences.normalizeBaseUrl(it, "")
+        }
+        val originChanged = !SwonalPreferences.sameOrigin(oldSyncUrl, normalizedSync)
 
         if (originChanged) {
-            // Never leak old server's credentials or session cookie to a different origin
             prefs.clearCredentials()
             api.clearCookies()
             prefs.lastKnownAuthEnabled = false
         }
 
-        prefs.serverUrl = normalizedServer
+        prefs.syncMode = newSyncMode
+        prefs.syncServerUrl = normalizedSync
         prefs.localDaemonUrl = SwonalPreferences.normalizeLoopbackDaemonUrl(newLocalDaemonUrl)
 
         if (clearToken) {
@@ -332,69 +461,119 @@ class SwonalRepository(
 
         _uiStateFlow.update {
             it.copy(
+                syncMode = prefs.syncMode,
+                syncServerUrl = prefs.syncServerUrl,
                 serverUrl = prefs.serverUrl,
                 localDaemonUrl = prefs.localDaemonUrl,
                 wsConnected = false,
-                authRequired = if (originChanged) false else it.authRequired,
-                authError = null
+                syncConnected = false,
+                authRequired = false,
+                authError = null,
+                syncError = null
             )
         }
         serverWs?.cancel()
         serverWs = null
+        wsReconnectJob?.cancel()
         localDaemon.reconnectNow()
         scope.launch { bootstrapAndConnect() }
     }
 
+    fun updateConnectionEndpoints(
+        newServerUrl: String,
+        newLocalDaemonUrl: String,
+        newApiToken: String? = null,
+        clearToken: Boolean = false
+    ) {
+        val trimmed = newServerUrl.trim()
+        val parsed = runCatching {
+            SwonalPreferences.normalizeBaseUrl(trimmed, "")
+        }.getOrDefault("")
+        val useServerSync = parsed.isNotBlank() && !SwonalPreferences.isLoopbackHost(
+            parsed.removePrefix("http://").removePrefix("https://").substringBefore("/").substringBefore(":")
+        )
+        updateSyncConfiguration(
+            newSyncMode = if (useServerSync) SyncMode.SERVER_SYNC else SyncMode.STANDALONE,
+            newSyncServerUrl = if (useServerSync) parsed else "",
+            newLocalDaemonUrl = newLocalDaemonUrl,
+            newApiToken = newApiToken,
+            clearToken = clearToken
+        )
+    }
+
+    private suspend fun ensureLocalDatabaseReady() {
+        if (localDbInitialized) return
+        val seedJson = seedCatalogJson ?: "{}"
+        localEngine.initialize(seedJson, includeDemoUsersAndRoutines = true)
+        localDbInitialized = true
+    }
+
     suspend fun bootstrapAndConnect() {
         _uiStateFlow.update { it.copy(authChecking = true) }
-        val authStatus = runCatching {
-            api.getAuthStatus()
-        }.onFailure { err ->
-            android.util.Log.e("SwonalRepo", "bootstrap getAuthStatus failed on ${prefs.serverUrl}: ${err.javaClass.name}: ${err.message}", err)
-        }.getOrNull()
 
-        if (authStatus == null) {
-            // Fail CLOSED if authentication was previously enabled on this server
-            val stayLocked = prefs.lastKnownAuthEnabled
-            _uiStateFlow.update {
-                it.copy(
-                    authChecking = false,
-                    authRequired = stayLocked,
-                    authError = if (stayLocked) "Server unreachable — connecting..." else null
-                )
-            }
-            if (!stayLocked) {
-                startServerWsLoop()
-            }
-            // Auto-retry bootstrap in background so app syncs when Wi-Fi/server finishes booting
-            scope.launch {
-                delay(3000L)
-                if (started.get() && (_uiStateFlow.value.authRequired || _uiStateFlow.value.users.isEmpty())) {
-                    bootstrapAndConnect()
-                }
-            }
-            return
-        }
-
-        prefs.lastKnownAuthEnabled = authStatus.enabled
-        if (authStatus.enabled && !authStatus.authenticated) {
-            _uiStateFlow.update {
-                it.copy(authChecking = false, authRequired = true, authError = null)
-            }
-            return
-        }
-
-        _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
+        // 1. Initialize & hydrate from local on-device SQLite immediately (<30ms, works 100% offline)
+        runCatching { ensureLocalDatabaseReady() }
+        val localAuth = runCatching {
+            localEngine.getAuthStatus(isLoopbackClient = true, isSessionAuthenticated = false)
+        }.getOrDefault(AuthStatus(enabled = false, authenticated = true))
 
         refreshAppState()
         refreshDaemonHealth()
+
+        if (localAuth.enabled && !localAuth.authenticated) {
+            _uiStateFlow.update { it.copy(authChecking = false, authRequired = true, authError = null) }
+            return
+        }
+
+        _uiStateFlow.update {
+            it.copy(
+                authChecking = false,
+                authRequired = false,
+                authError = null,
+                syncMode = prefs.syncMode,
+                syncServerUrl = prefs.syncServerUrl,
+                serverUrl = prefs.serverUrl
+            )
+        }
+
         refreshAuxiliaryState()
-        startServerWsLoop()
+
+        // 2. If user opted into Home / Cloud Server Sync and configured an external URL,
+        // connect background sync & optional server WS without ever blocking offline lifting.
+        val externalSyncConfigured = prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()
+        if (externalSyncConfigured) {
+            syncPokeListener?.invoke()
+            if (hasApiClientOverride) {
+                startServerWsLoop()
+            }
+        }
     }
 
     fun submitPasscode(passcode: String) {
         scope.launch {
             _uiStateFlow.update { it.copy(authChecking = true, authError = null) }
+            val localAuth = localEngine.getAuthStatus(isLoopbackClient = false, isSessionAuthenticated = false)
+            if (localAuth.enabled) {
+                localEngine.verifyPasscode(passcode, "kiosk")
+                    .onSuccess { ok ->
+                        if (ok) {
+                            _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
+                            refreshAppState()
+                        } else {
+                            _uiStateFlow.update {
+                                it.copy(authChecking = false, authRequired = true, authError = "Invalid passcode")
+                            }
+                        }
+                    }
+                    .onFailure { err ->
+                        _uiStateFlow.update {
+                            it.copy(authChecking = false, authRequired = true, authError = err.message ?: "Too many attempts")
+                        }
+                    }
+                return@launch
+            }
+
+            // Fallback to remote server auth if synced server requested passcode unlock
             runCatching { api.login(passcode) }
                 .onSuccess {
                     _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
@@ -413,61 +592,64 @@ class SwonalRepository(
     }
 
     suspend fun refreshAppState() {
-        runCatching { api.getState() }
-            .onSuccess { state ->
-                val current = _uiStateFlow.value
-                val nextExId = current.activeExerciseId
-                    ?: state.sessionState.activeExerciseId
-                    ?: state.exercises.firstOrNull()?.id
-                _uiStateFlow.update {
-                    it.copy(
-                        daemonConnected = state.daemonConnected,
-                        users = state.users,
-                        exercises = state.exercises,
-                        templates = state.templates,
-                        sessionState = state.sessionState,
-                        activeExerciseId = nextExId,
-                        authRequired = false
-                    )
+        runCatching {
+            ensureLocalDatabaseReady()
+            val daemonOk = localDaemon.connected.value || _uiStateFlow.value.daemonConnected
+            val state = localEngine.getAppState(daemonConnected = daemonOk)
+            val current = _uiStateFlow.value
+            val nextExId = current.activeExerciseId
+                ?.takeIf { id -> state.exercises.any { it.id == id } }
+                ?: state.sessionState.activeExerciseId
+                ?: state.exercises.firstOrNull()?.id
+            val dirty = runCatching { localDb.countDirtySyncRows() }.getOrDefault(0)
+            _uiStateFlow.update {
+                it.copy(
+                    daemonConnected = daemonOk,
+                    users = state.users,
+                    exercises = state.exercises,
+                    templates = state.templates,
+                    sessionState = state.sessionState,
+                    activeExerciseId = nextExId,
+                    pendingSyncCount = dirty,
+                    authRequired = false
+                )
+            }
+            val activeUid = _uiStateFlow.value.activeUser?.id
+            if (activeUid != null) {
+                refreshUserScopedData(activeUid)
+            }
+            runCatching {
+                if (state.users.isNotEmpty()) {
+                    prefs.cachedUsersJson = SwonalJson.encodeToString(state.users)
                 }
-                val activeUid = _uiStateFlow.value.activeUser?.id
-                if (activeUid != null) {
-                    refreshUserScopedData(activeUid)
-                }
-                runCatching {
-                    if (state.users.isNotEmpty()) {
-                        prefs.cachedUsersJson = SwonalJson.encodeToString(state.users)
-                    }
-                    if (state.exercises.isNotEmpty()) {
-                        prefs.cachedExercisesJson = SwonalJson.encodeToString(state.exercises)
-                    }
+                if (state.exercises.isNotEmpty()) {
+                    prefs.cachedExercisesJson = SwonalJson.encodeToString(state.exercises)
                 }
             }
-            .onFailure { err ->
-                if (err is ApiHttpException && err.statusCode == 401) {
-                    prefs.lastKnownAuthEnabled = true
-                    _uiStateFlow.update { it.copy(authRequired = true) }
-                }
-            }
+        }
     }
 
     private suspend fun refreshDaemonHealth() {
-        val health = runCatching { api.getDaemonHealth() }.getOrNull()
-            ?: localDaemon.fetchDirectHealth()
+        val health = localDaemon.fetchDirectHealth()
+            ?: runCatching {
+                if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) api.getDaemonHealth() else null
+            }.getOrNull()
         if (health != null) {
             _uiStateFlow.update { it.copy(isMockMode = health.mockMode) }
         }
     }
 
     private suspend fun refreshAuxiliaryState() {
-        runCatching { api.getMusicProviders() }.onSuccess { providers ->
-            _uiStateFlow.update { it.copy(musicProviders = providers) }
-        }
-        runCatching { api.getCoachConfig() }.onSuccess { cfg ->
-            _uiStateFlow.update { it.copy(coachConfig = cfg) }
-        }
-        runCatching { api.getNetworkInfo() }.onSuccess { info ->
-            _uiStateFlow.update { it.copy(networkInfo = info) }
+        if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
+            runCatching { api.getMusicProviders() }.onSuccess { providers ->
+                _uiStateFlow.update { it.copy(musicProviders = providers) }
+            }
+            runCatching { api.getCoachConfig() }.onSuccess { cfg ->
+                _uiStateFlow.update { it.copy(coachConfig = cfg) }
+            }
+            runCatching { api.getNetworkInfo() }.onSuccess { info ->
+                _uiStateFlow.update { it.copy(networkInfo = info) }
+            }
         }
         val uid = _uiStateFlow.value.activeUser?.id
         if (uid != null) {
@@ -476,17 +658,17 @@ class SwonalRepository(
     }
 
     private suspend fun refreshUserScopedData(userId: String) {
-        runCatching { api.getPrs(userId) }.onSuccess { prs ->
+        runCatching { localEngine.getPrs(userId) }.onSuccess { prs ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(prs = prs) }
             }
         }
-        runCatching { api.getDemoPip(userId) }.onSuccess { pip ->
+        runCatching { localEngine.getDemoPip(userId) }.onSuccess { enabled ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
-                _uiStateFlow.update { it.copy(showDemoPip = pip.enabled) }
+                _uiStateFlow.update { it.copy(showDemoPip = enabled) }
             }
         }
-        runCatching { api.getSessions(userId) }.onSuccess { sessions ->
+        runCatching { localEngine.listSessions(userId) }.onSuccess { sessions ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(recentSessions = sessions) }
             }
@@ -499,7 +681,7 @@ class SwonalRepository(
     }
 
     private suspend fun refreshOverload(userId: String, exerciseId: String) {
-        runCatching { api.getOverloadSuggestion(userId, exerciseId) }
+        runCatching { localEngine.getOverloadSuggestion(userId, exerciseId) }
             .onSuccess { sug ->
                 if (_uiStateFlow.value.activeUser?.id == userId) {
                     _uiStateFlow.update { it.copy(overloadSuggestion = sug) }
@@ -555,17 +737,24 @@ class SwonalRepository(
     fun refreshDiagnostics() {
         scope.launch {
             refreshDaemonHealth()
-            runCatching { api.getCalibration() }
-                .onSuccess { cal -> _uiStateFlow.update { it.copy(calibrationStatus = cal) } }
-            runCatching { api.getHomeAssistantStatus() }
-                .onSuccess { ha -> _uiStateFlow.update { it.copy(haStatus = ha) } }
-            runCatching { api.getNetworkInfo() }
-                .onSuccess { net -> _uiStateFlow.update { it.copy(networkInfo = net) } }
-            runCatching { api.getCoachConfig() }
-                .onSuccess { cfg -> _uiStateFlow.update { it.copy(coachConfig = cfg) } }
+            val cal = localDaemon.getCalibrationDirect()
+                ?: runCatching {
+                    if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) api.getCalibration() else null
+                }.getOrNull()
+            if (cal != null) {
+                _uiStateFlow.update { it.copy(calibrationStatus = cal) }
+            }
+            if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
+                runCatching { api.getHomeAssistantStatus() }
+                    .onSuccess { ha -> _uiStateFlow.update { it.copy(haStatus = ha) } }
+                runCatching { api.getNetworkInfo() }
+                    .onSuccess { net -> _uiStateFlow.update { it.copy(networkInfo = net) } }
+                runCatching { api.getCoachConfig() }
+                    .onSuccess { cfg -> _uiStateFlow.update { it.copy(coachConfig = cfg) } }
+            }
             val uid = _uiStateFlow.value.activeUser?.id
             if (uid != null) {
-                runCatching { api.getSessions(uid) }
+                runCatching { localEngine.listSessions(uid) }
                     .onSuccess { sessions -> _uiStateFlow.update { it.copy(recentSessions = sessions) } }
             }
         }
@@ -814,7 +1003,7 @@ class SwonalRepository(
                         _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.COUNTDOWN_TICK))
                     } else if (remaining == 0 && prevRestCountdown > 0 && endsAt != null) {
                         _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.COUNTDOWN_FINAL))
-                        // Notify server to clear expired restTimerEndsAt
+                        localEngine.setRestTimer(null)
                         sendWs(buildJsonObject { put("type", "skip_rest_timer") })
                     }
                     prevRestCountdown = remaining
@@ -872,15 +1061,15 @@ class SwonalRepository(
         if (now - prevTap < 350L) return
         lastEnableTapMs.set(now)
 
-        val sent = if (canSendMotorViaServer()) {
-            sendWs(buildJsonObject { put("type", "enable_weight") })
-        } else {
-            false
-        }
-        if (!sent) {
-            val localOk = localDaemon.enableWeightDirect()
-            if (!localOk) {
-                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Unable to reach server or local daemon"))
+        val localOk = if (localDaemon.connected.value) localDaemon.enableWeightDirect() else false
+        if (!localOk) {
+            val sent = if (canSendMotorViaServer()) {
+                sendWs(buildJsonObject { put("type", "enable_weight") })
+            } else {
+                false
+            }
+            if (!sent) {
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Unable to reach local daemon or server"))
             }
         }
     }
@@ -928,15 +1117,15 @@ class SwonalRepository(
             )
         }
 
-        val payload = buildJsonObject {
-            put("type", "set_weight")
-            put("weight_lb", safeLb)
-            put("profile", mode)
-            put("modifier_pct", effMod)
-        }
-        val sentServer = if (canSendMotorViaServer()) sendWs(payload) else false
-        if (!sentServer) {
-            localDaemon.setWeightDirect(safeLb, mode, effMod)
+        val sentLocal = if (localDaemon.connected.value) localDaemon.setWeightDirect(safeLb, mode, effMod) else false
+        if (!sentLocal && canSendMotorViaServer()) {
+            val payload = buildJsonObject {
+                put("type", "set_weight")
+                put("weight_lb", safeLb)
+                put("profile", mode)
+                put("modifier_pct", effMod)
+            }
+            sendWs(payload)
         }
     }
 
@@ -956,25 +1145,22 @@ class SwonalRepository(
 
     fun setAccessory(accessory: String) {
         if (_uiStateFlow.value.authRequired) return
-        val payload = buildJsonObject {
-            put("type", "set_accessory")
-            put("accessory", accessory)
-        }
-        val sentServer = if (canSendMotorViaServer()) sendWs(payload) else false
-        if (!sentServer) {
-            localDaemon.setAccessoryDirect(accessory)
+        val sentLocal = if (localDaemon.connected.value) localDaemon.setAccessoryDirect(accessory) else false
+        if (!sentLocal && canSendMotorViaServer()) {
+            sendWs(
+                buildJsonObject {
+                    put("type", "set_accessory")
+                    put("accessory", accessory)
+                }
+            )
         }
     }
 
     fun resetReps() {
         if (_uiStateFlow.value.authRequired) return
-        val sentServer = if (canSendMotorViaServer()) {
+        val sentLocal = if (localDaemon.connected.value) localDaemon.resetRepsDirect() else false
+        if (!sentLocal && canSendMotorViaServer()) {
             sendWs(buildJsonObject { put("type", "reset_reps") })
-        } else {
-            false
-        }
-        if (!sentServer) {
-            localDaemon.resetRepsDirect()
         }
     }
 
@@ -983,7 +1169,10 @@ class SwonalRepository(
         if (ui.authRequired || !ui.isMockMode) return
         val ex = ui.activeExercise ?: return
         scope.launch {
-            runCatching { api.syncMockArmPositions(ex) }
+            val ok = localDaemon.setMockArmPositionsDirect(ex)
+            if (!ok && prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
+                runCatching { api.syncMockArmPositions(ex) }
+            }
         }
     }
 
@@ -991,16 +1180,17 @@ class SwonalRepository(
 
     fun switchUser(userId: String) {
         if (_uiStateFlow.value.authRequired) return
-        sendWs(
-            buildJsonObject {
-                put("type", "set_active_user")
-                put("userId", userId)
-            }
-        )
-        _uiStateFlow.update {
-            it.copy(sessionState = it.sessionState.copy(activeUserId = userId))
-        }
         scope.launch {
+            val nextState = localEngine.setActiveUser(userId)
+            _uiStateFlow.update { it.copy(sessionState = nextState) }
+            if (canSendMotorViaServer()) {
+                sendWs(
+                    buildJsonObject {
+                        put("type", "set_active_user")
+                        put("userId", userId)
+                    }
+                )
+            }
             refreshUserScopedData(userId)
             if (!isWeightCurrentlyEngaged()) {
                 val exId = _uiStateFlow.value.activeExercise?.id
@@ -1019,15 +1209,19 @@ class SwonalRepository(
         if (ui.authRequired || ui.users.size < 2) return
         val nextEnabled = !ui.sessionState.partnerModeEnabled
         val ids = listOf(ui.users[0].id, ui.users[1].id)
-        sendWs(
-            buildJsonObject {
-                put("type", "set_partner_mode")
-                put("enabled", nextEnabled)
-                putJsonArray("partnerUserIds") {
-                    ids.forEach { add(JsonPrimitive(it)) }
+        val nextState = localEngine.setPartnerMode(nextEnabled, ids)
+        _uiStateFlow.update { it.copy(sessionState = nextState) }
+        if (canSendMotorViaServer()) {
+            sendWs(
+                buildJsonObject {
+                    put("type", "set_partner_mode")
+                    put("enabled", nextEnabled)
+                    putJsonArray("partnerUserIds") {
+                        ids.forEach { add(JsonPrimitive(it)) }
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     fun toggleUnit() {
@@ -1035,8 +1229,13 @@ class SwonalRepository(
         val user = _uiStateFlow.value.activeUser ?: return
         val nextUnit = if (Units.isKg(user.weightUnit)) "LB" else "KG"
         scope.launch {
-            runCatching { api.patchUser(user.id, weightUnit = nextUnit) }
-                .onSuccess { updated -> updateUserInState(updated) }
+            localEngine.updateUser(user.id, weightUnit = nextUnit)?.let { updated ->
+                updateUserInState(updated)
+                emitLocalBroadcast("user_updated") {
+                    put("user", SwonalJson.encodeToJsonElement(User.serializer(), updated))
+                }
+                notifyDirtySync()
+            }
         }
     }
 
@@ -1045,8 +1244,13 @@ class SwonalRepository(
         val user = _uiStateFlow.value.activeUser ?: return
         val nextTheme = if (user.themeMode == "light") "dark" else "light"
         scope.launch {
-            runCatching { api.patchUser(user.id, themeMode = nextTheme) }
-                .onSuccess { updated -> updateUserInState(updated) }
+            localEngine.updateUser(user.id, themeMode = nextTheme)?.let { updated ->
+                updateUserInState(updated)
+                emitLocalBroadcast("user_updated") {
+                    put("user", SwonalJson.encodeToJsonElement(User.serializer(), updated))
+                }
+                notifyDirtySync()
+            }
         }
     }
 
@@ -1054,8 +1258,13 @@ class SwonalRepository(
         if (_uiStateFlow.value.authRequired) return
         val user = _uiStateFlow.value.activeUser ?: return
         scope.launch {
-            runCatching { api.patchUser(user.id, accentColor = accentHex, avatarColor = accentHex) }
-                .onSuccess { updated -> updateUserInState(updated) }
+            localEngine.updateUser(user.id, accentColor = accentHex, avatarColor = accentHex)?.let { updated ->
+                updateUserInState(updated)
+                emitLocalBroadcast("user_updated") {
+                    put("user", SwonalJson.encodeToJsonElement(User.serializer(), updated))
+                }
+                notifyDirtySync()
+            }
         }
     }
 
@@ -1064,10 +1273,12 @@ class SwonalRepository(
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
         scope.launch {
-            runCatching { api.createUser(trimmed, accentHex, accentHex) }
+            runCatching { localEngine.createUser(trimmed, avatarColor = accentHex, accentColor = accentHex) }
                 .onSuccess { created ->
                     refreshAppState()
                     switchUser(created.id)
+                    emitLocalBroadcast("users_updated")
+                    notifyDirtySync()
                 }
                 .onFailure { err ->
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to create profile"))
@@ -1080,7 +1291,12 @@ class SwonalRepository(
         _uiStateFlow.update { it.copy(showDemoPip = enabled) }
         val uid = _uiStateFlow.value.activeUser?.id ?: return
         scope.launch {
-            runCatching { api.setDemoPip(uid, enabled) }
+            localEngine.setDemoPip(uid, enabled)
+            emitLocalBroadcast("demo_pip_updated") {
+                put("userId", uid)
+                put("enabled", enabled)
+            }
+            notifyDirtySync()
         }
     }
 
@@ -1134,14 +1350,18 @@ class SwonalRepository(
             )
         }
         scope.launch {
-            runCatching { api.updateTemplateSchedule(template.id, normalized) }
+            runCatching { localEngine.updateTemplate(template.id, scheduleDays = normalized) }
                 .onSuccess { updated ->
-                    _uiStateFlow.update { st ->
-                        st.copy(
-                            templates = st.templates.map { t ->
-                                if (t.id == updated.id) updated else t
-                            }
-                        )
+                    if (updated != null) {
+                        _uiStateFlow.update { st ->
+                            st.copy(
+                                templates = st.templates.map { t ->
+                                    if (t.id == updated.id) updated else t
+                                }
+                            )
+                        }
+                        emitLocalBroadcast("templates_updated")
+                        notifyDirtySync()
                     }
                 }
                 .onFailure { err ->
@@ -1163,6 +1383,7 @@ class SwonalRepository(
     }
 
     fun clearQueuedWorkout() {
+        localEngine.clearQueuedWorkout()
         sendWs(buildJsonObject { put("type", "clear_queued_workout") })
         _uiStateFlow.update {
             it.copy(sessionState = it.sessionState.copy(queuedWorkout = null))
@@ -1185,7 +1406,7 @@ class SwonalRepository(
             if (isWeightCurrentlyEngaged()) {
                 disableWeightAndAwait()
             }
-            val session = runCatching { api.createSession(uid, templateId) }.getOrNull()
+            val session = runCatching { localEngine.createSession(uid, templateId) }.getOrNull()
             val step0 = steps[0]
             val ex0 = _uiStateFlow.value.exercises.firstOrNull { it.id == step0.exerciseId }
             lastAutoLoggedStepKey = null
@@ -1205,6 +1426,7 @@ class SwonalRepository(
             setWeight(step0.targetWeightLb, step0.mode, step0.modifierPct, allowWhileEngaged = false)
             resetReps()
             refreshOverload(uid, step0.exerciseId)
+            notifyDirtySync()
         }
     }
 
@@ -1287,7 +1509,7 @@ class SwonalRepository(
 
             var sessionId = ui.sessionState.activeSessionId
             if (sessionId == null) {
-                val created = runCatching { api.createSession(user.id, null) }.getOrNull() ?: return
+                val created = runCatching { localEngine.createSession(user.id, null) }.getOrNull() ?: return
                 sessionId = created.id
                 _uiStateFlow.update {
                     it.copy(sessionState = it.sessionState.copy(activeSessionId = sessionId))
@@ -1299,7 +1521,7 @@ class SwonalRepository(
             val setNumber = step?.setNumber ?: 1
 
             val resp = runCatching {
-                api.logSet(
+                localEngine.logSet(
                     sessionId = sessionId,
                     userId = user.id,
                     exerciseId = exercise.id,
@@ -1315,8 +1537,19 @@ class SwonalRepository(
                 return
             }
 
-            // Reset reps immediately so stale telemetry cannot double-trigger auto-log
-            resetReps()
+            emitLocalBroadcast("set_logged") {
+                put("setLog", SwonalJson.encodeToJsonElement(SetLog.serializer(), resp.setLog))
+                put("newPr", resp.newPr)
+                put("totalVolume", resp.totalVolume)
+            }
+            resp.partnerRotation?.let { prRot ->
+                emitLocalBroadcast("partner_rotated") {
+                    put("userId", prRot.rotatedToUserId)
+                    put("targetWeightLb", prRot.targetWeightLb)
+                    put("exerciseId", exercise.id)
+                }
+            }
+            notifyDirtySync()
 
             if (resp.newPr) {
                 _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.PERSONAL_RECORD))
@@ -1340,9 +1573,14 @@ class SwonalRepository(
             }
 
             val effectiveUid = resp.partnerRotation?.rotatedToUserId ?: user.id
-            runCatching { api.getPrs(effectiveUid) }.onSuccess { prs ->
+            runCatching { localEngine.getPrs(effectiveUid) }.onSuccess { prs ->
                 if (_uiStateFlow.value.activeUser?.id == effectiveUid) {
                     _uiStateFlow.update { it.copy(prs = prs) }
+                }
+            }
+            runCatching { localEngine.listSessions(effectiveUid) }.onSuccess { sessions ->
+                if (_uiStateFlow.value.activeUser?.id == effectiveUid) {
+                    _uiStateFlow.update { it.copy(recentSessions = sessions) }
                 }
             }
 
@@ -1380,7 +1618,7 @@ class SwonalRepository(
         disableWeight()
         skipRestTimer()
         val completed = if (sessionId != null) {
-            runCatching { api.completeSession(sessionId) }.getOrNull()
+            runCatching { localEngine.completeSession(sessionId) }.getOrNull()
         } else {
             null
         }
@@ -1395,6 +1633,13 @@ class SwonalRepository(
             )
         }
         if (completed != null) {
+            _uiStateFlow.value.activeUser?.id?.let { uid ->
+                runCatching { localEngine.listSessions(uid) }.onSuccess { sessions ->
+                    if (_uiStateFlow.value.activeUser?.id == uid) {
+                        _uiStateFlow.update { it.copy(recentSessions = sessions) }
+                    }
+                }
+            }
             _effectsFlow.tryEmit(KioskEffect.ShowWorkoutSummary(completed, prHits))
         }
     }
@@ -1402,6 +1647,8 @@ class SwonalRepository(
     fun addRestSeconds(extraSec: Int) {
         if (_uiStateFlow.value.authRequired) return
         val total = (_uiStateFlow.value.restSecondsRemaining + extraSec).coerceAtLeast(1)
+        val nextState = localEngine.startRestTimerSeconds(total)
+        _uiStateFlow.update { it.copy(sessionState = nextState) }
         sendWs(
             buildJsonObject {
                 put("type", "start_rest_timer")
@@ -1412,11 +1659,12 @@ class SwonalRepository(
 
     fun skipRestTimer() {
         prevRestCountdown = 0
+        val nextState = localEngine.setRestTimer(null)
         sendWs(buildJsonObject { put("type", "skip_rest_timer") })
         _uiStateFlow.update {
             it.copy(
                 restSecondsRemaining = 0,
-                sessionState = it.sessionState.copy(restTimerEndsAt = null)
+                sessionState = nextState
             )
         }
     }
@@ -1656,8 +1904,11 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired || !ui.isMockMode) return
         scope.launch {
-            runCatching { api.triggerMockBle(action) }
-                .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "BLE sim failed")) }
+            val ok = localDaemon.triggerMockBleDirect(action)
+            if (!ok) {
+                runCatching { api.triggerMockBle(action) }
+                    .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "BLE sim failed")) }
+            }
         }
     }
 
@@ -1665,14 +1916,23 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired || !ui.isMockMode) return
         scope.launch {
-            runCatching { api.triggerMockBarTilt(autoEnable = true) }
-                .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Bar tilt failed")) }
+            val ok = localDaemon.triggerMockBarTiltDirect(autoEnable = true)
+            if (!ok) {
+                runCatching { api.triggerMockBarTilt(autoEnable = true) }
+                    .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Bar tilt failed")) }
+            }
         }
     }
 
     fun zeroCalibration() {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
+            val direct = localDaemon.zeroCalibrationDirect()
+            if (direct != null) {
+                _uiStateFlow.update { it.copy(calibrationStatus = direct) }
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Cable strain gauges zeroed"))
+                return@launch
+            }
             runCatching { api.zeroCalibration() }
                 .onSuccess { cal ->
                     _uiStateFlow.update { it.copy(calibrationStatus = cal) }
@@ -1700,8 +1960,8 @@ class SwonalRepository(
 
     suspend fun switchToStockMode(): Boolean {
         if (_uiStateFlow.value.authRequired) return false
-        val ok = runCatching { api.switchToStockMode(); true }
-            .getOrElse { localDaemon.switchToStockModeDirect() }
+        val ok = localDaemon.switchToStockModeDirect() ||
+            runCatching { api.switchToStockMode(); true }.getOrDefault(false)
         if (ok) {
             _effectsFlow.tryEmit(KioskEffect.ShowMessage("Handed motor daemon to Stock Tonal mode"))
         } else {
@@ -1713,6 +1973,11 @@ class SwonalRepository(
     fun switchToCustomMode() {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
+            val ok = localDaemon.switchToCustomModeDirect()
+            if (ok) {
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Switched daemon to Custom mode"))
+                return@launch
+            }
             runCatching { api.switchToCustomMode() }
                 .onSuccess { _effectsFlow.tryEmit(KioskEffect.ShowMessage("Switched daemon to Custom mode")) }
                 .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Mode switch failed")) }

@@ -144,7 +144,8 @@ data class WorkoutTemplate(
     val blocksJson: String = "[]",
     val blocks: List<WorkoutBlock> = emptyList(),
     val scheduleDays: List<Int> = emptyList(),
-    val createdAt: String = ""
+    val createdAt: String = "",
+    val updatedAt: String = ""
 )
 
 data class RoutineStep(

@@ -41,7 +41,16 @@ class SwonalApp : Application(), ImageLoaderFactory {
         librespotAudioBridge = LibrespotAudioBridge().apply {
             start()
         }
-        repository = SwonalRepository(prefs = prefs, tlsConfig = tlsConfig)
+        val localDbFile = getDatabasePath("swonal_local.db")
+        val seedCatalogJson = runCatching {
+            assets.open("seed/seed_catalog.json").bufferedReader().use { it.readText() }
+        }.getOrNull()
+        repository = SwonalRepository(
+            prefs = prefs,
+            tlsConfig = tlsConfig,
+            localDbPath = localDbFile.absolutePath,
+            seedCatalogJson = seedCatalogJson
+        )
         com.swonal.kiosk.ui.SwonalWebActivity.warmup(this)
 
         // Synchronize STREAM_SYSTEM to media volume so system UI doesn't blast deafening clicks

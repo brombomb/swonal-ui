@@ -857,21 +857,28 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 5. Hardware Telemetry Status Pill + Pulsing Connected Dot
-        val hwKey = "${ui.isUsingLocalFailSafe}|${ui.wsConnected}|${ui.daemonConnected}|${ui.isMockMode}"
+        val hwKey = "${ui.syncMode}|${ui.syncConnected}|${ui.pendingSyncCount}|${ui.localFailSafeConnected}|${ui.wsConnected}|${ui.daemonConnected}|${ui.isMockMode}"
         if (hwKey != lastHardwareStatusKey) {
             lastHardwareStatusKey = hwKey
             val dotDrawable = GradientDrawable().apply { shape = GradientDrawable.OVAL }
-            val connectedLive = ui.wsConnected && ui.daemonConnected
+            val connectedLive = ui.hardwareConnected
             when {
-                ui.isUsingLocalFailSafe -> {
-                    binding.btnHardwareStatus.background = p.warningPillDrawable(d, 12f, interactive = true)
-                    binding.tvHardwareStatus.text = "LOCAL FAIL-SAFE"
-                    binding.tvHardwareStatus.setTextColor(p.warningText)
-                    dotDrawable.setColor(0xFFF59E0B.toInt())
-                }
-                connectedLive -> {
+                connectedLive && ui.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE -> {
                     binding.btnHardwareStatus.background = p.accentMutedDrawable(d, 12f, 1.5f)
-                    binding.tvHardwareStatus.text = if (ui.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz"
+                    binding.tvHardwareStatus.text = if (ui.isMockMode) "MOCK 30Hz" else "STANDALONE 30Hz"
+                    binding.tvHardwareStatus.setTextColor(p.accentInk)
+                    dotDrawable.setColor(if (p.isDark) p.accentPrimary else p.accentInk)
+                }
+                connectedLive && ui.syncMode == com.swonal.kiosk.net.SyncMode.SERVER_SYNC -> {
+                    binding.btnHardwareStatus.background = p.accentMutedDrawable(d, 12f, 1.5f)
+                    val base = if (ui.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz"
+                    binding.tvHardwareStatus.text = if (ui.syncConnected) {
+                        "$base • SYNC"
+                    } else if (ui.pendingSyncCount > 0) {
+                        "STANDALONE • Q${ui.pendingSyncCount}"
+                    } else {
+                        "$base • LOCAL"
+                    }
                     binding.tvHardwareStatus.setTextColor(p.accentInk)
                     dotDrawable.setColor(if (p.isDark) p.accentPrimary else p.accentInk)
                 }
@@ -883,7 +890,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             binding.statusDot.background = dotDrawable
-            updateStatusDotPulse(connectedLive || ui.isUsingLocalFailSafe)
+            updateStatusDotPulse(connectedLive)
         }
 
         // 6. Queued Workout & Safety Cutout Banners
@@ -1599,11 +1606,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun resolveMediaUrl(serverUrl: String, mediaUrl: String?): String? {
         if (mediaUrl.isNullOrBlank()) return null
-        return if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
-            mediaUrl
-        } else {
-            "${serverUrl.trimEnd('/')}/${mediaUrl.trimStart('/')}"
+        val trimmed = mediaUrl.trim()
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("file://")) {
+            return trimmed
         }
+        val rel = trimmed.trimStart('/')
+        // 1. Check custom uploaded media stored on-device
+        val localFile = java.io.File(filesDir, rel)
+        if (localFile.exists() && localFile.isFile) {
+            return android.net.Uri.fromFile(localFile).toString()
+        }
+        // 2. Check bundled offline APK assets (`assets/media/*.svg`)
+        if (rel.startsWith("media/") && !rel.contains("..")) {
+            val fileName = rel.removePrefix("media/")
+            val bundledExists = runCatching {
+                assets.open("media/$fileName").use { true }
+            }.getOrDefault(false)
+            if (bundledExists) {
+                return "file:///android_asset/media/$fileName"
+            }
+        }
+        // 3. Fallback to active web host (:3000)
+        return "${serverUrl.trimEnd('/')}/$rel"
     }
 
     private fun loadFormDemoMedia(fullUrl: String) {

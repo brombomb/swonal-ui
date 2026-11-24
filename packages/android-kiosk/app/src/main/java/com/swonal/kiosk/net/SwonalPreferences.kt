@@ -5,12 +5,23 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.swonal.kiosk.util.SecretCipher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+
+enum class SyncMode(val wireValue: String, val label: String) {
+    STANDALONE("standalone", "Standalone (On-Device)"),
+    SERVER_SYNC("server_sync", "Home / Cloud Server Sync");
+
+    companion object {
+        fun fromWire(value: String?): SyncMode =
+            if (value == SERVER_SYNC.wireValue) SERVER_SYNC else STANDALONE
+    }
+}
 
 enum class TelemetryDisplayMode(val wireValue: String, val label: String) {
     ALWAYS("always", "On"),
@@ -29,19 +40,83 @@ enum class TelemetryDisplayMode(val wireValue: String, val label: String) {
 
 /**
  * Preferences store using Android Keystore AES-256-GCM (natively supported from API 23) to encrypt
- * sensitive credentials (`apiToken`, `sessionCookie`) at rest.
+ * sensitive credentials (`apiToken`, `sessionCookie`, DB secrets) at rest.
  */
 class SwonalPreferences(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("swonal_kiosk_prefs", Context.MODE_PRIVATE)
 
-    var serverUrl: String
-        get() = normalizeBaseUrl(
-            prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL,
-            DEFAULT_SERVER_URL
-        )
+    val secretCipher: SecretCipher = object : SecretCipher {
+        override fun encrypt(plaintext: String): String {
+            if (plaintext.isBlank()) return ""
+            return runCatching { ENC_PREFIX + encryptForPref(plaintext) }
+                .getOrElse { "" }
+        }
+
+        override fun decrypt(stored: String): String? {
+            if (stored.isBlank()) return null
+            if (!stored.startsWith(ENC_PREFIX)) return stored
+            return runCatching { decryptFromPref(stored.removePrefix(ENC_PREFIX)) }.getOrNull()
+        }
+    }
+
+    init {
+        // Seamless upgrade detection: if a pre-Standalone installation explicitly saved a server_url,
+        // preserve Home/Cloud Server Sync mode automatically on upgrade; fresh installs boot Standalone.
+        if (!prefs.contains(KEY_SYNC_MODE)) {
+            val existingServer = prefs.getString(KEY_SERVER_URL, null)?.trim().orEmpty()
+            val parsed = existingServer.toHttpUrlOrNull()
+            val hasExplicitExternalServer = prefs.contains(KEY_SERVER_URL) &&
+                existingServer.isNotEmpty() &&
+                parsed != null &&
+                !isLoopbackHost(parsed.host)
+            val initialMode = if (hasExplicitExternalServer) SyncMode.SERVER_SYNC else SyncMode.STANDALONE
+            prefs.edit().putString(KEY_SYNC_MODE, initialMode.wireValue).apply()
+        }
+    }
+
+    var syncMode: SyncMode
+        get() = SyncMode.fromWire(prefs.getString(KEY_SYNC_MODE, SyncMode.STANDALONE.wireValue))
         set(value) {
-            prefs.edit().putString(KEY_SERVER_URL, normalizeBaseUrl(value, DEFAULT_SERVER_URL)).apply()
+            prefs.edit().putString(KEY_SYNC_MODE, value.wireValue).apply()
+        }
+
+    var embeddedPort: Int
+        get() = prefs.getInt(KEY_EMBEDDED_PORT, DEFAULT_EMBEDDED_PORT).coerceIn(1024, 65535)
+        set(value) {
+            prefs.edit().putInt(KEY_EMBEDDED_PORT, value.coerceIn(1024, 65535)).apply()
+        }
+
+    /** External Home/Cloud Sync server URL when [syncMode] == [SyncMode.SERVER_SYNC]. */
+    var syncServerUrl: String
+        get() {
+            val raw = prefs.getString(KEY_SERVER_URL, "")?.trim().orEmpty()
+            return if (raw.isEmpty()) "" else normalizeBaseUrl(raw, "")
+        }
+        set(value) {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) {
+                prefs.edit().remove(KEY_SERVER_URL).apply()
+            } else {
+                prefs.edit().putString(KEY_SERVER_URL, normalizeBaseUrl(trimmed, "")).apply()
+            }
+        }
+
+    /** Local web host URL for in-app GeckoView and Companion links. */
+    val localWebBaseUrl: String
+        get() = "http://127.0.0.1:$embeddedPort"
+
+    var serverUrl: String
+        get() {
+            val configured = syncServerUrl
+            return if (syncMode == SyncMode.SERVER_SYNC && configured.isNotBlank()) {
+                configured
+            } else {
+                localWebBaseUrl
+            }
+        }
+        set(value) {
+            syncServerUrl = value
         }
 
     var localDaemonUrl: String
@@ -165,13 +240,16 @@ class SwonalPreferences(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_SERVER_URL = "http://192.168.1.100:3000"
+        const val DEFAULT_SERVER_URL = "http://127.0.0.1:3000"
         const val DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
+        const val DEFAULT_EMBEDDED_PORT = 3000
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "swonal_kiosk_secret_key_v1"
         private const val ENC_PREFIX = "enc_v1:"
 
+        private const val KEY_SYNC_MODE = "sync_mode"
+        private const val KEY_EMBEDDED_PORT = "embedded_port"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_DAEMON_URL = "local_daemon_url"
         private const val KEY_API_TOKEN = "api_token"
