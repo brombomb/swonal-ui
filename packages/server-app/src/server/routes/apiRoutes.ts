@@ -106,10 +106,30 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     });
   });
 
+const PUBLIC_USER_SELECT = {
+  id: true,
+  name: true,
+  avatarColor: true,
+  preferredMusicProvider: true,
+  themeMode: true,
+  accentColor: true,
+  weightUnit: true,
+  nostrPubKeyHex: true,
+  nostrNpub: true,
+  nostrRelays: true,
+  shareWorkouts: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
   router.get('/state', async (_req, res, next) => {
     try {
       const [users, exercises, templates] = await Promise.all([
-        prisma.user.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'asc' } }),
+        prisma.user.findMany({
+          where: { deletedAt: null },
+          select: PUBLIC_USER_SELECT,
+          orderBy: { createdAt: 'asc' },
+        }),
         getExercisesCatalog(),
         prisma.workoutTemplate.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } }),
       ]);
@@ -134,6 +154,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     try {
       const users = await prisma.user.findMany({
         where: { deletedAt: null },
+        select: PUBLIC_USER_SELECT,
         orderBy: { createdAt: 'asc' },
       });
       res.json(users);
@@ -145,7 +166,10 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   router.post('/users', async (req, res, next) => {
     try {
       const parsed = CreateUserSchema.parse(req.body);
-      const user = await prisma.user.create({ data: parsed });
+      const user = await prisma.user.create({
+        data: parsed,
+        select: PUBLIC_USER_SELECT,
+      });
       bridge.broadcastToClients({ type: 'users_updated' });
       res.status(201).json(user);
     } catch (err) {
@@ -167,6 +191,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       const user = await prisma.user.update({
         where: { id: req.params.id },
         data: parsed,
+        select: PUBLIC_USER_SELECT,
       });
       bridge.broadcastToClients({ type: 'user_updated', user });
       res.json(user);
