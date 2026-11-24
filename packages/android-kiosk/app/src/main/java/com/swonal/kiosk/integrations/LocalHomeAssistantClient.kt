@@ -85,12 +85,16 @@ class LocalHomeAssistantClient(
 
     suspend fun getStatus(): HomeAssistantStatus {
         val cfg = loadConfig()
+        val hasHaToken = !cfg.haTokenEnc.isNullOrBlank()
         return HomeAssistantStatus(
             mqttConfigured = false,
             mqttConnected = false,
             mqttTopicPrefix = "swonal",
             lastMqttError = null,
             webhookConfigured = cfg.webhookUrl.isNotBlank(),
+            webhookUrl = cfg.webhookUrl.takeIf { it.isNotBlank() },
+            haUrl = cfg.haUrl.takeIf { it.isNotBlank() },
+            haRestConfigured = cfg.haUrl.isNotBlank() && hasHaToken,
             recentEvents = recentEvents.toList()
         )
     }
@@ -143,6 +147,24 @@ class LocalHomeAssistantClient(
                 .build()
             client.newCall(req).execute().use { it.isSuccessful }
         }.getOrDefault(false)
+    }
+
+    suspend fun getEntityState(entityId: String): JsonObject? = withContext(Dispatchers.IO) {
+        val (haUrl, haToken) = getHaUrlAndToken()
+        if (haUrl.isBlank() || haToken.isNullOrBlank() || entityId.isBlank()) return@withContext null
+        val encoded = java.net.URLEncoder.encode(entityId.trim(), "UTF-8")
+        val url = "${haUrl.removeSuffix("/")}/api/states/$encoded"
+        runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $haToken")
+                .get()
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                SwonalJson.parseToJsonElement(resp.body?.string().orEmpty()) as? JsonObject
+            }
+        }.getOrNull()
     }
 
     suspend fun listMediaPlayers(): List<JsonObject> = withContext(Dispatchers.IO) {

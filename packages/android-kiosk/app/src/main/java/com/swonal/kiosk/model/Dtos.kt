@@ -386,6 +386,9 @@ data class HomeAssistantStatus(
     val mqttTopicPrefix: String = "swonal",
     val lastMqttError: String? = null,
     val webhookConfigured: Boolean = false,
+    val webhookUrl: String? = null,
+    val haUrl: String? = null,
+    val haRestConfigured: Boolean = false,
     val recentEvents: List<JsonObject> = emptyList()
 )
 

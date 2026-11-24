@@ -190,10 +190,21 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         res.status(400).json({ error: 'Cannot delete the last user profile' });
         return;
       }
-      await prisma.user.update({
-        where: { id: req.params.id },
-        data: { deletedAt: new Date() },
-      });
+      const now = new Date();
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: req.params.id },
+          data: { deletedAt: now },
+        }),
+        prisma.workoutTemplate.updateMany({
+          where: { userId: req.params.id, deletedAt: null },
+          data: { deletedAt: now },
+        }),
+        prisma.friend.updateMany({
+          where: { userId: req.params.id, deletedAt: null },
+          data: { deletedAt: now },
+        }),
+      ]);
       if (sessionCoordinator.getState().activeUserId === req.params.id) {
         const nextUser = await prisma.user.findFirst({
           where: { deletedAt: null },

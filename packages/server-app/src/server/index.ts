@@ -177,6 +177,7 @@ export async function createSwonalServer(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let closing = false;
+  let lastSyncTelemetryAt = 0;
   let latestTelemetry: Record<string, unknown> = {
     type: 'telemetry',
     mode: 'CUSTOM',
@@ -194,6 +195,53 @@ export async function createSwonalServer(
       rotation: { left: 2, right: 2, left_unlocked: false, right_unlocked: false },
       angle: { left: 1, right: 1 },
     },
+  };
+
+  const normalizeTelemetryFrame = (
+    incoming: Record<string, unknown>,
+    fallback: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const isObj = (v: unknown): v is Record<string, unknown> =>
+      typeof v === 'object' && v !== null && !Array.isArray(v);
+    const fbLeft = isObj(fallback.left_cable)
+      ? fallback.left_cable
+      : { position: 0, velocity: 0, load_lb: 0 };
+    const fbRight = isObj(fallback.right_cable)
+      ? fallback.right_cable
+      : { position: 0, velocity: 0, load_lb: 0 };
+    const fbArms = isObj(fallback.arm_positions)
+      ? fallback.arm_positions
+      : {
+          height: { left: 4, right: 4 },
+          rotation: { left: 2, right: 2, left_unlocked: false, right_unlocked: false },
+          angle: { left: 1, right: 1 },
+        };
+    const inLeft = isObj(incoming.left_cable) ? incoming.left_cable : {};
+    const inRight = isObj(incoming.right_cable) ? incoming.right_cable : {};
+    const inArms = isObj(incoming.arm_positions) ? incoming.arm_positions : {};
+    return {
+      ...fallback,
+      ...incoming,
+      type: 'telemetry',
+      left_cable: { ...fbLeft, ...inLeft },
+      right_cable: { ...fbRight, ...inRight },
+      arm_positions: {
+        height: {
+          ...(isObj(fbArms.height) ? fbArms.height : { left: 4, right: 4 }),
+          ...(isObj(inArms.height) ? inArms.height : {}),
+        },
+        rotation: {
+          ...(isObj(fbArms.rotation)
+            ? fbArms.rotation
+            : { left: 2, right: 2, left_unlocked: false, right_unlocked: false }),
+          ...(isObj(inArms.rotation) ? inArms.rotation : {}),
+        },
+        angle: {
+          ...(isObj(fbArms.angle) ? fbArms.angle : { left: 1, right: 1 }),
+          ...(isObj(inArms.angle) ? inArms.angle : {}),
+        },
+      },
+    };
   };
 
   const broadcastToSyncClients = (payload: Record<string, unknown>) => {
@@ -298,7 +346,11 @@ export async function createSwonalServer(
         try {
           const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
           if (msg.type === 'telemetry') {
-            latestTelemetry = msg;
+            // Suppress direct/mock daemon telemetry while a paired tablet is streaming live sync telemetry
+            if (tonalSyncClients.size > 0 && Date.now() - lastSyncTelemetryAt < 10_000) {
+              return;
+            }
+            latestTelemetry = normalizeTelemetryFrame(msg, latestTelemetry);
             publishHaState();
           } else if (msg.type === 'safety_event') {
             publishHaState(String(msg.reason || 'SAFETY_CUTOUT'));
@@ -518,8 +570,9 @@ export async function createSwonalServer(
         if (type === 'ping') {
           client.send(JSON.stringify({ type: 'pong', serverTimeMs: Date.now() }));
         } else if (type === 'telemetry') {
-          latestTelemetry = msg;
-          broadcastToClients(msg);
+          lastSyncTelemetryAt = Date.now();
+          latestTelemetry = normalizeTelemetryFrame(msg, latestTelemetry);
+          broadcastToClients(latestTelemetry);
           publishHaState();
         } else if (type === 'session_event' && typeof msg.eventType === 'string') {
           void homeAssistantBus.publishSessionEvent(

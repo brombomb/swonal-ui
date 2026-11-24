@@ -257,17 +257,14 @@ class CloudSyncManager(
         val now = System.currentTimeMillis()
         if (now - lastTelemetrySentMs.get() < 500L) return
         lastTelemetrySentMs.set(now)
+        val frameObj = SwonalJson.encodeToJsonElement(TelemetryFrame.serializer(), frame).jsonObject
         val json = SwonalJson.encodeToString(
             buildJsonObject {
                 put("type", "telemetry")
-                put("mode", frame.mode)
-                put("weight_enabled", frame.weightEnabled)
-                put("target_weight_lb", frame.targetWeightLb)
-                put("applied_resistance_lb", frame.appliedResistanceLb)
-                put("profile_mode", frame.profileMode)
-                put("modifier_pct", frame.modifierPct)
-                put("rep_count", frame.repCount)
-                put("accessory", frame.accessory)
+                put("timestamp", now / 1000.0)
+                for ((k, v) in frameObj) {
+                    put(k, v)
+                }
             }
         )
         runCatching { ws.send(json) }

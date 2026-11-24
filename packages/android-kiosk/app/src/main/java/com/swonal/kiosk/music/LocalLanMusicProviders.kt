@@ -118,6 +118,20 @@ class LocalLanMusicProviders(
         when (providerId) {
             "plexamp" -> {
                 if (cfg.plexampUrl.isBlank()) return@withContext MusicPlaybackState(isConnected = false)
+                val plexToken = cfg.plexTokenEnc?.takeIf { it.isNotBlank() }?.let { cipher.decrypt(it) }
+                val base = cfg.plexampUrl.removeSuffix("/")
+                if (action == "state") {
+                    val reqBuilder = Request.Builder().url("$base/player/timeline/poll?wait=0").get()
+                    if (!plexToken.isNullOrBlank()) reqBuilder.header("X-Plex-Token", plexToken)
+                    return@withContext runCatching {
+                        client.newCall(reqBuilder.build()).execute().use { resp ->
+                            if (!resp.isSuccessful) return@use MusicPlaybackState(isConnected = false)
+                            val xml = resp.body?.string().orEmpty()
+                            val playing = Regex("""state="playing"""", RegexOption.IGNORE_CASE).containsMatchIn(xml)
+                            MusicPlaybackState(isPlaying = playing, isConnected = true)
+                        }
+                    }.getOrDefault(MusicPlaybackState(isConnected = false))
+                }
                 val path = when (action) {
                     "play" -> "/player/playback/play"
                     "pause" -> "/player/playback/pause"
@@ -126,39 +140,22 @@ class LocalLanMusicProviders(
                     "volume" -> "/player/playback/setParameters?volume=${(volumePct ?: 70).coerceIn(0, 100)}"
                     else -> ""
                 }
-                if (path.isNotBlank()) {
-                    val plexToken = cfg.plexTokenEnc?.takeIf { it.isNotBlank() }?.let { cipher.decrypt(it) }
-                    runCatching {
-                        val reqBuilder = Request.Builder().url("${cfg.plexampUrl.removeSuffix("/")}$path").get()
-                        if (!plexToken.isNullOrBlank()) {
-                            reqBuilder.header("X-Plex-Token", plexToken)
-                        }
-                        client.newCall(reqBuilder.build()).execute().close()
+                if (path.isBlank()) return@withContext MusicPlaybackState(isConnected = false)
+                val ok = runCatching {
+                    val reqBuilder = Request.Builder().url("$base$path").get()
+                    if (!plexToken.isNullOrBlank()) {
+                        reqBuilder.header("X-Plex-Token", plexToken)
                     }
-                }
-                MusicPlaybackState(isPlaying = action != "pause", isConnected = true)
+                    client.newCall(reqBuilder.build()).execute().use { it.isSuccessful }
+                }.getOrDefault(false)
+                MusicPlaybackState(isPlaying = ok && action != "pause", isConnected = ok)
             }
             "youtube_music" -> {
                 if (cfg.ytmApiUrl.isBlank()) return@withContext MusicPlaybackState(isConnected = false)
                 val ytmToken = cfg.ytmAuthTokenEnc?.let { cipher.decrypt(it) }
-                val path = when (action) {
-                    "play" -> "/api/v1/play"
-                    "pause" -> "/api/v1/pause"
-                    "next" -> "/api/v1/next"
-                    "previous" -> "/api/v1/previous"
-                    else -> ""
-                }
-                if (path.isNotBlank()) {
-                    runCatching {
-                        val b = Request.Builder()
-                            .url("${cfg.ytmApiUrl.removeSuffix("/")}$path")
-                            .post("{}".toRequestBody(jsonMediaType))
-                        if (!ytmToken.isNullOrBlank()) b.header("Authorization", "Bearer $ytmToken")
-                        client.newCall(b.build()).execute().close()
-                    }
-                }
+                val base = cfg.ytmApiUrl.removeSuffix("/")
                 if (action == "state") {
-                    val req = Request.Builder().url("${cfg.ytmApiUrl.removeSuffix("/")}/api/v1/song").get()
+                    val req = Request.Builder().url("$base/api/v1/song").get()
                     if (!ytmToken.isNullOrBlank()) req.header("Authorization", "Bearer $ytmToken")
                     return@withContext runCatching {
                         client.newCall(req.build()).execute().use { r ->
@@ -175,11 +172,45 @@ class LocalLanMusicProviders(
                         }
                     }.getOrDefault(MusicPlaybackState(isConnected = false))
                 }
-                MusicPlaybackState(isPlaying = action != "pause", isConnected = true)
+                val (path, payloadJson) = when (action) {
+                    "play" -> "/api/v1/play" to "{}"
+                    "pause" -> "/api/v1/pause" to "{}"
+                    "next" -> "/api/v1/next" to "{}"
+                    "previous" -> "/api/v1/previous" to "{}"
+                    "volume" -> "/api/v1/volume" to SwonalJson.encodeToString(
+                        buildJsonObject { put("volume", (volumePct ?: 70).coerceIn(0, 100)) }
+                    )
+                    else -> "" to "{}"
+                }
+                if (path.isBlank()) return@withContext MusicPlaybackState(isConnected = false)
+                val ok = runCatching {
+                    val b = Request.Builder()
+                        .url("$base$path")
+                        .post(payloadJson.toRequestBody(jsonMediaType))
+                    if (!ytmToken.isNullOrBlank()) b.header("Authorization", "Bearer $ytmToken")
+                    client.newCall(b.build()).execute().use { it.isSuccessful }
+                }.getOrDefault(false)
+                MusicPlaybackState(isPlaying = ok && action != "pause", isConnected = ok)
             }
             "apple_music", "amazon_music" -> {
                 val entity = if (providerId == "apple_music") cfg.appleHaEntityId else cfg.amazonHaEntityId
                 if (entity.isBlank()) return@withContext MusicPlaybackState(isConnected = false)
+                if (action == "state") {
+                    val st = haClient.getEntityState(entity)
+                        ?: return@withContext MusicPlaybackState(isConnected = false)
+                    val stateStr = st["state"]?.jsonPrimitive?.contentOrNull?.lowercase().orEmpty()
+                    if (stateStr.isBlank() || stateStr == "unavailable" || stateStr == "unknown") {
+                        return@withContext MusicPlaybackState(isConnected = false)
+                    }
+                    val attrs = st["attributes"] as? JsonObject
+                    return@withContext MusicPlaybackState(
+                        isPlaying = stateStr == "playing",
+                        trackName = attrs?.get("media_title")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        artistName = attrs?.get("media_artist")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        albumName = attrs?.get("media_album_name")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        isConnected = true
+                    )
+                }
                 val service = when (action) {
                     "play" -> "media_play"
                     "pause" -> "media_pause"
@@ -188,14 +219,13 @@ class LocalLanMusicProviders(
                     "volume" -> "volume_set"
                     else -> ""
                 }
-                if (service.isNotBlank()) {
-                    val body = buildJsonObject {
-                        put("entity_id", entity)
-                        if (service == "volume_set") put("volume_level", ((volumePct ?: 70) / 100.0))
-                    }
-                    haClient.callHaService("media_player", service, body)
+                if (service.isBlank()) return@withContext MusicPlaybackState(isConnected = false)
+                val body = buildJsonObject {
+                    put("entity_id", entity)
+                    if (service == "volume_set") put("volume_level", ((volumePct ?: 70).coerceIn(0, 100) / 100.0))
                 }
-                MusicPlaybackState(isPlaying = action != "pause", isConnected = true)
+                val ok = haClient.callHaService("media_player", service, body)
+                MusicPlaybackState(isPlaying = ok && action != "pause", isConnected = ok)
             }
             else -> MusicPlaybackState(isConnected = false)
         }
