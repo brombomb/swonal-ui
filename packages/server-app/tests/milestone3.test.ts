@@ -212,4 +212,53 @@ describe('Milestone 3: MCP Server Layer, HTTP SSE, REST API, & Partner Rotation'
 
     ws.close();
   });
+
+  it('connects an MCP client over Streamable HTTP (POST /mcp, 2025-03-26 spec)', async () => {
+    const initResp = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'vitest-streamable', version: '1.0.0' },
+        },
+      }),
+    });
+    expect(initResp.status).toBe(200);
+    const sessionId = initResp.headers.get('mcp-session-id');
+    expect(sessionId).toBeTruthy();
+
+    const listResp = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'mcp-session-id': sessionId!,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+    expect(listResp.status).toBe(200);
+    const bodyText = await listResp.text();
+    expect(bodyText).toContain('list_exercises');
+    expect(bodyText).toContain('queue_workout_for_session');
+
+    // Cleanly close session
+    const delResp = await fetch(`${baseUrl}/mcp`, {
+      method: 'DELETE',
+      headers: { 'mcp-session-id': sessionId! },
+    });
+    expect([200, 204]).toContain(delResp.status);
+  });
 });

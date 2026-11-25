@@ -112,7 +112,8 @@ Swonal includes first-class AI extensibility designed for modern LLMs and agenti
 When running the optional `server-app` sync server, the built-in MCP server exposes live Tonal hardware telemetry, exercise catalogs, and lifter PRs directly to AI tools like **Claude Desktop**, **Cursor**, **Gemini CLI**, or custom Python agents — including **24/7 offline-Tonal queueing** (routines queued via MCP while the Tonal is asleep persist in `AppSetting.pending_queued_workout` and automatically appear on screen when Tonal wakes):
 
 - **Transports**:
-  - HTTP Server-Sent Events (SSE): `http://<SERVER_IP>:3000/mcp/sse`
+  - Streamable HTTP (`2025-03-26`, recommended): `http://<SERVER_IP>:3000/mcp`
+  - Legacy HTTP Server-Sent Events (SSE): `http://<SERVER_IP>:3000/mcp/sse`
   - Local Stdio: `node packages/server-app/dist/server/mcp/stdio.js`
 - **Resources**:
   - `swonal://exercises/catalog`: Complete library of movements, mechanics, and recommended arm positions.

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import express, { NextFunction, Request, Response } from 'express';
@@ -25,6 +26,7 @@ if (process.env.SWONAL_SKIP_DOTENV !== '1') {
 import WebSocket, { WebSocketServer } from 'ws';
 import { ZodError } from 'zod';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { prisma } from './db';
 import { seedDatabase } from '../../prisma/seed';
 import { createSwonalMcpServer, clearPendingQueuedWorkout, getPendingQueuedWorkout } from './mcp/mcpServer';
@@ -671,6 +673,65 @@ export async function createSwonalServer(
       return;
     }
     await entry.transport.handlePostMessage(req, res, req.body);
+  });
+
+  // Modern MCP Streamable HTTP Transport (2025-03-26 spec) at /mcp
+  const streamableTransports = new Map<
+    string,
+    { transport: StreamableHTTPServerTransport; server: ReturnType<typeof createSwonalMcpServer> }
+  >();
+
+  app.all('/mcp', async (req, res) => {
+    if (!isRequestAuthenticated(req, { allowQueryToken: true })) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    req.socket.setNoDelay(true);
+
+    const rawSessionId = req.headers['mcp-session-id'];
+    const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
+
+    if (sessionId) {
+      const existing = streamableTransports.get(sessionId);
+      if (!existing) {
+        res.status(404).json({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: `Unknown MCP session: ${sessionId}` },
+          id: null,
+        });
+        return;
+      }
+      await existing.transport.handleRequest(req, res, req.body);
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Bad Request: Missing mcp-session-id header' },
+        id: null,
+      });
+      return;
+    }
+
+    const mcp = createSwonalMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      onsessioninitialized: (sid) => {
+        streamableTransports.set(sid, { transport, server: mcp });
+      },
+    });
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        streamableTransports.delete(transport.sessionId);
+      }
+      void mcp.close().catch(() => {});
+    };
+
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, req.body);
   });
 
   // Serve built Vite portrait kiosk & companion UI when present
