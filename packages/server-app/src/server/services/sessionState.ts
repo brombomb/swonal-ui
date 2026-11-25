@@ -13,7 +13,7 @@ export interface QueuedWorkoutPayload {
       exerciseId: string;
       sets: number;
       targetReps: number;
-      mode: 'standard' | 'eccentric' | 'chains' | 'spotter' | 'burnout';
+      mode: 'standard' | 'eccentric' | 'chains' | 'spotter' | 'burnout' | 'smart_flex';
       modifierPct: number;
       targetWeightLb: number;
     }>;

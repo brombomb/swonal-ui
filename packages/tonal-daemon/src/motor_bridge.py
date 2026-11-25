@@ -22,7 +22,7 @@ from src.mock_motor import MockMotorSimulator
 logger = logging.getLogger("tonal-daemon.motor")
 
 VALID_ACCESSORIES = {"HANDLES", "BAR", "ROPE", "BODYWEIGHT"}
-VALID_PROFILES = {"standard", "eccentric", "chains", "spotter", "burnout"}
+VALID_PROFILES = {"standard", "eccentric", "chains", "spotter", "burnout", "smart_flex"}
 
 MSG_CART_POSITION = 0x1020
 MSG_COLUMN_ROTATION = 0x1021
@@ -624,7 +624,7 @@ class MotorBridge:
             raise ValueError(f"Non-finite resistance requested: {weight_lb}")
 
         multiplier = 1.0 + (
-            modifier_pct / 100.0 if profile in ("eccentric", "chains") else 0.0
+            modifier_pct / 100.0 if profile in ("eccentric", "chains", "smart_flex") else 0.0
         )
         total_load = weight_lb * multiplier
         if not math.isfinite(total_load) or total_load > self.max_weight or weight_lb < self.min_weight:
@@ -651,10 +651,11 @@ class MotorBridge:
                         "chains": ResistanceMode.CHAINS,
                         "spotter": ResistanceMode.SPOTTER,
                         "burnout": ResistanceMode.DROP_SET,
+                        "smart_flex": ResistanceMode.SMART_FLEX,
                     }
                     sw_mode = mode_map.get(self.profile_mode, ResistanceMode.BASIC)
                     intensity = float(self.modifier_pct)
-                    if sw_mode is ResistanceMode.ECCENTRIC:
+                    if sw_mode in (ResistanceMode.ECCENTRIC, ResistanceMode.SMART_FLEX):
                         intensity = min(60.0, intensity)
                     profile_obj = ResistanceProfile.for_mode(
                         self.target_weight_lb,

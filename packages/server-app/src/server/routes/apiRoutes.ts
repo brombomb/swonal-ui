@@ -86,7 +86,7 @@ const LogSetSchema = z.object({
   userId: z.string().uuid().optional(),
   exerciseId: z.string().uuid(),
   setNumber: z.number().int().min(1),
-  mode: z.enum(['standard', 'eccentric', 'chains', 'spotter', 'burnout']).default('standard'),
+  mode: z.enum(['standard', 'eccentric', 'chains', 'spotter', 'burnout', 'smart_flex']).default('standard'),
   modifierPct: z.number().int().min(0).max(100).default(0),
   weightLb: z.number().min(MIN_WEIGHT_LB).max(MAX_WEIGHT_LB),
   repsCompleted: z.number().int().min(0).max(500),

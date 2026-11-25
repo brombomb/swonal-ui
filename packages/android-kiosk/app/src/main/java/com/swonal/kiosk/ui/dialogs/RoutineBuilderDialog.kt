@@ -377,7 +377,7 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(0, dp(32), 1.2f).apply { marginEnd = dp(4) }
                 })
-                val modes = listOf("standard", "chains", "eccentric", "spotter", "burnout")
+                val modes = listOf("standard", "chains", "eccentric", "spotter", "burnout", "smart_flex")
                 val modeLower = item.mode.lowercase(Locale.US)
                 val supportsModifierPct = modeLower == "chains" || modeLower == "eccentric"
                 paramsRow.addView(makeStepperButton(item.mode.uppercase(Locale.US)) {

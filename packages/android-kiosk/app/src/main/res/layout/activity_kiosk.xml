@@ -1405,12 +1405,25 @@
                     android:id="@+id/btnModeBurnout"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
+                    android:layout_marginEnd="8dp"
                     android:layout_weight="1"
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
                     android:text="Burnout"
-                    android:textSize="12.5sp"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnModeSmartFlex"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Smart Flex"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
             </LinearLayout>
 

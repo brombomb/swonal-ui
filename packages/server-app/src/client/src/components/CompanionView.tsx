@@ -57,6 +57,7 @@ const DYNAMIC_MODES: Array<{ id: DynamicMode; label: string; defaultPct: number 
   { id: 'chains', label: 'Chains', defaultPct: 25 },
   { id: 'spotter', label: 'Spotter', defaultPct: 0 },
   { id: 'burnout', label: 'Burnout', defaultPct: 0 },
+  { id: 'smart_flex', label: 'Smart Flex', defaultPct: 25 },
 ];
 
 export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) => {

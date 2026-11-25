@@ -1,6 +1,6 @@
 import { WeightUnit } from './utils/units';
 
-export type DynamicMode = 'standard' | 'eccentric' | 'chains' | 'spotter' | 'burnout';
+export type DynamicMode = 'standard' | 'eccentric' | 'chains' | 'spotter' | 'burnout' | 'smart_flex';
 export type AccessoryType = 'HANDLES' | 'BAR' | 'ROPE' | 'BODYWEIGHT';
 export type BlockType = 'WARMUP' | 'STRAIGHT_SET' | 'SUPERSET' | 'CIRCUIT';
 
