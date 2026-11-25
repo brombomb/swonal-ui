@@ -325,13 +325,24 @@ class MainActivity : AppCompatActivity() {
     private fun updateVoiceButtonStyle() {
         val p = currentPalette
         val d = resources.displayMetrics.density
-        binding.btnVoiceControl.background = if (inlineVoiceActive) {
-            p.criticalBannerDrawable(d, 10f, interactive = true)
+        binding.btnVoiceControl.background = if (inlineVoiceActive && !inlineVoiceLoading) {
+            p.successPillDrawable(d, 10f)
         } else {
             p.elevatedPillDrawable(d, 10f)
         }
-        binding.ivVoiceControl.setColorFilter(if (inlineVoiceActive) p.criticalText else p.accentInk)
-        binding.tvVoiceControl.setTextColor(if (inlineVoiceActive) p.criticalText else p.textPrimary)
+        binding.ivVoiceControl.setImageResource(
+            if (inlineVoiceActive) R.drawable.ic_mic else R.drawable.ic_mic_off
+        )
+        binding.ivVoiceControl.setColorFilter(
+            when {
+                inlineVoiceActive && !inlineVoiceLoading -> p.successText
+                inlineVoiceLoading -> p.accentInk
+                else -> p.textMuted
+            }
+        )
+        binding.tvVoiceControl.setTextColor(
+            if (inlineVoiceActive && !inlineVoiceLoading) p.successText else p.textPrimary
+        )
         binding.tvVoiceControl.text = when {
             inlineVoiceLoading -> "Loading..."
             inlineVoiceActive -> "Voice On"
@@ -1753,18 +1764,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvDeviceVolLabel.setTextColor(p.textMuted)
         binding.tvDeviceVolumePct.setTextColor(p.textPrimary)
 
-        binding.btnVoiceControl.background = if (inlineVoiceActive) {
-            p.criticalBannerDrawable(d, 10f, interactive = true)
-        } else {
-            p.elevatedPillDrawable(d, 10f)
-        }
-        binding.ivVoiceControl.setColorFilter(if (inlineVoiceActive) p.criticalText else p.accentInk)
-        binding.tvVoiceControl.setTextColor(if (inlineVoiceActive) p.criticalText else p.textPrimary)
-        binding.tvVoiceControl.text = when {
-            inlineVoiceLoading -> "Loading..."
-            inlineVoiceActive -> "Voice On"
-            else -> "Voice"
-        }
+        updateVoiceButtonStyle()
 
         binding.volumePill.background = p.elevatedPillDrawable(d, 10f, interactive = false)
         binding.ivVolume.setColorFilter(p.accentInk)
