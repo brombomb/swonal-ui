@@ -992,7 +992,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             textSize = 14f
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) }
         })
-        row1.addView(makeAccentButton("Zero Calibration") {
+        row1.addView(makePillButton("Zero Calibration") {
             repo.zeroCalibration()
             Toast.makeText(requireContext(), "Zero-offset calibration sent to tonal-daemon", Toast.LENGTH_SHORT).show()
         }.apply {
