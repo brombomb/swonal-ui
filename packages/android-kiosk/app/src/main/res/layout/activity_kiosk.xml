@@ -1802,6 +1802,34 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
+                <!-- Voice Control Trigger Pill -->
+                <LinearLayout
+                    android:id="@+id/btnVoiceControl"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp">
+
+                    <ImageView
+                        android:id="@+id/ivVoiceControl"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:src="@drawable/ic_mic" />
+
+                    <TextView
+                        android:id="@+id/tvVoiceControl"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="Voice"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
                 <!-- Spotify Connect Volume Pill (hidden with Spotify player) -->
                 <LinearLayout
                     android:id="@+id/volumePill"

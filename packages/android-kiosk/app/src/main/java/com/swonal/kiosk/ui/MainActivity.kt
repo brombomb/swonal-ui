@@ -498,6 +498,9 @@ class MainActivity : AppCompatActivity() {
         binding.btnOpenCoachModal.setOnClickListener {
             showDialogOnce("coach") { CoachPromptDialog() }
         }
+        binding.btnVoiceControl.setOnClickListener {
+            showDialogOnce("coach") { CoachPromptDialog() }
+        }
         binding.btnCoachSuggestedAction.setOnClickListener {
             val act = repo.uiStateFlow.value.coachAction ?: return@setOnClickListener
             repo.executeCoachAction(act)
@@ -1606,6 +1609,10 @@ class MainActivity : AppCompatActivity() {
         binding.ivDeviceVolume.setColorFilter(p.accentInk)
         binding.tvDeviceVolLabel.setTextColor(p.textMuted)
         binding.tvDeviceVolumePct.setTextColor(p.textPrimary)
+
+        binding.btnVoiceControl.background = p.elevatedPillDrawable(d, 10f)
+        binding.ivVoiceControl.setColorFilter(p.accentInk)
+        binding.tvVoiceControl.setTextColor(p.textPrimary)
 
         binding.volumePill.background = p.elevatedPillDrawable(d, 10f, interactive = false)
         binding.ivVolume.setColorFilter(p.accentInk)
