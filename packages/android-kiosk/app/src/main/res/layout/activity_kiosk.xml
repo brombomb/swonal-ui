@@ -1353,7 +1353,7 @@
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
-                android:text="Standard — Constant digital resistance through the full range of motion"
+                android:text="Standard — Constant resistance through the full range of motion"
                 android:textSize="11.5sp" />
 
             <!-- 6 Dynamic Mode Pills -->
@@ -1372,33 +1372,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:text="Standard"
-                    android:textSize="12.5sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/btnModeEccentric"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="Eccentric"
-                    android:textSize="12.5sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/btnModeChains"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="Chains"
-                    android:textSize="12.5sp"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -1411,7 +1385,7 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:text="Spotter"
-                    android:textSize="12.5sp"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -1424,6 +1398,32 @@
                     android:focusable="true"
                     android:gravity="center"
                     android:text="Burnout"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnModeEccentric"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Eccentric"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnModeChains"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Chains"
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
