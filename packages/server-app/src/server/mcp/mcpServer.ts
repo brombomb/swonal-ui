@@ -8,7 +8,7 @@ export const WorkoutItemSchema = z.object({
   exerciseId: z.string().uuid(),
   sets: z.number().int().min(1).max(20),
   targetReps: z.number().int().min(1).max(100),
-  mode: z.enum(['standard', 'eccentric', 'chains', 'spotter', 'burnout']).default('standard'),
+  mode: z.enum(['standard', 'eccentric', 'chains', 'spotter', 'burnout', 'smart_flex']).default('standard'),
   modifierPct: z.number().int().min(0).max(100).default(0),
   targetWeightLb: z.number().positive(),
 });

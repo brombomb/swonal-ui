@@ -597,6 +597,9 @@ class LocalAiCoachEngine(
             if (Regex("\\b(?:burnout\\s+mode|switch\\s+to\\s+burnout|turn\\s+on\\s+burnout|enable\\s+burnout)\\b").containsMatchIn(q)) {
                 return ExtendedCoachSuggestedAction("set_mode", mode = "BURNOUT", label = "Switch to Burnout Mode")
             }
+            if (Regex("\\b(?:smart\\s*flex\\s+mode|switch\\s+to\\s+smart\\s*flex|turn\\s+on\\s+smart\\s*flex|enable\\s+smart\\s*flex)\\b").containsMatchIn(q)) {
+                return ExtendedCoachSuggestedAction("set_mode", mode = "SMART_FLEX", label = "Switch to Smart Flex Mode")
+            }
             if (Regex("\\b(?:standard\\s+mode|normal\\s+mode|switch\\s+to\\s+standard|switch\\s+to\\s+normal|turn\\s+on\\s+standard)\\b").containsMatchIn(q)) {
                 return ExtendedCoachSuggestedAction("set_mode", mode = "STANDARD", label = "Switch to Standard Mode")
             }
@@ -609,7 +612,7 @@ class LocalAiCoachEngine(
 
             SELECT_EX_REGEX.find(prompt.trim().replace(Regex("[.!?]+$"), ""))?.groupValues?.getOrNull(1)?.trim()?.let { cand ->
                 val lower = cand.lowercase(Locale.US)
-                val isModeOrWeight = Regex("\\b(?:standard|normal|eccentric|chains?|spotter|burnout)\\b").containsMatchIn(lower) ||
+                val isModeOrWeight = Regex("\\b(?:standard|normal|eccentric|chains?|spotter|burnout|smart\\s*flex)\\b").containsMatchIn(lower) ||
                     Regex("^\\d+\\s*(?:lb|lbs|pound|pounds|kg)?$").matches(lower)
                 if (cand.length >= 2 && !isModeOrWeight) {
                     return ExtendedCoachSuggestedAction("select_exercise", exerciseQuery = cand, label = "Switch to $cand")

@@ -113,6 +113,10 @@ class MockMotorSimulator:
             drop_steps = max(0, current_rep_count - 2)
             taper_factor = max(0.5, 1.0 - drop_steps * 0.05)
             applied = max(self.min_weight, target_weight_lb * taper_factor)
+        elif profile_mode == "smart_flex":
+            # Dynamic peak-strength curve adding resistance through mid-ROM
+            peak_curve = math.sin(extension * math.pi)
+            applied = target_weight_lb * (1.0 + peak_curve * (min(60, modifier_pct) / 100.0))
 
         applied = min(self.max_weight, max(self.min_weight, applied))
 

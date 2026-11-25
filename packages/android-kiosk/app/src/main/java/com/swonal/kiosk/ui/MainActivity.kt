@@ -427,7 +427,8 @@ class MainActivity : AppCompatActivity() {
             binding.btnModeEccentric,
             binding.btnModeChains,
             binding.btnModeSpotter,
-            binding.btnModeBurnout
+            binding.btnModeBurnout,
+            binding.btnModeSmartFlex
         ).forEach { it.typeface = interExtraBold }
 
         // JetBrains Mono + tabular-nums (`tnum`) across all live numeric readouts & steppers
@@ -647,6 +648,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnModeChains.setOnClickListener { repo.setDynamicMode("chains") }
         binding.btnModeSpotter.setOnClickListener { repo.setDynamicMode("spotter") }
         binding.btnModeBurnout.setOnClickListener { repo.setDynamicMode("burnout") }
+        binding.btnModeSmartFlex.setOnClickListener { repo.setDynamicMode("smart_flex") }
 
         // Voice Coach
         binding.btnOpenCoachModal.setOnClickListener {
@@ -1495,7 +1497,8 @@ class MainActivity : AppCompatActivity() {
             Triple("eccentric", "Eccentric", binding.btnModeEccentric),
             Triple("chains", "Chains", binding.btnModeChains),
             Triple("spotter", "Spotter", binding.btnModeSpotter),
-            Triple("burnout", "Burnout", binding.btnModeBurnout)
+            Triple("burnout", "Burnout", binding.btnModeBurnout),
+            Triple("smart_flex", "Smart Flex", binding.btnModeSmartFlex)
         )
         modes.forEach { (id, label, view) ->
             val selected = norm == id

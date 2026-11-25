@@ -65,12 +65,14 @@ object Units {
     fun dynamicModeDefaultPct(mode: String): Int = when (mode.lowercase(Locale.US)) {
         "eccentric" -> 25
         "chains" -> 25
+        "smart_flex" -> 25
         else -> 0
     }
 
     fun effectiveModifierPct(mode: String, modifierPct: Int): Int {
         return when (mode.lowercase(Locale.US)) {
-            "eccentric", "chains" -> modifierPct.coerceIn(0, 100)
+            "eccentric", "smart_flex" -> modifierPct.coerceIn(0, 60)
+            "chains" -> modifierPct.coerceIn(0, 100)
             else -> 0
         }
     }
