@@ -23,8 +23,42 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Auto-Merge Release PR (if RELEASE_PLEASE_TOKEN configured)
+        if: steps.release.outputs.release_created != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "RELEASE_PLEASE_TOKEN not set; leaving Release Please PR open for manual merge."
+            exit 0
+          fi
+          PR_NUM=$(python3 - <<'PY'
+          import json, os
+          raw = os.environ.get("PR_JSON", "").strip()
+          if raw:
+              try:
+                  obj = json.loads(raw)
+                  if isinstance(obj, dict) and obj.get("number"):
+                      print(obj["number"])
+              except Exception:
+                  pass
+          PY
+          )
+          if [ -z "$PR_NUM" ]; then
+            PR_NUM=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "release-please--branches--main" --state open --json number --jq '.[0].number // empty')
+          fi
+          if [ -z "$PR_NUM" ]; then
+            echo "No open Release Please PR to auto-merge."
+            exit 0
+          fi
+          echo "Auto-merging Release Please PR #$PR_NUM..."
+          gh pr merge "$PR_NUM" --repo "$GITHUB_REPOSITORY" --auto --squash --delete-branch \
+            || gh pr merge "$PR_NUM" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
 
   build-apk:
     name: Build Android Kiosk APK
@@ -192,10 +226,9 @@ jobs:
             "release-artifacts/swonal-server-bundle.tar.gz" \
             --clobber
 
-      - name: Extract Human-Readable Changelog (Manual Tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Extract Human-Readable Changelog
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
         run: |
           python3 - "$RELEASE_TAG" <<'PY' > release-notes.md
           import re, sys
