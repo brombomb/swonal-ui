@@ -472,7 +472,7 @@ class MainActivity : AppCompatActivity() {
             showDialogOnce("swocial") { SwocialDialog() }
         }
         binding.btnHistory.setOnClickListener {
-            openServerWebPath("/history", "History & PRs")
+            showDialogOnce("history") { com.swonal.kiosk.ui.dialogs.HistoryDialog() }
         }
         binding.btnQuickPrefs.setOnClickListener { anchor ->
             KioskPopups.showQuickPreferences(
@@ -481,7 +481,14 @@ class MainActivity : AppCompatActivity() {
                 palette = currentPalette,
                 onOpenProfiles = { showDialogOnce("profiles") { ProfileStyleDialog() } },
                 onOpenMenu = { showDialogOnce("app_drawer") { AppDrawerDialog() } },
-                onOpenWebPath = { path, title -> openServerWebPath(path, title) },
+                onOpenWebPath = { path, title ->
+                    when (path) {
+                        "/settings" -> showDialogOnce("app_settings") { com.swonal.kiosk.ui.dialogs.AppSettingsDialog() }
+                        "/history" -> showDialogOnce("history") { com.swonal.kiosk.ui.dialogs.HistoryDialog() }
+                        "/admin" -> showDialogOnce("admin") { com.swonal.kiosk.ui.dialogs.AdminDialog() }
+                        else -> openServerWebPath(path, title)
+                    }
+                },
                 onCheckUpdates = {
                     Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show()
                     lifecycleScope.launch {

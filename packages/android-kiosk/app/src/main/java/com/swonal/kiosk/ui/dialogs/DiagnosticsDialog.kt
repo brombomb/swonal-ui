@@ -255,8 +255,11 @@ class DiagnosticsDialog : BaseSwonalDialog() {
 
         // Link to Application Settings & Standalone/Server Sync Settings
         content.addView(makePillButton("Application & AI Coach Settings →") {
+            val fm = parentFragmentManager
             dismiss()
-            openSafeHttpUrl("$baseLocalWeb/settings", "Application Settings")
+            if (!fm.isStateSaved && fm.findFragmentByTag("app_settings") == null) {
+                AppSettingsDialog().show(fm, "app_settings")
+            }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
