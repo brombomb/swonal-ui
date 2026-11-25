@@ -65,17 +65,10 @@ class BeveledSurfaceDrawable(
             fillPaint.shader = null
             fillPaint.color = topFill
         }
-        if (bounds.height() > 0) {
-            borderPaint.shader = LinearGradient(
-                0f,
-                bounds.top.toFloat(),
-                0f,
-                bounds.bottom.toFloat(),
-                intArrayOf(topHighlightColor, sideBorderColor, sideBorderColor, bottomFadeColor),
-                floatArrayOf(0f, 0.14f, 0.86f, 1f),
-                Shader.TileMode.CLAMP
-            )
-        }
+        // Use a crisp uniform anti-aliased stroke (avoids Android 6.0 Mali-T860 dark corner artifacts
+        // caused by multi-stop LinearGradient stroke shaders on rounded corners, especially in Light mode).
+        borderPaint.shader = null
+        borderPaint.color = sideBorderColor
     }
 
     override fun draw(canvas: Canvas) {

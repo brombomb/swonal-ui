@@ -343,11 +343,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvVoiceControl.setTextColor(
             if (inlineVoiceActive && !inlineVoiceLoading) p.successText else p.textPrimary
         )
-        binding.tvVoiceControl.text = when {
-            inlineVoiceLoading -> "Loading..."
-            inlineVoiceActive -> "Voice On"
-            else -> "Voice"
-        }
+        binding.tvVoiceControl.text = if (inlineVoiceLoading) "..." else "Voice"
     }
 
     override fun onDestroy() {
@@ -1506,6 +1502,14 @@ class MainActivity : AppCompatActivity() {
             view.background = if (selected) p.accentPillDrawable(d, 12f) else p.elevatedPillDrawable(d, 12f)
             view.setTextColor(if (selected) p.accentTextColor else p.textPrimary)
         }
+        binding.tvModeDescription.text = when (norm) {
+            "eccentric" -> "Eccentric — Adds +${modifierPct.coerceAtLeast(25)}% extra load during the lowering phase"
+            "chains" -> "Chains — Progressively adds up to +${modifierPct.coerceAtLeast(25)}% as you extend the cables"
+            "spotter" -> "Spotter — Automatically reduces weight if you slow down or stall mid-rep"
+            "burnout" -> "Burnout — Gradually drops weight as you fatigue so you can push further"
+            "smart_flex" -> "Smart Flex — Dynamically adds up to +${modifierPct.coerceAtLeast(25)}% at your strongest point"
+            else -> "Standard — Constant digital resistance through the full range of motion"
+        }
     }
 
     private fun rebuildProfilePills(ui: KioskUiState) {
@@ -1710,6 +1714,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvUpNextTitle.setTextColor(p.textPrimary)
         binding.tvUpNextMeta.setTextColor(p.accentInk)
         binding.deckDivider.setBackgroundColor(p.borderSubtle)
+        binding.tvModeDescription.setTextColor(p.textMuted)
 
         // Inline Coach (uses emerald successPillDrawable matching web bg-emerald-500/25)
         binding.inlineCoachRow.background = p.elevatedPillDrawable(d, 12f, interactive = false)
