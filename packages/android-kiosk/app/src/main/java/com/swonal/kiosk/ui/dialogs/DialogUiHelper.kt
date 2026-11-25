@@ -63,26 +63,190 @@ abstract class BaseSwonalDialog : DialogFragment() {
 
     protected open val maxDialogWidthDp: Int = 460
     protected open val cancelableOnOutside: Boolean = true
+    protected open val isFullScreen: Boolean = false
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        val dialog = Dialog(requireContext(), R.style.Theme_SwonalKiosk_Dialog)
+        val themeRes = if (isFullScreen) {
+            android.R.style.Theme_Black_NoTitleBar_Fullscreen
+        } else {
+            R.style.Theme_SwonalKiosk_Dialog
+        }
+        val dialog = Dialog(requireContext(), themeRes)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setCanceledOnTouchOutside(cancelableOnOutside)
+        dialog.setCanceledOnTouchOutside(if (isFullScreen) false else cancelableOnOutside)
         isCancelable = cancelableOnOutside
         return dialog
     }
 
+    @Suppress("DEPRECATION")
     override fun onStart() {
         super.onStart()
         val window = dialog?.window ?: return
-        val dm = resources.displayMetrics
-        val maxW = (maxDialogWidthDp * dm.density).toInt().coerceAtMost((dm.widthPixels * 0.92f).toInt())
-        window.setLayout(maxW, ViewGroup.LayoutParams.WRAP_CONTENT)
-        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        if (isFullScreen) {
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            window.setBackgroundDrawable(ColorDrawable(palette.bgCanvas))
+            window.setDimAmount(0f)
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                )
+        } else {
+            val dm = resources.displayMetrics
+            val maxW = (maxDialogWidthDp * dm.density).toInt().coerceAtMost((dm.widthPixels * 0.92f).toInt())
+            window.setLayout(maxW, ViewGroup.LayoutParams.WRAP_CONTENT)
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
     }
 
     protected fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     protected fun dpf(value: Float): Float = value * resources.displayMetrics.density
+
+    protected fun createFullScreenRoot(): LinearLayout {
+        return LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(palette.bgCanvas)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+    }
+
+    protected fun createFullScreenHeader(
+        titleText: String,
+        subtitleText: String? = null,
+        rightContent: View? = null
+    ): LinearLayout {
+        val p = palette
+        val d = resources.displayMetrics.density
+        return LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(p.bgDialog)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+
+            val bar = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(24), dp(18), dp(24), dp(18))
+
+                val backBtn = TextView(requireContext()).apply {
+                    text = "← Kiosk"
+                    textSize = 14f
+                    typeface = SwonalFonts.interBold(requireContext())
+                    setTextColor(p.textPrimary)
+                    gravity = Gravity.CENTER
+                    background = p.elevatedPillDrawable(d, 12f)
+                    setPadding(dp(18), dp(10), dp(18), dp(10))
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { dismiss() }
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        dp(44)
+                    ).apply { marginEnd = dp(18) }
+                }.also { PressFeedback.attachSingle(it) }
+                addView(backBtn)
+
+                val titleCol = LinearLayout(requireContext()).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    addView(TextView(requireContext()).apply {
+                        text = titleText
+                        textSize = 22f
+                        typeface = SwonalFonts.interBlack(requireContext())
+                        setTextColor(p.textPrimary)
+                    })
+                    if (!subtitleText.isNullOrBlank()) {
+                        addView(TextView(requireContext()).apply {
+                            text = subtitleText
+                            textSize = 13f
+                            setTextColor(p.textMuted)
+                            layoutParams = LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            ).apply { topMargin = dp(2) }
+                        })
+                    }
+                }
+                addView(titleCol)
+
+                if (rightContent != null) {
+                    addView(rightContent)
+                }
+            }
+            addView(bar)
+
+            addView(View(requireContext()).apply {
+                setBackgroundColor(p.borderSubtle)
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1).coerceAtLeast(1))
+            })
+        }
+    }
+
+    protected fun createFullScreenScrollBody(): Pair<android.widget.ScrollView, LinearLayout> {
+        val body = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(22), dp(24), dp(44))
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val scroll = android.widget.ScrollView(requireContext()).apply {
+            isFillViewport = true
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            addView(body)
+        }
+        return scroll to body
+    }
+
+    protected fun createSurfaceCard(paddingDp: Int = 22): LinearLayout {
+        val d = resources.displayMetrics.density
+        return LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            background = palette.surfaceCardDrawable(d, 22f)
+            setPadding(dp(paddingDp), dp(paddingDp), dp(paddingDp), dp(paddingDp))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(18) }
+        }
+    }
+
+    protected fun makeCardHeading(title: String, subtitle: String? = null): LinearLayout {
+        val p = palette
+        return LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(14) }
+            addView(TextView(requireContext()).apply {
+                text = title
+                textSize = 19f
+                typeface = SwonalFonts.interBlack(requireContext())
+                setTextColor(p.textPrimary)
+            })
+            if (!subtitle.isNullOrBlank()) {
+                addView(TextView(requireContext()).apply {
+                    text = subtitle
+                    textSize = 13f
+                    setTextColor(p.textMuted)
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(2) }
+                })
+            }
+        }
+    }
 
     protected fun createCardRoot(paddingDp: Int = 20): LinearLayout {
         val d = resources.displayMetrics.density
