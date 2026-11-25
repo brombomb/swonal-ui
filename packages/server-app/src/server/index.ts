@@ -641,6 +641,12 @@ export async function createSwonalServer(
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
+    // Disable reverse-proxy (Nginx/Cloudflare/Caddy) buffering and Nagle delay so large
+    // SSE JSON-RPC payloads (e.g. unfiltered 50-exercise catalog) flush immediately.
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    req.socket.setNoDelay(true);
+
     const transport = new SSEServerTransport('/mcp/messages', res);
     const mcp = createSwonalMcpServer();
     sseTransports.set(transport.sessionId, { transport, server: mcp });
