@@ -2351,15 +2351,6 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           </button>
           <button
             type="button"
-            onClick={() => setTab('builder')}
-            className="flex flex-col items-center justify-center gap-1 text-xs font-bold"
-            style={{ color: tab === 'builder' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
-          >
-            <Dumbbell size={20} />
-            <span>Builder</span>
-          </button>
-          <button
-            type="button"
             onClick={() => setTab('history')}
             className="flex flex-col items-center justify-center gap-1 text-xs font-bold"
             style={{ color: tab === 'history' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
@@ -2375,6 +2366,15 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           >
             <Users size={20} />
             <span>Swocial</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('builder')}
+            className="flex flex-col items-center justify-center gap-1 text-xs font-bold"
+            style={{ color: tab === 'builder' ? 'var(--accent-primary)' : 'var(--text-muted)' }}
+          >
+            <Dumbbell size={20} />
+            <span>Builder</span>
           </button>
         </div>
       </nav>
