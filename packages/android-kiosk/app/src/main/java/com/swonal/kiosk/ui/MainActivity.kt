@@ -125,6 +125,14 @@ class MainActivity : AppCompatActivity() {
         volumeControlStream = AudioManager.STREAM_MUSIC
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveFullscreen()
+        @Suppress("DEPRECATION")
+        window.decorView.setOnSystemUiVisibilityChangeListener { visibility ->
+            if ((visibility and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
+                window.decorView.postDelayed({
+                    if (!isFinishing && !isDestroyed) applyImmersiveFullscreen()
+                }, 1200L)
+            }
+        }
 
         app = application as SwonalApp
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -155,6 +163,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        applyImmersiveFullscreen()
         syncDeviceVolumeSlider()
         // If the user returned after cancelling or dismissing the fallback system installer,
         // release the maintenance lock and clear update ownership.
@@ -363,11 +372,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun reapplyImmersiveFullscreen() {
+        applyImmersiveFullscreen()
+    }
+
+    @Suppress("DEPRECATION")
     private fun applyImmersiveFullscreen() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            )
     }
 
     private fun applyTypographyAndClipping() {

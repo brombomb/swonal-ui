@@ -116,13 +116,15 @@ class SwocialDialog : BaseSwonalDialog() {
     }
 
     private fun syncRelays() {
-        val uid = repo.uiStateFlow.value.activeUser?.id ?: return
+        val r = repo
+        val uid = r.uiStateFlow.value.activeUser?.id ?: return
         syncing = true
         renderBody()
         viewLifecycleOwner.lifecycleScope.launch {
-            runCatching { repo.localNostr.syncFeed(uid) }
-            repo.notifyDirtySync()
+            runCatching { r.localNostr.syncFeed(uid) }
+            r.notifyDirtySync()
             syncing = false
+            if (!isAdded) return@launch
             loadSwocialData()
         }
     }
