@@ -1,18 +1,27 @@
 package com.swonal.kiosk.ui.dialogs
 
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.ui.PressFeedback
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -313,19 +322,73 @@ class SwocialDialog : BaseSwonalDialog() {
             }
         } else {
             // Friends & My Code tab
-            bodyContainer.addView(makeSectionLabel("Your Public Swocial Code"))
-            bodyContainer.addView(TextView(requireContext()).apply {
-                text = myNpub.ifBlank { "Generating Swocial code..." }
-                textSize = 11.5f
-                typeface = SwonalFonts.monoBold(requireContext())
-                setTextColor(p.accentInk)
-                background = p.elevatedPillDrawable(d, 10f, interactive = false)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
+            val activeName = repo.uiStateFlow.value.activeUser?.name ?: "Lifter"
+            bodyContainer.addView(makeSectionLabel("Your Public Swocial Code — $activeName"))
+
+            val codeCard = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = p.elevatedPillDrawable(d, 12f, interactive = false)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = dp(12) }
+            }
+
+            if (myNpub.isNotBlank()) {
+                val qrFrame = LinearLayout(requireContext()).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(6), dp(6), dp(6), dp(6))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = 10f * d
+                    }
+                    layoutParams = LinearLayout.LayoutParams(dp(128), dp(128)).apply {
+                        marginEnd = dp(12)
+                    }
+                }
+                val qrView = ImageView(requireContext()).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+                qrFrame.addView(qrView)
+                codeCard.addView(qrFrame)
+                val npubSnapshot = myNpub
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val bmp = withContext(Dispatchers.Default) { encodeQr(npubSnapshot, 320) }
+                    if (isAdded) qrView.setImageBitmap(bmp)
+                }
+            }
+
+            val codeCol = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            codeCol.addView(TextView(requireContext()).apply {
+                text = if (myNpub.isNotBlank()) {
+                    "Scan this QR code with a friend's phone to share your Swocial code:"
+                } else {
+                    "Generating Swocial code..."
+                }
+                textSize = 11f
+                setTextColor(p.textMuted)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(6) }
             })
+            codeCol.addView(TextView(requireContext()).apply {
+                text = myNpub.ifBlank { "Generating Swocial code..." }
+                textSize = 11f
+                typeface = SwonalFonts.monoBold(requireContext())
+                setTextColor(p.accentInk)
+            })
+            codeCard.addView(codeCol)
+            bodyContainer.addView(codeCard)
 
             bodyContainer.addView(makeSectionLabel("Add Friend by Swocial Code"))
             val npubInput = EditText(requireContext()).apply {
@@ -417,6 +480,27 @@ class SwocialDialog : BaseSwonalDialog() {
                     bodyContainer.addView(row)
                 }
             }
+        }
+    }
+
+    private fun encodeQr(text: String, dim: Int): Bitmap {
+        val bitMatrix = QRCodeWriter().encode(
+            text,
+            BarcodeFormat.QR_CODE,
+            dim,
+            dim,
+            mapOf(EncodeHintType.MARGIN to 2)
+        )
+        val pixels = IntArray(dim * dim)
+        val dark = 0xFF07090E.toInt()
+        for (y in 0 until dim) {
+            val row = y * dim
+            for (x in 0 until dim) {
+                pixels[row + x] = if (bitMatrix[x, y]) dark else Color.WHITE
+            }
+        }
+        return Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888).apply {
+            setPixels(pixels, 0, dim, 0, 0, dim, dim)
         }
     }
 }

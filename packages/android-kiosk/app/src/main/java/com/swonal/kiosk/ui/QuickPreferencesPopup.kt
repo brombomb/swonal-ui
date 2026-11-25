@@ -27,7 +27,6 @@ object KioskPopups {
         anchor: View,
         palette: SwonalPalette,
         onOpenProfiles: () -> Unit,
-        onOpenDiagnostics: () -> Unit,
         onOpenMenu: () -> Unit,
         onOpenWebPath: (path: String, title: String) -> Unit
     ) {
@@ -70,16 +69,6 @@ object KioskPopups {
         root.addView(makePopupButton(context, "Accent Color & Profiles", palette, d) {
             popup.dismiss()
             onOpenProfiles()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(38)
-            ).apply { bottomMargin = dp(6) }
-        })
-
-        root.addView(makePopupButton(context, "Hardware & Diagnostics", palette, d) {
-            popup.dismiss()
-            onOpenDiagnostics()
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,

@@ -358,7 +358,6 @@ class MainActivity : AppCompatActivity() {
                 anchor = anchor,
                 palette = currentPalette,
                 onOpenProfiles = { showDialogOnce("profiles") { ProfileStyleDialog() } },
-                onOpenDiagnostics = { showDialogOnce("diagnostics") { DiagnosticsDialog() } },
                 onOpenMenu = { showDialogOnce("app_drawer") { AppDrawerDialog() } },
                 onOpenWebPath = { path, title -> openServerWebPath(path, title) }
             )
