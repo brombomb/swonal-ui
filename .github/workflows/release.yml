@@ -67,12 +67,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -85,13 +85,13 @@ jobs:
           npm run build:client
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Decode Release Keystore (if configured)
         env:
@@ -150,7 +150,7 @@ jobs:
           ./gradlew assembleRelease -PswonalVersionName="$VER" -PswonalVersionCode="$VCODE" --no-daemon
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: swonal-kiosk-apk
           path: packages/android-kiosk/app/build/outputs/apk/release/app-release.apk
@@ -162,12 +162,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -180,7 +180,7 @@ jobs:
           tar -czvf ../../swonal-server-bundle.tar.gz dist/ prisma/ package.json package-lock.json node_modules/.prisma
 
       - name: Upload Server Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: swonal-server-bundle
           path: swonal-server-bundle.tar.gz
@@ -194,18 +194,18 @@ jobs:
       contents: write
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
 
       - name: Download APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: swonal-kiosk-apk
           path: release-artifacts/
 
       - name: Download Server
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: swonal-server-bundle
           path: release-artifacts/
