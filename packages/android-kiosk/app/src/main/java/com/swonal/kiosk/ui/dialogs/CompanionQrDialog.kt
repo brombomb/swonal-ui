@@ -132,11 +132,15 @@ class CompanionQrDialog : BaseSwonalDialog() {
         })
 
         val discoveredIps = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
-        val effectiveIps = discoveredIps.ifEmpty { ui.networkInfo?.ips.orEmpty() }
-        val effectivePort = repo.embeddedServerPort.takeIf { it > 0 } ?: (ui.networkInfo?.port ?: 3000)
+        val effectivePort = repo.embeddedServerPort.takeIf { it > 0 } ?: 3000
+        val localPublicUrl = if (ui.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) {
+            ui.networkInfo?.publicUrl
+        } else {
+            null
+        }
         val candidates = buildCandidateUrls(
-            publicUrl = ui.networkInfo?.publicUrl,
-            ips = effectiveIps,
+            publicUrl = localPublicUrl,
+            ips = discoveredIps,
             port = effectivePort,
             activeSessionId = ui.sessionState.activeSessionId
         )

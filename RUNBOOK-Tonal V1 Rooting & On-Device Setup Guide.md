@@ -98,8 +98,10 @@ adb shell "su -c 'ls -l /dev/ttyACM0'"
 Once Wi-Fi ADB (`:5555`) is active from Phase 1/2, you do **not** need a separate home server or manual Magisk scripts. Run the automated installer from your laptop:
 
 ```bash
-./scripts/install-device.sh --target <TONAL_LAN_IP>:5555
+./scripts/install-device.sh --target <TONAL_LAN_IP>:5555 --kiosk-apk /path/to/swonal-kiosk-vX.Y.Z.apk
 ```
+
+*(Alternatively, copy the downloaded APK to `packages/device-assets/swonal-kiosk.apk` for automatic discovery without `--kiosk-apk`.)*
 
 This automatically installs **Termux**, **Swonal Native Kiosk APK** (Standalone-First mode with embedded SQLite, `:3000` LAN Companion Web UI, and GeckoView ESR), **`librespot-aarch64`** (`99-swonal-librespot.sh`), and **`tonal-daemon`** (`98-swonal-daemon.sh`). Optionally pass `--server-url http://<SERVER_IP>:3000` only if pairing an external sync server.
 
