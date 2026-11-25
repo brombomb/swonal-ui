@@ -25,12 +25,7 @@ object KioskPopups {
     fun showQuickPreferences(
         context: Context,
         anchor: View,
-        initialUi: KioskUiState,
         palette: SwonalPalette,
-        onToggleUnit: () -> Unit,
-        onToggleTheme: () -> Unit,
-        onToggleDemoPip: () -> Unit,
-        onCycleTelemetry: () -> Unit,
         onOpenProfiles: () -> Unit,
         onOpenDiagnostics: () -> Unit,
         onOpenMenu: () -> Unit,
@@ -40,10 +35,6 @@ object KioskPopups {
         fun dp(v: Int) = (v * d).toInt()
 
         lateinit var popup: PopupWindow
-        var localUnit = initialUi.activeUnit
-        var localDark = palette.isDark
-        var localDemoPip = initialUi.showDemoPip
-        var localTelemetry = initialUi.telemetryDisplayMode
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -59,7 +50,7 @@ object KioskPopups {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(10) }
             addView(TextView(context).apply {
-                text = "QUICK PREFERENCES"
+                text = "SETTINGS"
                 textSize = 10.5f
                 letterSpacing = 0.08f
                 typeface = SwonalFonts.interExtraBold(context)
@@ -75,130 +66,6 @@ object KioskPopups {
             }.also { PressFeedback.attachSingle(it) })
         }
         root.addView(header)
-
-        // Device Hardware Volume Slider (`AudioManager.STREAM_MUSIC`)
-        val audioMgr = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val maxVol = audioMgr.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val curVol = audioMgr.getStreamVolume(AudioManager.STREAM_MUSIC)
-        val curPct = ((curVol.toFloat() / maxVol.toFloat()) * 100f).roundToInt()
-        val barFillColor = if (palette.isDark) palette.accentPrimary else palette.accentInk
-
-        val volCard = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            background = palette.elevatedPillDrawable(d, 10f, interactive = false)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
-        }
-        val volTop = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val volPctTv = TextView(context).apply {
-            text = "$curPct%"
-            textSize = 11.5f
-            typeface = SwonalFonts.monoBold(context)
-            fontFeatureSettings = "tnum"
-            setTextColor(palette.accentInk)
-        }
-        volTop.addView(TextView(context).apply {
-            text = "Device Volume"
-            textSize = 12f
-            typeface = SwonalFonts.interBold(context)
-            setTextColor(palette.textPrimary)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        volTop.addView(volPctTv)
-        volCard.addView(volTop)
-
-        volCard.addView(SeekBar(context).apply {
-            max = maxVol
-            progress = curVol
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4) }
-            progressDrawable = createSliderTrack(palette.bgSurfaceSolid, barFillColor, 6f * d)
-            thumb = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(barFillColor)
-                setSize(dp(14), dp(14))
-                setStroke(dp(2), palette.bgSurfaceSolid)
-            }
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) {
-                        audioMgr.setStreamVolume(AudioManager.STREAM_MUSIC, progress, 0)
-                        val sysMax = audioMgr.getStreamMaxVolume(AudioManager.STREAM_SYSTEM).coerceAtLeast(1)
-                        val sysProgress = ((progress.toFloat() / maxVol.toFloat()) * sysMax.toFloat()).roundToInt()
-                        audioMgr.setStreamVolume(AudioManager.STREAM_SYSTEM, sysProgress, 0)
-                        val pct = ((progress.toFloat() / maxVol.toFloat()) * 100f).roundToInt()
-                        volPctTv.text = "$pct%"
-                    }
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-            })
-        })
-        root.addView(volCard)
-
-        // 2-col row: Units & Theme
-        val topRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
-        }
-        val unitBtn = makePopupButton(context, "Units: $localUnit", palette, d, mono = true) {}
-        unitBtn.setOnClickListener {
-            localUnit = if (localUnit.equals("KG", ignoreCase = true)) "LB" else "KG"
-            unitBtn.text = "Units: $localUnit"
-            onToggleUnit()
-        }
-        unitBtn.layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }
-
-        val themeBtn = makePopupButton(context, "Theme: ${if (localDark) "Dark" else "Light"}", palette, d) {}
-        themeBtn.setOnClickListener {
-            localDark = !localDark
-            themeBtn.text = "Theme: ${if (localDark) "Dark" else "Light"}"
-            onToggleTheme()
-            popup.dismiss()
-        }
-        themeBtn.layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
-        topRow.addView(unitBtn)
-        topRow.addView(themeBtn)
-        root.addView(topRow)
-
-        val (demoRow, demoValueTv) = makeToggleRow(
-            context,
-            "Form Demo Video",
-            if (localDemoPip) "Shown" else "Hidden",
-            palette,
-            d
-        )
-        demoRow.setOnClickListener {
-            localDemoPip = !localDemoPip
-            demoValueTv.text = if (localDemoPip) "Shown" else "Hidden"
-            onToggleDemoPip()
-        }
-        root.addView(demoRow)
-
-        val (vbtRow, vbtValueTv) = makeToggleRow(
-            context,
-            "VBT & Symmetry",
-            localTelemetry.label,
-            palette,
-            d
-        )
-        vbtRow.setOnClickListener {
-            localTelemetry = localTelemetry.next()
-            vbtValueTv.text = localTelemetry.label
-            onCycleTelemetry()
-        }
-        root.addView(vbtRow)
 
         root.addView(makePopupButton(context, "Accent Color & Profiles", palette, d) {
             popup.dismiss()
@@ -220,25 +87,37 @@ object KioskPopups {
             ).apply { bottomMargin = dp(6) }
         })
 
-        root.addView(makePopupButton(context, "Menu & Stock Tonal", palette, d) {
-            popup.dismiss()
-            onOpenMenu()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(38)
-            ).apply { bottomMargin = dp(6) }
-        })
-
-        root.addView(makePopupButton(context, "History & PRs", palette, d) {
-            popup.dismiss()
-            onOpenWebPath("/history", "History & PRs")
-        }.apply {
+        // Menu & Stock Tonal with leading apps icon
+        val menuRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = palette.elevatedPillDrawable(d, 10f)
+            setPadding(dp(12), 0, dp(12), 0)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(38)
             ).apply { bottomMargin = dp(8) }
-        })
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                popup.dismiss()
+                onOpenMenu()
+            }
+            addView(android.widget.ImageView(context).apply {
+                setImageResource(com.swonal.kiosk.R.drawable.ic_apps)
+                setColorFilter(palette.accentInk)
+                layoutParams = LinearLayout.LayoutParams(dp(15), dp(15)).apply {
+                    marginEnd = dp(8)
+                }
+            })
+            addView(TextView(context).apply {
+                text = "Menu & Stock Tonal"
+                textSize = 12f
+                typeface = SwonalFonts.interBold(context)
+                setTextColor(palette.textPrimary)
+            })
+        }.also { PressFeedback.attachSingle(it) }
+        root.addView(menuRow)
 
         root.addView(TextView(context).apply {
             text = "Application Settings →"

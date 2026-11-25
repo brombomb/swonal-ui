@@ -343,31 +343,25 @@ class MainActivity : AppCompatActivity() {
 
         // Top Bar Controls
         binding.btnPartnerMode.setOnClickListener { repo.togglePartnerMode() }
+        binding.btnCompanionQr.setOnClickListener {
+            showDialogOnce("qr") { CompanionQrDialog() }
+        }
+        binding.btnSwocial.setOnClickListener {
+            showDialogOnce("swocial") { SwocialDialog() }
+        }
+        binding.btnHistory.setOnClickListener {
+            openServerWebPath("/history", "History & PRs")
+        }
         binding.btnQuickPrefs.setOnClickListener { anchor ->
-            val ui = repo.uiStateFlow.value
             KioskPopups.showQuickPreferences(
                 context = this,
                 anchor = anchor,
-                initialUi = ui,
                 palette = currentPalette,
-                onToggleUnit = { repo.toggleUnit() },
-                onToggleTheme = { repo.toggleTheme() },
-                onToggleDemoPip = { repo.setShowDemoPip(!repo.uiStateFlow.value.showDemoPip) },
-                onCycleTelemetry = { repo.cycleTelemetryDisplayMode() },
                 onOpenProfiles = { showDialogOnce("profiles") { ProfileStyleDialog() } },
                 onOpenDiagnostics = { showDialogOnce("diagnostics") { DiagnosticsDialog() } },
                 onOpenMenu = { showDialogOnce("app_drawer") { AppDrawerDialog() } },
                 onOpenWebPath = { path, title -> openServerWebPath(path, title) }
             )
-        }
-        binding.btnSwocial.setOnClickListener {
-            showDialogOnce("swocial") { SwocialDialog() }
-        }
-        binding.btnCompanionQr.setOnClickListener {
-            showDialogOnce("qr") { CompanionQrDialog() }
-        }
-        binding.btnAppDrawer.setOnClickListener {
-            showDialogOnce("app_drawer") { AppDrawerDialog() }
         }
         binding.btnHardwareStatus.setOnClickListener {
             showDialogOnce("diagnostics") { DiagnosticsDialog() }
@@ -554,10 +548,10 @@ class MainActivity : AppCompatActivity() {
         // Tactile press-scale, opacity dip & haptic/click feedback on all interactive kiosk buttons
         PressFeedback.attach(
             binding.btnPartnerMode,
-            binding.btnQuickPrefs,
-            binding.btnSwocial,
             binding.btnCompanionQr,
-            binding.btnAppDrawer,
+            binding.btnSwocial,
+            binding.btnHistory,
+            binding.btnQuickPrefs,
             binding.btnHardwareStatus,
             binding.btnDismissQueued,
             binding.btnStartQueued,
@@ -1433,15 +1427,15 @@ class MainActivity : AppCompatActivity() {
         binding.btnAckSafety.setTextColor(p.textPrimary)
 
         // Top Bar Icon Pills
-        binding.btnQuickPrefs.background = p.elevatedPillDrawable(d, 12f)
-        binding.ivQuickPrefs.setColorFilter(p.accentInk)
-        binding.btnSwocial.background = p.elevatedPillDrawable(d, 12f)
-        binding.ivSwocial.setColorFilter(p.accentInk)
         binding.btnCompanionQr.background = p.elevatedPillDrawable(d, 12f)
         binding.ivCompanionQr.setColorFilter(p.accentInk)
         binding.tvCompanionQr.setTextColor(p.textPrimary)
-        binding.btnAppDrawer.background = p.elevatedPillDrawable(d, 12f)
-        binding.ivAppDrawer.setColorFilter(p.accentInk)
+        binding.btnSwocial.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivSwocial.setColorFilter(p.accentInk)
+        binding.btnHistory.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivHistory.setColorFilter(p.accentInk)
+        binding.btnQuickPrefs.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivQuickPrefs.setColorFilter(p.accentInk)
 
         // Exercise Header
         binding.tvRoutinePill.background = p.accentPillDrawable(d, 99f, interactive = false)

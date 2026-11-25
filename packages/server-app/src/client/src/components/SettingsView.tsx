@@ -204,6 +204,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   const [haCoreTokenDraft, setHaCoreTokenDraft] = useState('');
   const [diagMsg, setDiagMsg] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [activeDemoPip, setActiveDemoPip] = useState<boolean>(true);
+  const [vbtDisplayMode, setVbtDisplayMode] = useState<'always' | 'off'>(() => {
+    if (typeof window === 'undefined') return 'always';
+    return window.localStorage.getItem('swonal_telemetry_display') === 'off' ? 'off' : 'always';
+  });
   const [qrModal, setQrModal] = useState<{
     title: string;
     text: string;
@@ -235,6 +240,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
       setQrModal({ title, text, dataUrl: null, error: 'Could not generate QR code for this text.' });
     }
   };
+
+  useEffect(() => {
+    if (!activeUser?.id) return;
+    fetch(`/api/users/${encodeURIComponent(activeUser.id)}/demo-pip`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.enabled === 'boolean') setActiveDemoPip(d.enabled);
+      })
+      .catch(() => {});
+  }, [activeUser?.id]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -1044,6 +1059,82 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               </div>
             </div>
 
+            {/* Display & Units for Active Lifter */}
+            {activeUser && (
+              <div className="space-y-2.5 pt-2 border-t border-[var(--border-subtle)]">
+                <p className="text-xs uppercase tracking-widest font-bold opacity-70">
+                  Display &amp; Units — {activeUser.name}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void updateUserPreferences(activeUser.id, {
+                        weightUnit: activeUser.weightUnit === 'LB' ? 'KG' : 'LB',
+                      })
+                    }
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>Units</span>
+                    <span className="font-mono" style={{ color: 'var(--accent-ink)' }}>
+                      {activeUser.weightUnit}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void updateUserPreferences(activeUser.id, {
+                        themeMode: activeUser.themeMode === 'light' ? 'dark' : 'light',
+                      })
+                    }
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>Theme</span>
+                    <span style={{ color: 'var(--accent-ink)' }}>
+                      {activeUser.themeMode === 'light' ? 'Light' : 'Dark'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = !activeDemoPip;
+                      setActiveDemoPip(next);
+                      await fetch(`/api/users/${encodeURIComponent(activeUser.id)}/demo-pip`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: next }),
+                      }).catch(() => {});
+                    }}
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>Demo Video</span>
+                    <span style={{ color: 'var(--accent-ink)' }}>
+                      {activeDemoPip ? 'Shown' : 'Hidden'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = vbtDisplayMode === 'off' ? 'always' : 'off';
+                      setVbtDisplayMode(next);
+                      if (typeof window !== 'undefined') {
+                        window.localStorage.setItem('swonal_telemetry_display', next);
+                      }
+                    }}
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>VBT &amp; Symmetry</span>
+                    <span style={{ color: 'var(--accent-ink)' }}>
+                      {vbtDisplayMode === 'off' ? 'Off' : 'On'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Create User Form */}
             <form
               onSubmit={async (e) => {
@@ -1402,6 +1493,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                   <span>{friendsSyncing ? 'Syncing...' : 'Sync Feed Now'}</span>
                 </button>
               </div>
+
+              {/* Per-Profile Swocial Switcher */}
+              {users.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] uppercase tracking-wider font-bold opacity-65 mr-1">
+                    Profile:
+                  </span>
+                  {users.map((u) => {
+                    const isCurrent = u.id === activeUser?.id;
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => void switchUser(u.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                          isCurrent ? 'shadow-sm' : 'elevated-pill opacity-75 hover:opacity-100'
+                        }`}
+                        style={
+                          isCurrent
+                            ? {
+                                backgroundColor: u.accentColor || 'var(--accent-primary)',
+                                color: getContrastTextColor(u.accentColor || '#00F0FF'),
+                              }
+                            : undefined
+                        }
+                      >
+                        <span>{u.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {friendsLoading ? (
                 <div className="p-8 text-center text-xs opacity-60">Loading Swocial identity...</div>
