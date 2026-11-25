@@ -48,8 +48,12 @@ open class AppSettingsDialog : BaseSwonalDialog() {
     protected open val defaultInitialTab: Int = 0
     private var activeTab = 0
     private var selectedMuscle: String = "All"
+    private var expandedExerciseId: String? = null
 
+    private lateinit var rootView: LinearLayout
+    private lateinit var headerContainer: LinearLayout
     private lateinit var tabBar: LinearLayout
+    private lateinit var tabDivider: View
     private lateinit var bodyContainer: LinearLayout
 
     // Live-updating text views for embedded diagnostics & sync on Tab 3
@@ -68,22 +72,16 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         savedInstanceState: Bundle?
     ): View {
         val p = palette
-        val d = resources.displayMetrics.density
-        val root = createFullScreenRoot()
+        rootView = createFullScreenRoot()
 
-        val versionBadge = TextView(requireContext()).apply {
-            text = "v${BuildConfig.VERSION_NAME}"
-            textSize = 13f
-            typeface = SwonalFonts.monoBold(requireContext())
-            setTextColor(p.accentInk)
-            background = p.accentMutedDrawable(d, 10f, 1f, interactive = false)
-            setPadding(dp(14), dp(8), dp(14), dp(8))
+        headerContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
         }
-        root.addView(createFullScreenHeader(
-            "Application Settings",
-            "Profiles, AI Coach, Network & TLS, Hardware Admin & System",
-            versionBadge
-        ))
+        rootView.addView(headerContainer)
 
         tabBar = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -94,20 +92,49 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
-        root.addView(tabBar)
-        root.addView(View(requireContext()).apply {
+        rootView.addView(tabBar)
+
+        tabDivider = View(requireContext()).apply {
             setBackgroundColor(p.borderSubtle)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1).coerceAtLeast(1))
-        })
+        }
+        rootView.addView(tabDivider)
 
         val (scroll, body) = createFullScreenScrollBody()
         bodyContainer = body
-        root.addView(scroll)
+        rootView.addView(scroll)
 
+        refreshChromeAndBody()
+        observeLiveAdminTelemetry()
+        return rootView
+    }
+
+    private fun refreshChromeAndBody() {
+        if (!isAdded) return
+        val p = palette
+        val d = resources.displayMetrics.density
+        dialog?.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(p.bgCanvas))
+        rootView.setBackgroundColor(p.bgCanvas)
+
+        val versionBadge = TextView(requireContext()).apply {
+            text = "v${BuildConfig.VERSION_NAME}"
+            textSize = 13f
+            typeface = SwonalFonts.monoBold(requireContext())
+            setTextColor(p.accentInk)
+            background = p.accentMutedDrawable(d, 10f, 1f, interactive = false)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        headerContainer.removeAllViews()
+        headerContainer.addView(createFullScreenHeader(
+            "Application Settings",
+            "Profiles, AI Coach, Network & TLS, Hardware Admin & System",
+            versionBadge
+        ))
+
+        tabBar.setBackgroundColor(p.bgDialog)
+        tabDivider.setBackgroundColor(p.borderSubtle)
         renderTabs()
         renderBody()
-        observeLiveAdminTelemetry()
-        return root
     }
 
     private fun observeLiveAdminTelemetry() {
@@ -227,7 +254,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             localDark = !localDark
             themeValTv.text = if (localDark) "Dark" else "Light"
             repo.toggleTheme()
-            bodyContainer.postDelayed({ if (isAdded) renderBody() }, 120L)
+            bodyContainer.postDelayed({ if (isAdded) refreshChromeAndBody() }, 150L)
         }
         prefsCard.addView(themeRow)
 
@@ -278,7 +305,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                     isFocusable = true
                     setOnClickListener {
                         repo.updateUserAccent(swatch.hex)
-                        bodyContainer.postDelayed({ if (isAdded) renderBody() }, 120L)
+                        bodyContainer.postDelayed({ if (isAdded) refreshChromeAndBody() }, 150L)
                     }
                     addView(View(requireContext()).apply {
                         layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
@@ -313,7 +340,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             val normalized = if (raw.startsWith("#")) raw else "#$raw"
             if (normalized.matches(Regex("^#[0-9A-Fa-f]{6}$"))) {
                 repo.updateUserAccent(normalized.uppercase())
-                bodyContainer.postDelayed({ if (isAdded) renderBody() }, 120L)
+                bodyContainer.postDelayed({ if (isAdded) refreshChromeAndBody() }, 150L)
             } else {
                 Toast.makeText(requireContext(), "Enter a valid 6-digit hex like #1A5FB4", Toast.LENGTH_SHORT).show()
             }
@@ -355,7 +382,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                 isFocusable = true
                 setOnClickListener {
                     repo.switchUser(u.id)
-                    bodyContainer.postDelayed({ if (isAdded) renderBody() }, 120L)
+                    bodyContainer.postDelayed({ if (isAdded) refreshChromeAndBody() }, 150L)
                 }
                 addView(TextView(requireContext()).apply {
                     text = if (isActive) "${u.name}  •  Active" else u.name
@@ -1015,12 +1042,65 @@ open class AppSettingsDialog : BaseSwonalDialog() {
     private fun renderEmbeddedExerciseCatalogCard() {
         val p = palette
         val d = resources.displayMetrics.density
-        val all = repo.uiStateFlow.value.exercises
         val card = createSurfaceCard()
         card.addView(makeCardHeading(
-            "Exercise Catalog (${all.size})",
-            "Recommended arm height (H), rotation (R), and angle (A) presets"
+            "Exercise Catalog & Form Media (${repo.uiStateFlow.value.exercises.size})",
+            "Tap any exercise to edit its Form Demo Video/Image URL, or create a custom exercise"
         ))
+
+        // Collapsible + Add Custom Exercise form
+        val addFormBox = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            background = p.elevatedPillDrawable(d, 16f, interactive = false)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(14) }
+        }
+        val toggleAddBtn = makePillButton("+ Add Custom Exercise") {
+            addFormBox.visibility = if (addFormBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }.apply {
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                bottomMargin = dp(12)
+            }
+        }
+        card.addView(toggleAddBtn)
+
+        val newNameIn = makeInput("Exercise Name (e.g. Cable Face Pull)").apply {
+            textSize = 14.5f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val newMuscleIn = makeInput("Muscle Group (Chest, Back, Shoulders, Legs, Arms, Core)", "Back").apply {
+            textSize = 14.5f
+            layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) }
+        }
+        val newAccIn = makeInput("Accessory (HANDLES, BAR, ROPE)", "ROPE").apply {
+            textSize = 14.5f
+            layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f)
+        }
+        val metaRow = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+            addView(newMuscleIn)
+            addView(newAccIn)
+        }
+        val newMediaIn = makeInput("Form Media URL (/media/foo.svg or https://.../demo.mp4)", "").apply {
+            textSize = 14.5f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        addFormBox.addView(newNameIn)
+        addFormBox.addView(metaRow)
+        addFormBox.addView(newMediaIn)
 
         val filterRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1038,6 +1118,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         }
 
         fun renderCatalog() {
+            val all = repo.uiStateFlow.value.exercises
             val muscles = listOf("All") + all.map { it.muscleGroup }.distinct().sorted()
             filterRow.removeAllViews()
             muscles.take(8).forEachIndexed { idx, m ->
@@ -1058,17 +1139,29 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             val filtered = if (selectedMuscle == "All") all else all.filter { it.muscleGroup == selectedMuscle }
             listBox.removeAllViews()
             filtered.forEach { ex ->
-                val row = LinearLayout(requireContext()).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    background = p.elevatedPillDrawable(d, 14f, interactive = false)
+                val isExpanded = expandedExerciseId == ex.id
+                val rowCard = LinearLayout(requireContext()).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = if (isExpanded) p.accentMutedDrawable(d, 14f, 1.5f) else p.elevatedPillDrawable(d, 14f)
                     setPadding(dp(18), dp(14), dp(18), dp(14))
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
                     ).apply { bottomMargin = dp(8) }
                 }
-                row.addView(LinearLayout(requireContext()).apply {
+
+                val topRow = LinearLayout(requireContext()).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        expandedExerciseId = if (isExpanded) null else ex.id
+                        renderCatalog()
+                    }
+                }
+                val mediaSummary = ex.mediaUrl?.takeIf { it.isNotBlank() }?.let { "Media: $it" } ?: "No form media — tap to configure"
+                topRow.addView(LinearLayout(requireContext()).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     addView(TextView(requireContext()).apply {
@@ -1082,8 +1175,18 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                         textSize = 13f
                         setTextColor(p.textMuted)
                     })
+                    addView(TextView(requireContext()).apply {
+                        text = mediaSummary
+                        textSize = 12f
+                        typeface = SwonalFonts.monoBold(requireContext())
+                        setTextColor(if (ex.mediaUrl.isNullOrBlank()) p.textMuted else p.accentInk)
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = dp(2) }
+                    })
                 })
-                row.addView(TextView(requireContext()).apply {
+                topRow.addView(TextView(requireContext()).apply {
                     text = "H${ex.recommendedHeight}  R${ex.recommendedRotation}  A${ex.recommendedAngle}"
                     textSize = 14f
                     typeface = SwonalFonts.monoBold(requireContext())
@@ -1091,9 +1194,110 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                     background = p.accentMutedDrawable(d, 10f, 1f, interactive = false)
                     setPadding(dp(12), dp(6), dp(12), dp(6))
                 })
-                listBox.addView(row)
+                rowCard.addView(topRow)
+
+                if (isExpanded) {
+                    rowCard.addView(makeDivider())
+                    rowCard.addView(makeSectionLabel("Form Demo Media URL (/media/... or https://...)"))
+                    val mediaInput = makeInput("/media/chest-press.svg or https://.../demo.mp4", ex.mediaUrl.orEmpty()).apply {
+                        textSize = 14.5f
+                        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                            bottomMargin = dp(10)
+                        }
+                    }
+                    rowCard.addView(mediaInput)
+
+                    val btnRow = LinearLayout(requireContext()).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    }
+                    btnRow.addView(makeAccentButton("Save Media URL") {
+                        val nextUrl = mediaInput.text.toString().trim().ifEmpty { null }
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            runCatching {
+                                repo.localEngine.updateExercise(
+                                    exerciseId = ex.id,
+                                    mediaUrl = nextUrl,
+                                    updateMediaUrl = true
+                                )
+                            }.onSuccess {
+                                repo.refreshAppState()
+                                repo.notifyDirtySync()
+                                Toast.makeText(requireContext(), "Updated media for ${ex.name}", Toast.LENGTH_SHORT).show()
+                                expandedExerciseId = null
+                                renderCatalog()
+                            }.onFailure { err ->
+                                Toast.makeText(requireContext(), err.message ?: "Invalid media URL", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }.apply {
+                        textSize = 14f
+                        layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(8) }
+                    })
+                    btnRow.addView(makePillButton("Clear Media") {
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            runCatching {
+                                repo.localEngine.updateExercise(
+                                    exerciseId = ex.id,
+                                    mediaUrl = null,
+                                    updateMediaUrl = true
+                                )
+                            }.onSuccess {
+                                repo.refreshAppState()
+                                repo.notifyDirtySync()
+                                Toast.makeText(requireContext(), "Cleared media for ${ex.name}", Toast.LENGTH_SHORT).show()
+                                expandedExerciseId = null
+                                renderCatalog()
+                            }
+                        }
+                    }.apply {
+                        textSize = 14f
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44))
+                    })
+                    rowCard.addView(btnRow)
+                }
+
+                listBox.addView(rowCard)
             }
         }
+
+        addFormBox.addView(makeAccentButton("Create Exercise") {
+            val name = newNameIn.text.toString().trim()
+            val muscle = newMuscleIn.text.toString().trim().ifEmpty { "Full Body" }
+            val acc = newAccIn.text.toString().trim().uppercase().let {
+                if (it in listOf("HANDLES", "BAR", "ROPE")) it else "HANDLES"
+            }
+            val media = newMediaIn.text.toString().trim().ifEmpty { null }
+            if (name.isEmpty()) {
+                Toast.makeText(requireContext(), "Enter an exercise name", Toast.LENGTH_SHORT).show()
+                return@makeAccentButton
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching {
+                    repo.localEngine.createExercise(
+                        name = name,
+                        muscleGroup = muscle,
+                        accessory = acc,
+                        mediaUrl = media
+                    )
+                }.onSuccess {
+                    repo.refreshAppState()
+                    repo.notifyDirtySync()
+                    newNameIn.setText("")
+                    newMediaIn.setText("")
+                    addFormBox.visibility = View.GONE
+                    Toast.makeText(requireContext(), "Created exercise $name", Toast.LENGTH_SHORT).show()
+                    renderCatalog()
+                }.onFailure { err ->
+                    Toast.makeText(requireContext(), err.message ?: "Could not create exercise", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.apply {
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+        })
+        card.addView(addFormBox)
 
         card.addView(filterRow)
         card.addView(listBox)
