@@ -48,6 +48,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
     protected open val defaultInitialTab: Int = 0
     private var activeTab = 0
     private var selectedMuscle: String = "All"
+    private var exerciseSearchQuery: String = ""
     private var expandedExerciseId: String? = null
 
     private lateinit var rootView: LinearLayout
@@ -607,6 +608,27 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             setPadding(dp(16), dp(14), dp(16), dp(14))
         })
         bodyContainer.addView(voiceInfoCard)
+
+        // MCP Server Info Card
+        val ui = repo.uiStateFlow.value
+        val mcpBase = ui.syncServerUrl.trim().trimEnd('/').ifEmpty { "http://<HOME_SERVER_IP>:3000" }
+        val mcpCard = createSurfaceCard()
+        mcpCard.addView(makeCardHeading(
+            "Model Context Protocol (MCP) Server",
+            "Connect Claude Desktop, Cursor, or Gemini CLI to inspect history/PRs and queue workouts 24/7"
+        ))
+        mcpCard.addView(TextView(requireContext()).apply {
+            text = "Streamable HTTP (2025-03-26):  $mcpBase/mcp\n" +
+                "Legacy SSE (2024-11-05):       $mcpBase/mcp/sse\n" +
+                "Host Status:                   ${if (ui.syncServerUrl.isNotBlank()) (if (ui.syncConnected) "Paired & Online" else "Paired (Offline)") else "Set Home Server URL in Admin & System"}"
+            textSize = 13.5f
+            typeface = SwonalFonts.monoBold(requireContext())
+            setTextColor(p.textPrimary)
+            setLineSpacing(dpf(4f), 1f)
+            background = p.elevatedPillDrawable(d, 14f, interactive = false)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        })
+        bodyContainer.addView(mcpCard)
     }
 
     // -------------------------------------------------------------------------
@@ -672,6 +694,159 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             })
         }
         bodyContainer.addView(tlsCard)
+
+        // 2. Public / Reverse Proxy URL Override Card
+        val overrideCard = createSurfaceCard()
+        overrideCard.addView(makeCardHeading(
+            "Companion QR Public URL Override",
+            "Optional custom domain or reverse-proxy URL (e.g. https://swonal.lan) shown in Companion QR codes"
+        ))
+        val overrideInput = makeInput("Leave blank for automatic LAN IP", "").apply {
+            textSize = 14.5f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val saved = runCatching { repo.localDb.getSetting("public_url_override") }.getOrNull().orEmpty()
+            if (isAdded) overrideInput.setText(saved)
+        }
+        overrideCard.addView(overrideInput)
+        overrideCard.addView(makePillButton("Save Public URL Override") {
+            val raw = overrideInput.text.toString().trim()
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching {
+                    if (raw.isEmpty()) {
+                        repo.localDb.deleteSetting("public_url_override")
+                    } else {
+                        val safe = com.swonal.kiosk.util.UrlSecurity.sanitizeExternalUrl(raw, allowLoopback = true)
+                        repo.localDb.setSetting("public_url_override", safe)
+                    }
+                    repo.refreshAppState()
+                    repo.notifyDirtySync()
+                }.onSuccess {
+                    Toast.makeText(requireContext(), if (raw.isEmpty()) "Cleared Public URL override" else "Saved Public URL override", Toast.LENGTH_SHORT).show()
+                }.onFailure { err ->
+                    Toast.makeText(requireContext(), err.message ?: "Invalid URL", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.apply {
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+        })
+        bodyContainer.addView(overrideCard)
+
+        // 3. Home Assistant Direct Integration Card
+        val haCard = createSurfaceCard()
+        haCard.addView(makeCardHeading(
+            "Home Assistant Integration",
+            "Publish workout & weight events directly from the Tonal over LAN/HTTPS (works without server-app)"
+        ))
+        val haWebhookIn = makeInput("Webhook URL (http://homeassistant.local:8123/api/webhook/...)", "").apply {
+            textSize = 14.5f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) }
+        }
+        val haBaseIn = makeInput("HA Base URL (optional, e.g. http://homeassistant.local:8123)", "").apply {
+            textSize = 14.5f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) }
+        }
+        val haTokenIn = makeInput("HA Long-Lived Access Token (leave blank to keep existing)", "").apply {
+            textSize = 14.5f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(10) }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val cfg = runCatching { repo.localHaClient.loadConfig() }.getOrNull()
+            if (isAdded && cfg != null) {
+                haWebhookIn.setText(cfg.webhookUrl)
+                haBaseIn.setText(cfg.haUrl)
+            }
+        }
+        haCard.addView(haWebhookIn)
+        haCard.addView(haBaseIn)
+        haCard.addView(haTokenIn)
+        haCard.addView(makePillButton("Save Home Assistant Settings") {
+            val wh = haWebhookIn.text.toString().trim()
+            val base = haBaseIn.text.toString().trim()
+            val tok = haTokenIn.text.toString().trim().takeIf { it.isNotEmpty() }
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching {
+                    repo.localHaClient.updateConfig(webhookUrl = wh, haUrl = base, haToken = tok)
+                }.onSuccess {
+                    haTokenIn.setText("")
+                    Toast.makeText(requireContext(), "Home Assistant settings saved", Toast.LENGTH_SHORT).show()
+                }.onFailure { err ->
+                    Toast.makeText(requireContext(), err.message ?: "Failed to save Home Assistant config", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.apply {
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+        })
+        bodyContainer.addView(haCard)
+
+        // 4. LAN Security Passcode Lock Card
+        val secCard = createSurfaceCard()
+        secCard.addView(makeCardHeading(
+            "LAN Companion Security Lock",
+            "Require a passcode for phones/browsers connecting to :$port / :$httpsPort on your Wi-Fi (on-device Kiosk stays unlocked)"
+        ))
+        val passcodeIn = makeInput("Passcode (4+ characters, leave blank to keep current)", "").apply {
+            textSize = 14.5f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(10) }
+        }
+        secCard.addView(passcodeIn)
+        val secBtnRow = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        secBtnRow.addView(makeAccentButton(if (app.prefs.lastKnownAuthEnabled) "Update Passcode" else "Enable Passcode Lock") {
+            val code = passcodeIn.text.toString().trim()
+            if (!app.prefs.lastKnownAuthEnabled && code.length < 4) {
+                Toast.makeText(requireContext(), "Enter at least a 4-character passcode", Toast.LENGTH_SHORT).show()
+                return@makeAccentButton
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching {
+                    repo.localEngine.configureAuth(enabled = true, passcode = code.ifEmpty { null }, trustLocalhost = true)
+                    app.prefs.lastKnownAuthEnabled = true
+                    repo.refreshAppState()
+                }.onSuccess {
+                    passcodeIn.setText("")
+                    Toast.makeText(requireContext(), "LAN Passcode Lock enabled", Toast.LENGTH_SHORT).show()
+                    renderBody()
+                }.onFailure { err ->
+                    Toast.makeText(requireContext(), err.message ?: "Failed to enable lock", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.apply {
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) }
+        })
+        if (app.prefs.lastKnownAuthEnabled) {
+            secBtnRow.addView(makePillButton("Disable Lock") {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    runCatching {
+                        repo.localEngine.configureAuth(enabled = false, passcode = null, trustLocalhost = true)
+                        app.prefs.lastKnownAuthEnabled = false
+                        repo.refreshAppState()
+                    }.onSuccess {
+                        Toast.makeText(requireContext(), "LAN Passcode Lock disabled", Toast.LENGTH_SHORT).show()
+                        renderBody()
+                    }
+                }
+            }.apply {
+                textSize = 14f
+                setTextColor(p.criticalText)
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46))
+            })
+        }
+        secCard.addView(secBtnRow)
+        bodyContainer.addView(secCard)
     }
 
     // -------------------------------------------------------------------------
@@ -1136,7 +1311,11 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                 })
             }
 
-            val filtered = if (selectedMuscle == "All") all else all.filter { it.muscleGroup == selectedMuscle }
+            val q = exerciseSearchQuery.trim().lowercase()
+            val filtered = all.filter { ex ->
+                (selectedMuscle == "All" || ex.muscleGroup == selectedMuscle) &&
+                    (q.isEmpty() || ex.name.lowercase().contains(q) || ex.muscleGroup.lowercase().contains(q) || ex.accessory.lowercase().contains(q))
+            }
             listBox.removeAllViews()
             filtered.forEach { ex ->
                 val isExpanded = expandedExerciseId == ex.id
@@ -1298,6 +1477,22 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
         })
         card.addView(addFormBox)
+
+        val searchInput = makeInput("Search exercises by name, muscle, or accessory...", exerciseSearchQuery).apply {
+            textSize = 14.5f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                bottomMargin = dp(10)
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    exerciseSearchQuery = s?.toString().orEmpty()
+                    renderCatalog()
+                }
+            })
+        }
+        card.addView(searchInput)
 
         card.addView(filterRow)
         card.addView(listBox)

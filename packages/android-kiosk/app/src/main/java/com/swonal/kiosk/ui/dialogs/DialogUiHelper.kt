@@ -102,6 +102,11 @@ abstract class BaseSwonalDialog : DialogFragment() {
         }
     }
 
+    override fun onDismiss(dialog: android.content.DialogInterface) {
+        super.onDismiss(dialog)
+        (activity as? com.swonal.kiosk.ui.MainActivity)?.reapplyImmersiveFullscreen()
+    }
+
     protected fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     protected fun dpf(value: Float): Float = value * resources.displayMetrics.density
 

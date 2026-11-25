@@ -136,113 +136,137 @@ class HistoryDialog : BaseSwonalDialog() {
 
         bodyContainer.removeAllViews()
 
-        // 1. Progression Overview & KPI Card
+        // 1. Progression Overview, Streak, Consistency & Weekly Volume Card
         val overviewCard = createSurfaceCard()
-        overviewCard.addView(makeCardHeading("Strength Progression", "All-time training volume & milestones"))
+        overviewCard.addView(makeCardHeading("Strength Progression", "Streak, consistency, weekly volume & all-time milestones"))
 
         val totalVolLb = sessions.sumOf { it.totalVolume }
         val totalSets = sessions.sumOf { it.setLogs.size }
-        val kpiRow = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(16) }
-        }
-        val kpis = listOf(
-            "WORKOUTS" to sessions.size.toString(),
-            "TOTAL VOLUME" to "${Units.formatCompactWeight(totalVolLb, unit)} $unit",
-            "TOTAL SETS" to totalSets.toString(),
-            "PERSONAL RECORDS" to prs.size.toString()
-        )
-        kpis.forEachIndexed { idx, (label, value) ->
-            kpiRow.addView(LinearLayout(requireContext()).apply {
-                orientation = LinearLayout.VERTICAL
-                background = p.elevatedPillDrawable(d, 16f, interactive = false)
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    if (idx < kpis.lastIndex) marginEnd = dp(10)
-                }
-                addView(TextView(requireContext()).apply {
-                    text = label
-                    textSize = 11f
-                    letterSpacing = 0.08f
-                    typeface = SwonalFonts.interExtraBold(requireContext())
-                    setTextColor(p.textMuted)
-                })
-                addView(TextView(requireContext()).apply {
-                    text = value
-                    textSize = 22f
-                    typeface = SwonalFonts.monoBold(requireContext())
-                    setTextColor(p.accentInk)
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(4) }
-                })
-            })
-        }
-        overviewCard.addView(kpiRow)
+        val (streakDays, weeklyVolLb, last30DaysWorkouts, weeklyBuckets) = computeProgressionStats(sessions)
 
-        // Volume bar strip for recent sessions (up to 10)
-        val recentForChart = sessions.take(10).reversed()
-        if (recentForChart.isNotEmpty()) {
-            val maxVol = recentForChart.maxOf { it.totalVolume }.coerceAtLeast(1.0)
-            overviewCard.addView(TextView(requireContext()).apply {
-                text = "RECENT SESSION VOLUME ($unit)"
-                textSize = 11f
-                letterSpacing = 0.08f
-                typeface = SwonalFonts.interExtraBold(requireContext())
-                setTextColor(p.textMuted)
+        fun addKpiRow(items: List<Pair<String, String>>, bottomMarginDp: Int) {
+            val row = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(10) }
-            })
-            val chartRow = LinearLayout(requireContext()).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.BOTTOM
-                background = p.elevatedPillDrawable(d, 16f, interactive = false)
-                setPadding(dp(14), dp(16), dp(14), dp(12))
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(140)
-                )
+                ).apply { bottomMargin = dp(bottomMarginDp) }
             }
-            recentForChart.forEachIndexed { idx, s ->
-                val frac = (s.totalVolume / maxVol).toFloat().coerceIn(0.08f, 1f)
-                val barCol = LinearLayout(requireContext()).apply {
+            items.forEachIndexed { idx, (label, value) ->
+                row.addView(LinearLayout(requireContext()).apply {
                     orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                        if (idx < recentForChart.lastIndex) marginEnd = dp(8)
+                    background = p.elevatedPillDrawable(d, 16f, interactive = false)
+                    setPadding(dp(16), dp(14), dp(16), dp(14))
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (idx < items.lastIndex) marginEnd = dp(10)
                     }
-                    addView(View(requireContext()).apply {
-                        background = GradientDrawable().apply {
-                            setColor(p.accentPrimary)
-                            cornerRadius = dpf(8f)
-                        }
-                        layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            (dp(82) * frac).toInt().coerceAtLeast(dp(8))
-                        )
+                    addView(TextView(requireContext()).apply {
+                        text = label
+                        textSize = 11f
+                        letterSpacing = 0.08f
+                        typeface = SwonalFonts.interExtraBold(requireContext())
+                        setTextColor(p.textMuted)
                     })
                     addView(TextView(requireContext()).apply {
-                        text = s.startedAt.substring(5, 10)
-                        textSize = 10.5f
+                        text = value
+                        textSize = 21f
                         typeface = SwonalFonts.monoBold(requireContext())
-                        setTextColor(p.textMuted)
-                        gravity = Gravity.CENTER
+                        setTextColor(p.accentInk)
                         layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply { topMargin = dp(6) }
+                        ).apply { topMargin = dp(4) }
                     })
-                }
-                chartRow.addView(barCol)
+                })
             }
-            overviewCard.addView(chartRow)
+            overviewCard.addView(row)
         }
+
+        addKpiRow(
+            listOf(
+                "STREAK" to "${streakDays}d",
+                "WEEKLY VOLUME (7D)" to "${Units.formatCompactWeight(weeklyVolLb, unit)} $unit",
+                "30D CONSISTENCY" to "$last30DaysWorkouts workouts"
+            ),
+            bottomMarginDp = 10
+        )
+        addKpiRow(
+            listOf(
+                "TOTAL WORKOUTS" to sessions.size.toString(),
+                "ALL-TIME VOLUME" to "${Units.formatCompactWeight(totalVolLb, unit)} $unit",
+                "TOTAL SETS" to totalSets.toString(),
+                "PRs" to prs.size.toString()
+            ),
+            bottomMarginDp = 16
+        )
+
+        // 6-Week Weekly Volume bar chart (matching ProgressionAnalytics.tsx)
+        val maxWeekVol = weeklyBuckets.maxOfOrNull { it.second }?.coerceAtLeast(1.0) ?: 1.0
+        overviewCard.addView(TextView(requireContext()).apply {
+            text = "WEEKLY VOLUME — LAST 6 WEEKS ($unit)"
+            textSize = 11f
+            letterSpacing = 0.08f
+            typeface = SwonalFonts.interExtraBold(requireContext())
+            setTextColor(p.textMuted)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        })
+        val chartRow = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+            background = p.elevatedPillDrawable(d, 16f, interactive = false)
+            setPadding(dp(16), dp(16), dp(16), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(150)
+            )
+        }
+        weeklyBuckets.forEachIndexed { idx, (label, volLb) ->
+            val frac = if (volLb <= 0.0) 0.05f else (volLb / maxWeekVol).toFloat().coerceIn(0.10f, 1f)
+            val barCol = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                    if (idx < weeklyBuckets.lastIndex) marginEnd = dp(10)
+                }
+                addView(TextView(requireContext()).apply {
+                    text = if (volLb > 0.0) Units.formatCompactWeight(volLb, unit) else "0"
+                    textSize = 10.5f
+                    typeface = SwonalFonts.monoBold(requireContext())
+                    setTextColor(if (volLb > 0.0) p.accentInk else p.textMuted)
+                    gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(4) }
+                })
+                addView(View(requireContext()).apply {
+                    background = GradientDrawable().apply {
+                        setColor(if (volLb > 0.0) p.accentPrimary else p.borderSubtle)
+                        cornerRadius = dpf(8f)
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        (dp(76) * frac).toInt().coerceAtLeast(dp(6))
+                    )
+                })
+                addView(TextView(requireContext()).apply {
+                    text = label
+                    textSize = 10.5f
+                    typeface = SwonalFonts.monoBold(requireContext())
+                    setTextColor(p.textMuted)
+                    gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(6) }
+                })
+            }
+            chartRow.addView(barCol)
+        }
+        overviewCard.addView(chartRow)
         bodyContainer.addView(overviewCard)
 
         // 2. Personal Records Card (2-column grid matching HistoryView.tsx)
@@ -414,5 +438,55 @@ class HistoryDialog : BaseSwonalDialog() {
             }
         }
         bodyContainer.addView(sessCard)
+    }
+
+    private data class ProgressionStats(
+        val streakDays: Int,
+        val weeklyVolumeLb: Double,
+        val last30DaysWorkouts: Int,
+        val weeklyBuckets: List<Pair<String, Double>>
+    )
+
+    private fun computeProgressionStats(list: List<WorkoutSession>): ProgressionStats {
+        val nowMs = System.currentTimeMillis()
+        val dayMs = 24L * 60L * 60L * 1000L
+        val sdfDay = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val sdfWeekLabel = java.text.SimpleDateFormat("MM/dd", Locale.US)
+
+        val parsed = list.mapNotNull { s ->
+            val ms = com.swonal.kiosk.util.IsoTime.parseUtcMs(s.startedAt, -1L)
+            if (ms <= 0L) null else (ms to s)
+        }
+
+        val weeklyVolLb = parsed
+            .filter { (ms, _) -> nowMs - ms <= 7L * dayMs }
+            .sumOf { (_, s) -> s.totalVolume }
+
+        val last30DaysWorkouts = parsed.count { (ms, _) -> nowMs - ms <= 30L * dayMs }
+
+        // Compute consecutive-day streak (starting today or yesterday)
+        val workoutDayKeys = parsed.map { (ms, _) -> sdfDay.format(java.util.Date(ms)) }.toSet()
+        var streak = 0
+        var cursor = nowMs
+        if (!workoutDayKeys.contains(sdfDay.format(java.util.Date(cursor)))) {
+            cursor -= dayMs
+        }
+        while (workoutDayKeys.contains(sdfDay.format(java.util.Date(cursor)))) {
+            streak++
+            cursor -= dayMs
+        }
+
+        // Compute 6-week rolling weekly volume buckets (oldest -> newest)
+        val buckets = (5 downTo 0).map { weeksAgo ->
+            val endMs = nowMs - weeksAgo * 7L * dayMs
+            val startMs = endMs - 7L * dayMs
+            val vol = parsed
+                .filter { (ms, _) -> ms in (startMs + 1)..endMs }
+                .sumOf { (_, s) -> s.totalVolume }
+            val label = if (weeksAgo == 0) "This Wk" else sdfWeekLabel.format(java.util.Date(startMs + dayMs))
+            label to vol
+        }
+
+        return ProgressionStats(streak, weeklyVolLb, last30DaysWorkouts, buckets)
     }
 }
