@@ -269,8 +269,8 @@ class MainActivity : AppCompatActivity() {
         if (inlineVoiceLoading) {
             Toast.makeText(
                 this,
-                "Downloading offline Vosk voice model (~40 MB, one-time)...",
-                Toast.LENGTH_LONG
+                "Preparing bundled offline voice model...",
+                Toast.LENGTH_SHORT
             ).show()
         }
         inlineVoiceJob = lifecycleScope.launch {
