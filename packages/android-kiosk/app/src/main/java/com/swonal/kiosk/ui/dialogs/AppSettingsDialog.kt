@@ -160,8 +160,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             "DISCONNECTED"
         }
         tv.text = buildString {
-            append("Motor Daemon:  ").append(hwStatus).append('\n')
-            append("Daemon URL:    ").append(st.localDaemonUrl).append('\n')
+            append("Motor Bridge:  ").append(hwStatus).append('\n')
             append("Weight State:  ").append(if (t.weightEnabled) "ENGAGED (${t.targetWeightLb.toInt()} lb)" else "OFF (Target ${t.targetWeightLb.toInt()} lb)").append('\n')
             append("Cable Load:    L ${String.format("%.1f", t.leftCable.loadLb)} lb  •  R ${String.format("%.1f", t.rightCable.loadLb)} lb\n")
             append("Arm Position:  L(H${t.armPositions.height.left} R${t.armPositions.rotation.left} A${t.armPositions.angle.left})  •  R(H${t.armPositions.height.right} R${t.armPositions.rotation.right} A${t.armPositions.angle.right})\n")
@@ -1160,19 +1159,6 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         })
         syncFieldsBox.addView(syncActionRow)
         card.addView(syncFieldsBox)
-
-        card.addView(makeSectionLabel("Local Motor Daemon (Loopback Only — Fixed)"))
-        card.addView(TextView(requireContext()).apply {
-            text = ui.localDaemonUrl
-            textSize = 14f
-            typeface = SwonalFonts.monoBold(requireContext())
-            setTextColor(p.textMuted)
-            background = p.elevatedPillDrawable(d, 12f, interactive = false)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(12)
-            }
-        })
 
         val saveRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
