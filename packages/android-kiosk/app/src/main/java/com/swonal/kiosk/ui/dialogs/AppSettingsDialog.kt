@@ -1008,26 +1008,20 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
-        row2.addView(makePillButton("Switch to Custom Mode") {
-            repo.switchToCustomMode()
-            Toast.makeText(requireContext(), "Switched to Swonal Custom Mode", Toast.LENGTH_SHORT).show()
-        }.apply {
-            textSize = 14f
-            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(10) }
-        })
-        row2.addView(makePillButton("Switch to Stock Tonal Mode") {
+        row2.addView(makePillButton("Switch to Stock Tonal UI (shows floating Return to Swonal button)") {
             viewLifecycleOwner.lifecycleScope.launch {
                 val safe = repo.disableWeightAndAwait()
                 if (!safe) {
                     Toast.makeText(requireContext(), "Disengage weight before switching to Stock mode", Toast.LENGTH_LONG).show()
                 } else {
+                    com.swonal.kiosk.service.StockOverlayService.start(requireContext())
                     repo.switchToStockMode()
-                    Toast.makeText(requireContext(), "Switching to Stock Tonal UI...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "Launching Stock Tonal with Return-to-Swonal pill...", Toast.LENGTH_SHORT).show()
                 }
             }
         }.apply {
             textSize = 14f
-            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
         })
         card.addView(row2)
         bodyContainer.addView(card)
