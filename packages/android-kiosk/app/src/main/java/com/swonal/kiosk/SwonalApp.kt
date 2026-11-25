@@ -24,6 +24,8 @@ class SwonalApp : Application(), ImageLoaderFactory {
         private set
     lateinit var librespotAudioBridge: LibrespotAudioBridge
         private set
+    var embeddedServer: com.swonal.kiosk.server.EmbeddedSwonalServer? = null
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -41,7 +43,17 @@ class SwonalApp : Application(), ImageLoaderFactory {
         librespotAudioBridge = LibrespotAudioBridge().apply {
             start()
         }
-        repository = SwonalRepository(prefs = prefs, tlsConfig = tlsConfig)
+        val localDbFile = getDatabasePath("swonal_local.db")
+        val seedCatalogJson = runCatching {
+            assets.open("seed/seed_catalog.json").bufferedReader().use { it.readText() }
+        }.getOrNull()
+        repository = SwonalRepository(
+            prefs = prefs,
+            tlsConfig = tlsConfig,
+            localDbPath = localDbFile.absolutePath,
+            seedCatalogJson = seedCatalogJson
+        )
+        startEmbeddedCompanionServer()
         com.swonal.kiosk.ui.SwonalWebActivity.warmup(this)
 
         // Synchronize STREAM_SYSTEM to media volume so system UI doesn't blast deafening clicks
@@ -88,5 +100,31 @@ class SwonalApp : Application(), ImageLoaderFactory {
             }
             .crossfade(150)
             .build()
+    }
+
+    private fun startEmbeddedCompanionServer() {
+        val mediaDir = java.io.File(filesDir, "media").apply { mkdirs() }
+        fun createServer(port: Int) = com.swonal.kiosk.server.EmbeddedSwonalServer(
+            repo = repository,
+            port = port,
+            mediaDir = mediaDir,
+            webAssetOpener = { relPath -> runCatching { assets.open("web/$relPath") }.getOrNull() },
+            mediaAssetOpener = { name -> runCatching { assets.open("media/$name") }.getOrNull() }
+        )
+
+        val preferredPort = SwonalPreferences.DEFAULT_EMBEDDED_PORT
+        val primary = runCatching {
+            createServer(preferredPort).also { it.startServer() }
+        }.getOrElse {
+            runCatching { createServer(0).also { it.startServer() } }.getOrNull()
+        }
+        if (primary != null) {
+            embeddedServer = primary
+            prefs.embeddedPort = primary.listeningPort
+            repository.attachEmbeddedServer(
+                primary.listeningPort,
+                com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+            )
+        }
     }
 }

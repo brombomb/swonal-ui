@@ -126,7 +126,7 @@ class RoundedPressDrawable(
 
     override fun onStateChange(state: IntArray): Boolean {
         val contentChanged = content.setState(state)
-        val nowPressed = state.any { it == android.R.attr.state_pressed || it == android.R.attr.state_focused }
+        val nowPressed = state.any { it == android.R.attr.state_pressed }
         if (nowPressed != isPressedState) {
             isPressedState = nowPressed
             invalidateSelf()
@@ -304,10 +304,11 @@ data class SwonalPalette(
     }
 
     fun successPillDrawable(dp: Float, radiusDp: Float = 8f, interactive: Boolean = true): Drawable {
+        val strokeColor = if (isDark) 0x6610B981 else 0x73059669
         val base = GradientDrawable().apply {
             setColor(successBg)
             cornerRadius = radiusDp * dp
-            setStroke((1f * dp).toInt().coerceAtLeast(1), successText)
+            setStroke((1f * dp).toInt().coerceAtLeast(1), strokeColor)
         }
         return wrapRipple(base, radiusDp * dp, interactive)
     }

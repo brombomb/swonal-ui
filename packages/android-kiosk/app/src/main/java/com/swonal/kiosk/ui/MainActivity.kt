@@ -83,6 +83,17 @@ class MainActivity : AppCompatActivity() {
     private var seekingDeviceVolume: Boolean = false
     private lateinit var audioManager: AudioManager
     private var statusDotAnimator: ObjectAnimator? = null
+    private var inlineVoiceActive: Boolean = false
+    private var inlineSpeechRecognizer: android.speech.SpeechRecognizer? = null
+    private val inlineMicPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startInlineVoiceControl()
+        } else {
+            Toast.makeText(this, "Microphone permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // 30Hz hot-path state caches (eliminates per-frame Drawable allocations & requestLayout() storms!)
     private var lastRepCount: Int = Int.MIN_VALUE
@@ -219,7 +230,118 @@ class MainActivity : AppCompatActivity() {
         if (hasFocus) applyImmersiveFullscreen()
     }
 
+    private fun toggleInlineVoiceControl() {
+        if (inlineVoiceActive) {
+            stopInlineVoiceControl()
+            return
+        }
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            inlineMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startInlineVoiceControl()
+    }
+
+    private fun startInlineVoiceControl() {
+        val services = packageManager.queryIntentServices(
+            android.content.Intent(android.speech.RecognitionService.SERVICE_INTERFACE),
+            0
+        ).orEmpty()
+        val hasBindableService = services.any { ri ->
+            val pkg = ri.serviceInfo?.packageName.orEmpty()
+            pkg.isNotEmpty() && pkg != "com.mediatek.voicecommand" && (ri.serviceInfo?.exported != false)
+        }
+        if (!hasBindableService) {
+            stopInlineVoiceControl()
+            Toast.makeText(
+                this,
+                "No Speech Recognition engine installed on this Tonal ROM (MediaTek system service is restricted).",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        try {
+            val sr = inlineSpeechRecognizer ?: android.speech.SpeechRecognizer.createSpeechRecognizer(this).also {
+                inlineSpeechRecognizer = it
+            }
+            sr.setRecognitionListener(object : android.speech.RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+                override fun onError(error: Int) {
+                    if (inlineVoiceActive) {
+                        // Restart continuous listening unless permission/client error
+                        if (error == android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                            error == android.speech.SpeechRecognizer.ERROR_CLIENT
+                        ) {
+                            stopInlineVoiceControl()
+                        } else {
+                            binding.root.postDelayed({
+                                if (inlineVoiceActive) startInlineVoiceControl()
+                            }, 600L)
+                        }
+                    }
+                }
+                override fun onResults(results: Bundle?) {
+                    val spoken = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (!spoken.isNullOrBlank()) {
+                        app.repository.askCoach(spoken)
+                    }
+                    if (inlineVoiceActive) {
+                        binding.root.postDelayed({
+                            if (inlineVoiceActive) startInlineVoiceControl()
+                        }, 400L)
+                    }
+                }
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, Locale.US)
+            }
+            inlineVoiceActive = true
+            updateVoiceButtonStyle()
+            sr.startListening(intent)
+        } catch (ex: Exception) {
+            stopInlineVoiceControl()
+            Toast.makeText(
+                this,
+                "Voice control unavailable on this device: ${ex.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun stopInlineVoiceControl() {
+        inlineVoiceActive = false
+        runCatching { inlineSpeechRecognizer?.stopListening() }
+        runCatching { inlineSpeechRecognizer?.destroy() }
+        inlineSpeechRecognizer = null
+        updateVoiceButtonStyle()
+    }
+
+    private fun updateVoiceButtonStyle() {
+        val p = currentPalette
+        val d = resources.displayMetrics.density
+        binding.btnVoiceControl.background = if (inlineVoiceActive) {
+            p.criticalBannerDrawable(d, 10f, interactive = true)
+        } else {
+            p.elevatedPillDrawable(d, 10f)
+        }
+        binding.ivVoiceControl.setColorFilter(if (inlineVoiceActive) p.criticalText else p.accentInk)
+        binding.tvVoiceControl.setTextColor(if (inlineVoiceActive) p.criticalText else p.textPrimary)
+        binding.tvVoiceControl.text = if (inlineVoiceActive) "Voice On" else "Voice"
+    }
+
     override fun onDestroy() {
+        stopInlineVoiceControl()
         super.onDestroy()
         statusDotAnimator?.cancel()
         releaseFormDemoVideo()
@@ -231,9 +353,21 @@ class MainActivity : AppCompatActivity() {
      */
     private fun handleLaunchIntent(intent: Intent?) {
         if (!BuildConfig.DEBUG) return
+        val modeExtra = intent?.getStringExtra("sync_mode")?.trim()?.lowercase()
+        if (modeExtra == "standalone") {
+            app.repository.updateSyncConfiguration(
+                com.swonal.kiosk.net.SyncMode.STANDALONE,
+                "",
+                app.prefs.localDaemonUrl
+            )
+            return
+        }
         val urlExtra = intent?.getStringExtra("server_url")?.trim()
-        if (!urlExtra.isNullOrBlank() && urlExtra != app.prefs.serverUrl) {
-            app.repository.updateConnectionEndpoints(urlExtra, app.prefs.localDaemonUrl)
+        if (!urlExtra.isNullOrBlank()) {
+            val normalized = com.swonal.kiosk.net.SwonalPreferences.normalizeBaseUrl(urlExtra, "")
+            if (normalized.isNotBlank() && normalized != app.prefs.syncServerUrl) {
+                app.repository.updateConnectionEndpoints(normalized, app.prefs.localDaemonUrl)
+            }
         }
     }
 
@@ -331,31 +465,53 @@ class MainActivity : AppCompatActivity() {
 
         // Top Bar Controls
         binding.btnPartnerMode.setOnClickListener { repo.togglePartnerMode() }
-        binding.btnQuickPrefs.setOnClickListener { anchor ->
-            val ui = repo.uiStateFlow.value
-            KioskPopups.showQuickPreferences(
-                context = this,
-                anchor = anchor,
-                initialUi = ui,
-                palette = currentPalette,
-                onToggleUnit = { repo.toggleUnit() },
-                onToggleTheme = { repo.toggleTheme() },
-                onToggleDemoPip = { repo.setShowDemoPip(!repo.uiStateFlow.value.showDemoPip) },
-                onCycleTelemetry = { repo.cycleTelemetryDisplayMode() },
-                onOpenProfiles = { showDialogOnce("profiles") { ProfileStyleDialog() } },
-                onOpenDiagnostics = { showDialogOnce("diagnostics") { DiagnosticsDialog() } },
-                onOpenMenu = { showDialogOnce("app_drawer") { AppDrawerDialog() } },
-                onOpenWebPath = { path, title -> openServerWebPath(path, title) }
-            )
+        binding.btnCompanionQr.setOnClickListener {
+            showDialogOnce("qr") { CompanionQrDialog() }
         }
         binding.btnSwocial.setOnClickListener {
             showDialogOnce("swocial") { SwocialDialog() }
         }
-        binding.btnCompanionQr.setOnClickListener {
-            showDialogOnce("qr") { CompanionQrDialog() }
+        binding.btnHistory.setOnClickListener {
+            openServerWebPath("/history", "History & PRs")
         }
-        binding.btnAppDrawer.setOnClickListener {
-            showDialogOnce("app_drawer") { AppDrawerDialog() }
+        binding.btnQuickPrefs.setOnClickListener { anchor ->
+            KioskPopups.showQuickPreferences(
+                context = this,
+                anchor = anchor,
+                palette = currentPalette,
+                onOpenProfiles = { showDialogOnce("profiles") { ProfileStyleDialog() } },
+                onOpenMenu = { showDialogOnce("app_drawer") { AppDrawerDialog() } },
+                onOpenWebPath = { path, title -> openServerWebPath(path, title) },
+                onCheckUpdates = {
+                    Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                    lifecycleScope.launch {
+                        when (val res = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()) {
+                            is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable -> {
+                                showDialogOnce("app_update") {
+                                    com.swonal.kiosk.ui.dialogs.UpdateDialog.newInstance(res.info)
+                                }
+                            }
+                            is com.swonal.kiosk.net.UpdateCheckResult.UpToDate -> {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Swonal v${res.currentVersion} is up to date ✓",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            is com.swonal.kiosk.net.UpdateCheckResult.Error -> {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Update check failed: ${res.message}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                },
+                onOpenBugReport = {
+                    showDialogOnce("bug_report") { com.swonal.kiosk.ui.dialogs.BugReportDialog() }
+                }
+            )
         }
         binding.btnHardwareStatus.setOnClickListener {
             showDialogOnce("diagnostics") { DiagnosticsDialog() }
@@ -464,6 +620,9 @@ class MainActivity : AppCompatActivity() {
         binding.btnOpenCoachModal.setOnClickListener {
             showDialogOnce("coach") { CoachPromptDialog() }
         }
+        binding.btnVoiceControl.setOnClickListener {
+            toggleInlineVoiceControl()
+        }
         binding.btnCoachSuggestedAction.setOnClickListener {
             val act = repo.uiStateFlow.value.coachAction ?: return@setOnClickListener
             repo.executeCoachAction(act)
@@ -542,10 +701,10 @@ class MainActivity : AppCompatActivity() {
         // Tactile press-scale, opacity dip & haptic/click feedback on all interactive kiosk buttons
         PressFeedback.attach(
             binding.btnPartnerMode,
-            binding.btnQuickPrefs,
-            binding.btnSwocial,
             binding.btnCompanionQr,
-            binding.btnAppDrawer,
+            binding.btnSwocial,
+            binding.btnHistory,
+            binding.btnQuickPrefs,
             binding.btnHardwareStatus,
             binding.btnDismissQueued,
             binding.btnStartQueued,
@@ -857,21 +1016,28 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 5. Hardware Telemetry Status Pill + Pulsing Connected Dot
-        val hwKey = "${ui.isUsingLocalFailSafe}|${ui.wsConnected}|${ui.daemonConnected}|${ui.isMockMode}"
+        val hwKey = "${ui.syncMode}|${ui.syncConnected}|${ui.pendingSyncCount}|${ui.localFailSafeConnected}|${ui.wsConnected}|${ui.daemonConnected}|${ui.isMockMode}"
         if (hwKey != lastHardwareStatusKey) {
             lastHardwareStatusKey = hwKey
             val dotDrawable = GradientDrawable().apply { shape = GradientDrawable.OVAL }
-            val connectedLive = ui.wsConnected && ui.daemonConnected
+            val connectedLive = ui.hardwareConnected
             when {
-                ui.isUsingLocalFailSafe -> {
-                    binding.btnHardwareStatus.background = p.warningPillDrawable(d, 12f, interactive = true)
-                    binding.tvHardwareStatus.text = "LOCAL FAIL-SAFE"
-                    binding.tvHardwareStatus.setTextColor(p.warningText)
-                    dotDrawable.setColor(0xFFF59E0B.toInt())
-                }
-                connectedLive -> {
+                connectedLive && ui.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE -> {
                     binding.btnHardwareStatus.background = p.accentMutedDrawable(d, 12f, 1.5f)
-                    binding.tvHardwareStatus.text = if (ui.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz"
+                    binding.tvHardwareStatus.text = if (ui.isMockMode) "MOCK 30Hz" else "STANDALONE 30Hz"
+                    binding.tvHardwareStatus.setTextColor(p.accentInk)
+                    dotDrawable.setColor(if (p.isDark) p.accentPrimary else p.accentInk)
+                }
+                connectedLive && ui.syncMode == com.swonal.kiosk.net.SyncMode.SERVER_SYNC -> {
+                    binding.btnHardwareStatus.background = p.accentMutedDrawable(d, 12f, 1.5f)
+                    val base = if (ui.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz"
+                    binding.tvHardwareStatus.text = if (ui.syncConnected) {
+                        "$base • SYNC"
+                    } else if (ui.pendingSyncCount > 0) {
+                        "STANDALONE • Q${ui.pendingSyncCount}"
+                    } else {
+                        "$base • LOCAL"
+                    }
                     binding.tvHardwareStatus.setTextColor(p.accentInk)
                     dotDrawable.setColor(if (p.isDark) p.accentPrimary else p.accentInk)
                 }
@@ -883,7 +1049,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             binding.statusDot.background = dotDrawable
-            updateStatusDotPulse(connectedLive || ui.isUsingLocalFailSafe)
+            updateStatusDotPulse(connectedLive)
         }
 
         // 6. Queued Workout & Safety Cutout Banners
@@ -1414,15 +1580,15 @@ class MainActivity : AppCompatActivity() {
         binding.btnAckSafety.setTextColor(p.textPrimary)
 
         // Top Bar Icon Pills
-        binding.btnQuickPrefs.background = p.elevatedPillDrawable(d, 12f)
-        binding.ivQuickPrefs.setColorFilter(p.accentInk)
-        binding.btnSwocial.background = p.elevatedPillDrawable(d, 12f)
-        binding.ivSwocial.setColorFilter(p.accentInk)
         binding.btnCompanionQr.background = p.elevatedPillDrawable(d, 12f)
         binding.ivCompanionQr.setColorFilter(p.accentInk)
         binding.tvCompanionQr.setTextColor(p.textPrimary)
-        binding.btnAppDrawer.background = p.elevatedPillDrawable(d, 12f)
-        binding.ivAppDrawer.setColorFilter(p.accentInk)
+        binding.btnSwocial.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivSwocial.setColorFilter(p.accentInk)
+        binding.btnHistory.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivHistory.setColorFilter(p.accentInk)
+        binding.btnQuickPrefs.background = p.elevatedPillDrawable(d, 12f)
+        binding.ivQuickPrefs.setColorFilter(p.accentInk)
 
         // Exercise Header
         binding.tvRoutinePill.background = p.accentPillDrawable(d, 99f, interactive = false)
@@ -1566,6 +1732,15 @@ class MainActivity : AppCompatActivity() {
         binding.tvDeviceVolLabel.setTextColor(p.textMuted)
         binding.tvDeviceVolumePct.setTextColor(p.textPrimary)
 
+        binding.btnVoiceControl.background = if (inlineVoiceActive) {
+            p.criticalBannerDrawable(d, 10f, interactive = true)
+        } else {
+            p.elevatedPillDrawable(d, 10f)
+        }
+        binding.ivVoiceControl.setColorFilter(if (inlineVoiceActive) p.criticalText else p.accentInk)
+        binding.tvVoiceControl.setTextColor(if (inlineVoiceActive) p.criticalText else p.textPrimary)
+        binding.tvVoiceControl.text = if (inlineVoiceActive) "Voice On" else "Voice"
+
         binding.volumePill.background = p.elevatedPillDrawable(d, 10f, interactive = false)
         binding.ivVolume.setColorFilter(p.accentInk)
         binding.tvSpotifyVolLabel.setTextColor(p.textMuted)
@@ -1599,11 +1774,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun resolveMediaUrl(serverUrl: String, mediaUrl: String?): String? {
         if (mediaUrl.isNullOrBlank()) return null
-        return if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
-            mediaUrl
-        } else {
-            "${serverUrl.trimEnd('/')}/${mediaUrl.trimStart('/')}"
+        val trimmed = mediaUrl.trim()
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("file://")) {
+            return trimmed
         }
+        val rel = trimmed.trimStart('/')
+        // 1. Check custom uploaded media stored on-device
+        val localFile = java.io.File(filesDir, rel)
+        if (localFile.exists() && localFile.isFile) {
+            return android.net.Uri.fromFile(localFile).toString()
+        }
+        // 2. Check bundled offline APK assets (`assets/media/*.svg`)
+        if (rel.startsWith("media/") && !rel.contains("..")) {
+            val fileName = rel.removePrefix("media/")
+            val bundledExists = runCatching {
+                assets.open("media/$fileName").use { true }
+            }.getOrDefault(false)
+            if (bundledExists) {
+                return "file:///android_asset/media/$fileName"
+            }
+        }
+        // 3. Fallback to active web host (:3000)
+        return "${serverUrl.trimEnd('/')}/$rel"
     }
 
     private fun loadFormDemoMedia(fullUrl: String) {

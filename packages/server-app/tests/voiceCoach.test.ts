@@ -74,6 +74,21 @@ describe('Hands-Free AirPods Voice Agent & Audio Coaching Commands', () => {
     });
     expect(minus10.suggestedAction?.type).toBe('set_weight_delta');
     expect(minus10.suggestedAction?.deltaLb).toBe(-10);
+
+    // Small relative deltas (<5 lb) must NOT be clamped up to the 5 lb absolute floor
+    const add1 = await aiCoachService.ask({
+      userId: DEFAULT_USERS.USER_ONE_ID,
+      prompt: 'add 1 pound',
+      currentWeightLb: 50,
+    });
+    expect(add1.suggestedAction?.deltaLb).toBe(1);
+
+    const drop25 = await aiCoachService.ask({
+      userId: DEFAULT_USERS.USER_ONE_ID,
+      prompt: 'drop 2.5 lb',
+      currentWeightLb: 50,
+    });
+    expect(drop25.suggestedAction?.deltaLb).toBe(-2.5);
   });
 
   it('detects weight delta commands with spoken number words ("add five pounds", "drop ten pounds", "bump fifteen")', async () => {

@@ -127,7 +127,10 @@ export function verifySessionCookieValue(raw: string | undefined): boolean {
   }
 }
 
-export function isRequestAuthenticated(req: IncomingMessage): boolean {
+export function isRequestAuthenticated(
+  req: IncomingMessage,
+  options?: { allowQueryToken?: boolean }
+): boolean {
   if (!isAuthEnabled()) return true;
   if (isLocalhostTrusted() && isDirectLocalhost(req)) return true;
 
@@ -141,7 +144,7 @@ export function isRequestAuthenticated(req: IncomingMessage): boolean {
       const b = Buffer.from(apiToken, 'utf8');
       if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
     }
-    if (req.url) {
+    if (options?.allowQueryToken && req.url) {
       try {
         const parsedUrl = new URL(req.url, 'http://localhost');
         const tokenParam = parsedUrl.searchParams.get('token') || '';

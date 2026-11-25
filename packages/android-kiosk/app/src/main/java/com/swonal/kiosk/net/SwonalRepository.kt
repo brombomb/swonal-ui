@@ -1,7 +1,17 @@
 package com.swonal.kiosk.net
 
 import com.swonal.kiosk.audio.SwonalSoundEngine
+import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.db.countDirtySyncRows
+import com.swonal.kiosk.engine.LocalAiCoachEngine
+import com.swonal.kiosk.engine.LocalWorkoutEngine
+import com.swonal.kiosk.integrations.LocalHomeAssistantClient
 import com.swonal.kiosk.model.*
+import com.swonal.kiosk.music.LocalLanMusicProviders
+import com.swonal.kiosk.music.LocalSpotifyController
+import com.swonal.kiosk.social.LocalNostrSwocialEngine
+import com.swonal.kiosk.util.PlaintextTestCipher
+import com.swonal.kiosk.util.SecretCipher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +43,13 @@ import kotlin.math.ceil
 import kotlin.math.round
 
 data class KioskUiState(
+    val syncMode: SyncMode = SyncMode.STANDALONE,
+    val syncServerUrl: String = "",
+    val syncConnected: Boolean = false,
+    val pendingSyncCount: Int = 0,
+    val lastSyncedAtMs: Long? = null,
+    val syncError: String? = null,
+    val localWebServerUrl: String = SwonalPreferences.DEFAULT_SERVER_URL,
     val serverUrl: String = SwonalPreferences.DEFAULT_SERVER_URL,
     val localDaemonUrl: String = SwonalPreferences.DEFAULT_DAEMON_URL,
     val wsConnected: Boolean = false,
@@ -120,11 +137,14 @@ data class KioskUiState(
     val musicConfigured: Boolean
         get() = musicProviders.any { it.configured } || musicState.isConnected
 
+    val isStandaloneMode: Boolean
+        get() = syncMode == SyncMode.STANDALONE
+
     val isUsingLocalFailSafe: Boolean
-        get() = (!wsConnected || !daemonConnected) && localFailSafeConnected
+        get() = syncMode == SyncMode.SERVER_SYNC && (!wsConnected || !daemonConnected) && localFailSafeConnected
 
     val hardwareConnected: Boolean
-        get() = (wsConnected && daemonConnected) || localFailSafeConnected
+        get() = localFailSafeConnected || (wsConnected && daemonConnected)
 }
 
 sealed interface KioskEffect {
@@ -134,13 +154,127 @@ sealed interface KioskEffect {
 }
 
 class SwonalRepository(
-    private val prefs: SwonalPreferences,
+    val prefs: SwonalPreferences,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    tlsConfig: SwonalTlsConfig? = null,
+    val tlsConfig: SwonalTlsConfig? = null,
     apiClientOverride: SwonalApiClient? = null,
-    localDaemonOverride: LocalDaemonFailSafeClient? = null
+    localDaemonOverride: LocalDaemonFailSafeClient? = null,
+    localDbPath: String? = null,
+    private val seedCatalogJson: String? = null,
+    secretCipherOverride: SecretCipher? = null
 ) {
     private enum class TelemetrySource { NONE, SERVER, LOCAL }
+
+    private val secretCipher: SecretCipher = secretCipherOverride ?: runCatching { prefs.secretCipher }.getOrElse { PlaintextTestCipher }
+
+    val localDb: SwonalDatabase = SwonalDatabase(
+        dbPath = localDbPath ?: ":memory:",
+        cipher = secretCipher
+    )
+
+    val localAiCoach: LocalAiCoachEngine = LocalAiCoachEngine(localDb, secretCipher, tlsConfig)
+    val localHaClient: LocalHomeAssistantClient = LocalHomeAssistantClient(localDb, secretCipher, tlsConfig)
+    val localNostr: LocalNostrSwocialEngine = LocalNostrSwocialEngine(localDb, tlsConfig)
+
+    private val _wsBroadcastFlow = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    val wsBroadcastFlow: SharedFlow<String> = _wsBroadcastFlow.asSharedFlow()
+
+    @Volatile
+    var syncPokeListener: (() -> Unit)? = null
+
+    @Volatile
+    var syncNowHandler: (suspend () -> Result<Unit>)? = null
+
+    @Volatile
+    var restoreFromServerHandler: (suspend () -> Result<Unit>)? = null
+
+    suspend fun triggerSyncNow(): Result<Unit> {
+        val handler = syncNowHandler
+            ?: return Result.failure(IllegalStateException("Server sync is only active in Home/Cloud Server Sync mode"))
+        return handler()
+    }
+
+    suspend fun restoreFromSyncServer(): Result<Unit> {
+        val handler = restoreFromServerHandler
+            ?: return Result.failure(IllegalStateException("Configure Home/Cloud Server Sync URL first"))
+        return handler()
+    }
+
+    @Volatile
+    var sessionCompletedListener: ((WorkoutSession) -> Unit)? = null
+
+    @Volatile
+    var sessionEventListener: ((String, JsonObject) -> Unit)? = null
+
+    val localEngine: LocalWorkoutEngine = LocalWorkoutEngine(
+        db = localDb,
+        daemonSetWeight = { w, p, m -> setWeight(w, p, m, allowWhileEngaged = false) },
+        daemonResetReps = { resetReps() },
+        onSessionEvent = { evType, payload ->
+            handleLocalSessionEvent(evType, payload)
+            sessionEventListener?.invoke(evType, payload)
+        },
+        onSessionCompletedHook = { completed ->
+            handleLocalSessionCompleted(completed)
+            sessionCompletedListener?.invoke(completed)
+            notifyDirtySync()
+        }
+    )
+
+    private fun handleLocalSessionEvent(evType: String, payload: JsonObject) {
+        cloudSyncManager.forwardSessionEvent(evType, payload)
+        scope.launch {
+            runCatching { localHaClient.publishEvent(evType, payload) }
+            runCatching { localHaClient.getStatus() }.onSuccess { ha ->
+                _uiStateFlow.update { it.copy(haStatus = ha) }
+            }
+        }
+    }
+
+    private fun handleLocalSessionCompleted(completed: WorkoutSession) {
+        val prLabels = _uiStateFlow.value.sessionPrHits.map {
+            "${it.exerciseName}: ${round(it.oneRepMaxEst).toInt()} lb 1RM"
+        }
+        scope.launch {
+            runCatching { localNostr.publishWorkout(completed, prLabels) }
+            runCatching {
+                localHaClient.publishEvent(
+                    "workout_completed",
+                    buildJsonObject {
+                        put("sessionId", completed.id)
+                        put("userId", completed.userId)
+                        put("routineName", completed.template?.name ?: "Free Lift")
+                        put("totalVolumeLb", round(completed.totalVolume).toInt())
+                        put("setsCount", completed.setLogs.size)
+                        put("prCount", prLabels.size)
+                    }
+                )
+            }
+            runCatching { localHaClient.getStatus() }.onSuccess { ha ->
+                _uiStateFlow.update { it.copy(haStatus = ha) }
+            }
+        }
+    }
+
+    fun emitLocalBroadcast(type: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}) {
+        val obj = buildJsonObject {
+            put("type", type)
+            extra()
+        }
+        _wsBroadcastFlow.tryEmit(SwonalJson.encodeToString(obj))
+    }
+
+    fun emitRawLocalBroadcast(jsonText: String) {
+        _wsBroadcastFlow.tryEmit(jsonText)
+    }
+
+    fun notifyDirtySync() {
+        scope.launch {
+            val dirty = runCatching { localDb.countDirtySyncRows() }.getOrDefault(0)
+            _uiStateFlow.update { it.copy(pendingSyncCount = dirty) }
+            syncPokeListener?.invoke()
+        }
+    }
 
     private val lastUiHeartbeatMs = AtomicLong(System.currentTimeMillis())
     private val uiActive = AtomicBoolean(true)
@@ -156,6 +290,8 @@ class SwonalRepository(
             lastUiHeartbeatMs.set(System.currentTimeMillis())
         }
     }
+
+    private val hasApiClientOverride = apiClientOverride != null
 
     val api: SwonalApiClient = apiClientOverride ?: SwonalApiClient(
         baseUrlProvider = { prefs.serverUrl },
@@ -175,6 +311,90 @@ class SwonalRepository(
         uiAliveCheck = { isUiAliveForWatchdog() }
     )
 
+    val localSpotify: LocalSpotifyController = LocalSpotifyController(localDb, localDaemon, scope, tlsConfig)
+    val localLanMusic: LocalLanMusicProviders = LocalLanMusicProviders(localDb, secretCipher, localHaClient, tlsConfig)
+
+    val cloudSyncManager: com.swonal.kiosk.sync.CloudSyncManager = com.swonal.kiosk.sync.CloudSyncManager(
+        db = localDb,
+        engine = localEngine,
+        prefs = prefs,
+        scope = scope,
+        tlsConfig = tlsConfig,
+        onStatusUpdate = { connected, pending, lastMs, err ->
+            _uiStateFlow.update {
+                it.copy(
+                    syncConnected = connected,
+                    pendingSyncCount = pending,
+                    lastSyncedAtMs = lastMs,
+                    syncError = err
+                )
+            }
+        },
+        onDataPulled = { refreshAppState() },
+        onWorkoutQueued = { payload -> deliverSyncedQueuedWorkout(payload) }
+    )
+
+    init {
+        syncPokeListener = { cloudSyncManager.requestDebouncedSync() }
+        syncNowHandler = { cloudSyncManager.syncNow() }
+        restoreFromServerHandler = { cloudSyncManager.restoreFromServer() }
+    }
+
+    suspend fun deliverSyncedQueuedWorkout(payload: QueuedWorkoutPayload) {
+        localEngine.queueWorkout(payload)
+        cloudSyncManager.requestDebouncedSync()
+        emitLocalBroadcast("workout_queued") {
+            put("workout", SwonalJson.encodeToJsonElement(QueuedWorkoutPayload.serializer(), payload))
+        }
+        _effectsFlow.tryEmit(KioskEffect.ShowMessage("Workout queued from Home Server: ${payload.templateName}"))
+    }
+
+    fun buildSpeakerPairingUrl(userId: String): String = localSpotify.buildSpeakerPkceUrl(userId)
+
+    @Volatile
+    var embeddedServerPort: Int = 53013
+        private set
+
+    fun latestTelemetryFrame(): TelemetryFrame = _telemetryFlow.value
+
+    fun attachEmbeddedServer(port: Int, lanIps: List<String>) {
+        embeddedServerPort = port
+        val localUrl = "http://127.0.0.1:$port"
+        _uiStateFlow.update { cur ->
+            val primary = lanIps.firstOrNull()
+            val curPublicOverride = cur.networkInfo?.publicUrlOverride
+            val effectivePublic = curPublicOverride?.takeIf { it.isNotBlank() } ?: cur.networkInfo?.publicUrl
+            cur.copy(
+                localWebServerUrl = localUrl,
+                networkInfo = NetworkInfo(
+                    primaryIp = primary,
+                    ips = lanIps,
+                    port = port,
+                    publicUrl = effectivePublic,
+                    publicUrlOverride = curPublicOverride,
+                    companionBaseUrl = effectivePublic?.trimEnd('/') ?: primary?.let { "http://$it:$port" }
+                )
+            )
+        }
+    }
+
+    suspend fun getEffectiveNetworkInfo(): NetworkInfo {
+        val ips = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+        val publicOverride = runCatching { localDb.getSetting("public_url_override") }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+        val primary = ips.firstOrNull()
+        val port = embeddedServerPort
+        val info = NetworkInfo(
+            primaryIp = primary,
+            ips = ips,
+            port = port,
+            publicUrl = publicOverride,
+            publicUrlOverride = publicOverride,
+            companionBaseUrl = publicOverride?.trimEnd('/') ?: primary?.let { "http://$it:$port" }
+        )
+        _uiStateFlow.update { it.copy(networkInfo = info) }
+        return info
+    }
+
     private val _telemetryFlow = MutableStateFlow(TelemetryFrame())
     val telemetryFlow: StateFlow<TelemetryFrame> = _telemetryFlow.asStateFlow()
 
@@ -191,9 +411,11 @@ class SwonalRepository(
 
     private val _uiStateFlow = MutableStateFlow(
         KioskUiState(
+            syncMode = prefs.syncMode,
+            syncServerUrl = prefs.syncServerUrl,
             serverUrl = prefs.serverUrl,
             localDaemonUrl = prefs.localDaemonUrl,
-            authRequired = prefs.lastKnownAuthEnabled,
+            authRequired = false,
             telemetryDisplayMode = prefs.telemetryDisplayMode,
             soundMuted = prefs.soundMuted,
             developerMode = prefs.developerMode,
@@ -260,20 +482,74 @@ class SwonalRepository(
 
             managedJobs += scope.launch {
                 localDaemon.localTelemetry.collect { frame ->
+                    emitRawLocalBroadcast(
+                        SwonalJson.encodeToString(
+                            buildJsonObject {
+                                put("type", "telemetry")
+                                put("mode", frame.mode)
+                                put("weight_enabled", frame.weightEnabled)
+                                put("target_weight_lb", frame.targetWeightLb)
+                                put("applied_resistance_lb", frame.appliedResistanceLb)
+                                put("profile_mode", frame.profileMode)
+                                put("modifier_pct", frame.modifierPct)
+                                put("rep_count", frame.repCount)
+                                put("accessory", frame.accessory)
+                                put("left_cable", SwonalJson.encodeToJsonElement(CableData.serializer(), frame.leftCable))
+                                put("right_cable", SwonalJson.encodeToJsonElement(CableData.serializer(), frame.rightCable))
+                                put("arm_positions", SwonalJson.encodeToJsonElement(ArmPositions.serializer(), frame.armPositions))
+                            }
+                        )
+                    )
                     val ui = _uiStateFlow.value
                     val serverStalled = (System.currentTimeMillis() - lastServerTelemetryAtMs) > 500L
-                    if (!ui.wsConnected || !ui.daemonConnected || serverStalled) {
+                    if (ui.syncMode == SyncMode.STANDALONE || !ui.wsConnected || !ui.daemonConnected || serverStalled) {
                         handleTelemetryFrame(frame, TelemetrySource.LOCAL)
                     }
+                    cloudSyncManager.forwardTelemetry(frame)
                 }
             }
 
             managedJobs += scope.launch {
                 localDaemon.localSafety.collect { event ->
-                    val ui = _uiStateFlow.value
-                    if (!ui.wsConnected || !ui.daemonConnected) {
-                        handleSafetyEvent(event)
+                    handleSafetyEvent(event)
+                    emitLocalBroadcast("safety_event") {
+                        put("reason", event.reason)
+                        event.delta?.let { put("delta", it) }
+                        put("timestamp", event.timestamp)
                     }
+                }
+            }
+
+            managedJobs += scope.launch {
+                localDaemon.localHandleEvents.collect { ev ->
+                    emitLocalBroadcast("handle_event") {
+                        put("action", ev.action)
+                        put("source", ev.source)
+                    }
+                    when (ev.action) {
+                        "spotify_next" -> refreshMusicNow()
+                        "emergency_stop" -> disableWeight()
+                    }
+                }
+            }
+
+            managedJobs += scope.launch {
+                localDaemon.localErrors.collect { errMsg ->
+                    _effectsFlow.tryEmit(KioskEffect.ShowMessage(errMsg))
+                }
+            }
+
+            managedJobs += scope.launch {
+                localEngine.sessionStateFlow.collect { sState ->
+                    _uiStateFlow.update { it.copy(sessionState = sState) }
+                    emitRawLocalBroadcast(
+                        SwonalJson.encodeToString(
+                            buildJsonObject {
+                                put("type", "session_state")
+                                put("state", SwonalJson.encodeToJsonElement(SharedSessionState.serializer(), sState))
+                            }
+                        )
+                    )
                 }
             }
         }
@@ -301,27 +577,35 @@ class SwonalRepository(
         prBannerJob = null
         serverWs?.close(1000, "App stopping")
         serverWs = null
+        cloudSyncManager.stop()
         localDaemon.stop()
+        localDb.close()
     }
 
-    fun updateConnectionEndpoints(
-        newServerUrl: String,
+    @Volatile
+    private var localDbInitialized = false
+
+    fun updateSyncConfiguration(
+        newSyncMode: SyncMode,
+        newSyncServerUrl: String,
         newLocalDaemonUrl: String,
         newApiToken: String? = null,
         clearToken: Boolean = false
     ) {
-        val oldServerUrl = prefs.serverUrl
-        val normalizedServer = SwonalPreferences.normalizeBaseUrl(newServerUrl, SwonalPreferences.DEFAULT_SERVER_URL)
-        val originChanged = !SwonalPreferences.sameOrigin(oldServerUrl, normalizedServer)
+        val oldSyncUrl = prefs.syncServerUrl
+        val normalizedSync = newSyncServerUrl.trim().let {
+            if (it.isEmpty()) "" else SwonalPreferences.normalizeBaseUrl(it, "")
+        }
+        val originChanged = !SwonalPreferences.sameOrigin(oldSyncUrl, normalizedSync)
 
         if (originChanged) {
-            // Never leak old server's credentials or session cookie to a different origin
             prefs.clearCredentials()
             api.clearCookies()
             prefs.lastKnownAuthEnabled = false
         }
 
-        prefs.serverUrl = normalizedServer
+        prefs.syncMode = newSyncMode
+        prefs.syncServerUrl = normalizedSync
         prefs.localDaemonUrl = SwonalPreferences.normalizeLoopbackDaemonUrl(newLocalDaemonUrl)
 
         if (clearToken) {
@@ -332,69 +616,116 @@ class SwonalRepository(
 
         _uiStateFlow.update {
             it.copy(
+                syncMode = prefs.syncMode,
+                syncServerUrl = prefs.syncServerUrl,
                 serverUrl = prefs.serverUrl,
                 localDaemonUrl = prefs.localDaemonUrl,
                 wsConnected = false,
-                authRequired = if (originChanged) false else it.authRequired,
-                authError = null
+                syncConnected = false,
+                authRequired = false,
+                authError = null,
+                syncError = null
             )
         }
         serverWs?.cancel()
         serverWs = null
+        wsReconnectJob?.cancel()
         localDaemon.reconnectNow()
         scope.launch { bootstrapAndConnect() }
     }
 
+    fun updateConnectionEndpoints(
+        newServerUrl: String,
+        newLocalDaemonUrl: String,
+        newApiToken: String? = null,
+        clearToken: Boolean = false
+    ) {
+        val trimmed = newServerUrl.trim()
+        val parsed = runCatching {
+            SwonalPreferences.normalizeBaseUrl(trimmed, "")
+        }.getOrDefault("")
+        val useServerSync = parsed.isNotBlank() && !SwonalPreferences.isLoopbackHost(
+            parsed.removePrefix("http://").removePrefix("https://").substringBefore("/").substringBefore(":")
+        )
+        updateSyncConfiguration(
+            newSyncMode = if (useServerSync) SyncMode.SERVER_SYNC else SyncMode.STANDALONE,
+            newSyncServerUrl = if (useServerSync) parsed else "",
+            newLocalDaemonUrl = newLocalDaemonUrl,
+            newApiToken = newApiToken,
+            clearToken = clearToken
+        )
+    }
+
+    private suspend fun ensureLocalDatabaseReady() {
+        if (localDbInitialized) return
+        val seedJson = seedCatalogJson ?: "{}"
+        localEngine.initialize(seedJson, includeDemoUsersAndRoutines = true)
+        localDbInitialized = true
+    }
+
     suspend fun bootstrapAndConnect() {
         _uiStateFlow.update { it.copy(authChecking = true) }
-        val authStatus = runCatching {
-            api.getAuthStatus()
-        }.onFailure { err ->
-            android.util.Log.e("SwonalRepo", "bootstrap getAuthStatus failed on ${prefs.serverUrl}: ${err.javaClass.name}: ${err.message}", err)
-        }.getOrNull()
 
-        if (authStatus == null) {
-            // Fail CLOSED if authentication was previously enabled on this server
-            val stayLocked = prefs.lastKnownAuthEnabled
-            _uiStateFlow.update {
-                it.copy(
-                    authChecking = false,
-                    authRequired = stayLocked,
-                    authError = if (stayLocked) "Server unreachable — connecting..." else null
-                )
-            }
-            if (!stayLocked) {
-                startServerWsLoop()
-            }
-            // Auto-retry bootstrap in background so app syncs when Wi-Fi/server finishes booting
-            scope.launch {
-                delay(3000L)
-                if (started.get() && (_uiStateFlow.value.authRequired || _uiStateFlow.value.users.isEmpty())) {
-                    bootstrapAndConnect()
-                }
-            }
-            return
-        }
-
-        prefs.lastKnownAuthEnabled = authStatus.enabled
-        if (authStatus.enabled && !authStatus.authenticated) {
-            _uiStateFlow.update {
-                it.copy(authChecking = false, authRequired = true, authError = null)
-            }
-            return
-        }
-
-        _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
+        // 1. Initialize & hydrate from local on-device SQLite immediately (<30ms, works 100% offline)
+        runCatching { ensureLocalDatabaseReady() }
+        val localAuth = runCatching {
+            localEngine.getAuthStatus(isLoopbackClient = true, isSessionAuthenticated = false)
+        }.getOrDefault(AuthStatus(enabled = false, authenticated = true))
 
         refreshAppState()
         refreshDaemonHealth()
+
+        if (localAuth.enabled && !localAuth.authenticated) {
+            _uiStateFlow.update { it.copy(authChecking = false, authRequired = true, authError = null) }
+            return
+        }
+
+        _uiStateFlow.update {
+            it.copy(
+                authChecking = false,
+                authRequired = false,
+                authError = null,
+                syncMode = prefs.syncMode,
+                syncServerUrl = prefs.syncServerUrl,
+                serverUrl = prefs.serverUrl
+            )
+        }
+
         refreshAuxiliaryState()
-        startServerWsLoop()
+
+        // 2. Start or stop optional background Home / Cloud Server sync without blocking offline lifting
+        cloudSyncManager.startOrReconfigure()
+        val externalSyncConfigured = prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()
+        if (externalSyncConfigured && hasApiClientOverride) {
+            startServerWsLoop()
+        }
     }
 
     fun submitPasscode(passcode: String) {
         scope.launch {
             _uiStateFlow.update { it.copy(authChecking = true, authError = null) }
+            val localAuth = localEngine.getAuthStatus(isLoopbackClient = false, isSessionAuthenticated = false)
+            if (localAuth.enabled) {
+                localEngine.verifyPasscode(passcode, "kiosk")
+                    .onSuccess { ok ->
+                        if (ok) {
+                            _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
+                            refreshAppState()
+                        } else {
+                            _uiStateFlow.update {
+                                it.copy(authChecking = false, authRequired = true, authError = "Invalid passcode")
+                            }
+                        }
+                    }
+                    .onFailure { err ->
+                        _uiStateFlow.update {
+                            it.copy(authChecking = false, authRequired = true, authError = err.message ?: "Too many attempts")
+                        }
+                    }
+                return@launch
+            }
+
+            // Fallback to remote server auth if synced server requested passcode unlock
             runCatching { api.login(passcode) }
                 .onSuccess {
                     _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
@@ -413,62 +744,106 @@ class SwonalRepository(
     }
 
     suspend fun refreshAppState() {
-        runCatching { api.getState() }
-            .onSuccess { state ->
-                val current = _uiStateFlow.value
-                val nextExId = current.activeExerciseId
-                    ?: state.sessionState.activeExerciseId
-                    ?: state.exercises.firstOrNull()?.id
-                _uiStateFlow.update {
-                    it.copy(
-                        daemonConnected = state.daemonConnected,
-                        users = state.users,
-                        exercises = state.exercises,
-                        templates = state.templates,
-                        sessionState = state.sessionState,
-                        activeExerciseId = nextExId,
-                        authRequired = false
-                    )
+        runCatching {
+            ensureLocalDatabaseReady()
+            val daemonOk = localDaemon.connected.value || _uiStateFlow.value.daemonConnected
+            val state = localEngine.getAppState(daemonConnected = daemonOk)
+            val current = _uiStateFlow.value
+            val nextExId = current.activeExerciseId
+                ?.takeIf { id -> state.exercises.any { it.id == id } }
+                ?: state.sessionState.activeExerciseId
+                ?: state.exercises.firstOrNull()?.id
+            val dirty = runCatching { localDb.countDirtySyncRows() }.getOrDefault(0)
+            _uiStateFlow.update {
+                it.copy(
+                    daemonConnected = daemonOk,
+                    users = state.users,
+                    exercises = state.exercises,
+                    templates = state.templates,
+                    sessionState = state.sessionState,
+                    activeExerciseId = nextExId,
+                    pendingSyncCount = dirty,
+                    authRequired = false
+                )
+            }
+            val activeUid = _uiStateFlow.value.activeUser?.id
+            if (activeUid != null) {
+                refreshUserScopedData(activeUid)
+            }
+            runCatching {
+                if (state.users.isNotEmpty()) {
+                    prefs.cachedUsersJson = SwonalJson.encodeToString(state.users)
                 }
-                val activeUid = _uiStateFlow.value.activeUser?.id
-                if (activeUid != null) {
-                    refreshUserScopedData(activeUid)
-                }
-                runCatching {
-                    if (state.users.isNotEmpty()) {
-                        prefs.cachedUsersJson = SwonalJson.encodeToString(state.users)
-                    }
-                    if (state.exercises.isNotEmpty()) {
-                        prefs.cachedExercisesJson = SwonalJson.encodeToString(state.exercises)
-                    }
+                if (state.exercises.isNotEmpty()) {
+                    prefs.cachedExercisesJson = SwonalJson.encodeToString(state.exercises)
                 }
             }
-            .onFailure { err ->
-                if (err is ApiHttpException && err.statusCode == 401) {
-                    prefs.lastKnownAuthEnabled = true
-                    _uiStateFlow.update { it.copy(authRequired = true) }
-                }
-            }
+        }
     }
 
     private suspend fun refreshDaemonHealth() {
-        val health = runCatching { api.getDaemonHealth() }.getOrNull()
-            ?: localDaemon.fetchDirectHealth()
+        val health = localDaemon.fetchDirectHealth()
+            ?: runCatching {
+                if (prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) api.getDaemonHealth() else null
+            }.getOrNull()
         if (health != null) {
             _uiStateFlow.update { it.copy(isMockMode = health.mockMode) }
         }
     }
 
-    private suspend fun refreshAuxiliaryState() {
-        runCatching { api.getMusicProviders() }.onSuccess { providers ->
-            _uiStateFlow.update { it.copy(musicProviders = providers) }
+    private fun hasRemoteSync(): Boolean =
+        prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()
+
+    private suspend fun fetchMusicStateForProvider(provider: String, userId: String): MusicPlaybackState {
+        if (provider == "spotify") {
+            return localSpotify.getPlaybackState(userId)
         }
-        runCatching { api.getCoachConfig() }.onSuccess { cfg ->
+        val lanState = localLanMusic.controlAction(provider, "state")
+        if (lanState.isConnected) return lanState
+        if (hasRemoteSync()) {
+            return runCatching { api.getMusicState(provider, userId) }.getOrDefault(lanState)
+        }
+        return lanState
+    }
+
+    private suspend fun refreshAuxiliaryState() {
+        val spotifyProvider = localSpotify.getProviderInfo()
+        val lanSecondary = localLanMusic.getSecondaryProviders()
+        var mergedProviders = listOf(spotifyProvider) + lanSecondary
+
+        if (hasRemoteSync()) {
+            runCatching { api.getMusicProviders() }.onSuccess { remoteProviders ->
+                val remoteById = remoteProviders.associateBy { it.id }
+                mergedProviders = mergedProviders.map { localInfo ->
+                    val r = remoteById[localInfo.id]
+                    if (r != null) {
+                        localInfo.copy(
+                            configured = localInfo.configured || r.configured,
+                            capabilities = MusicProviderCapabilities(
+                                supportsConnectDevices = localInfo.capabilities.supportsConnectDevices || r.capabilities.supportsConnectDevices,
+                                supportsVolumeDucking = localInfo.capabilities.supportsVolumeDucking || r.capabilities.supportsVolumeDucking,
+                                supportsPlaylists = localInfo.capabilities.supportsPlaylists || r.capabilities.supportsPlaylists
+                            )
+                        )
+                    } else {
+                        localInfo
+                    }
+                }
+            }
+            runCatching { api.getNetworkInfo() }.onSuccess { info ->
+                _uiStateFlow.update { it.copy(networkInfo = info) }
+            }
+        }
+        _uiStateFlow.update { it.copy(musicProviders = mergedProviders) }
+
+        runCatching { localAiCoach.getPublicConfig() }.onSuccess { cfg ->
             _uiStateFlow.update { it.copy(coachConfig = cfg) }
         }
-        runCatching { api.getNetworkInfo() }.onSuccess { info ->
-            _uiStateFlow.update { it.copy(networkInfo = info) }
+        runCatching { localHaClient.getStatus() }.onSuccess { ha ->
+            _uiStateFlow.update { it.copy(haStatus = ha) }
         }
+        runCatching { getEffectiveNetworkInfo() }
+
         val uid = _uiStateFlow.value.activeUser?.id
         if (uid != null) {
             refreshMusicAll(uid)
@@ -476,17 +851,17 @@ class SwonalRepository(
     }
 
     private suspend fun refreshUserScopedData(userId: String) {
-        runCatching { api.getPrs(userId) }.onSuccess { prs ->
+        runCatching { localEngine.getPrs(userId) }.onSuccess { prs ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(prs = prs) }
             }
         }
-        runCatching { api.getDemoPip(userId) }.onSuccess { pip ->
+        runCatching { localEngine.getDemoPip(userId) }.onSuccess { enabled ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
-                _uiStateFlow.update { it.copy(showDemoPip = pip.enabled) }
+                _uiStateFlow.update { it.copy(showDemoPip = enabled) }
             }
         }
-        runCatching { api.getSessions(userId) }.onSuccess { sessions ->
+        runCatching { localEngine.listSessions(userId) }.onSuccess { sessions ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(recentSessions = sessions) }
             }
@@ -499,7 +874,7 @@ class SwonalRepository(
     }
 
     private suspend fun refreshOverload(userId: String, exerciseId: String) {
-        runCatching { api.getOverloadSuggestion(userId, exerciseId) }
+        runCatching { localEngine.getOverloadSuggestion(userId, exerciseId) }
             .onSuccess { sug ->
                 if (_uiStateFlow.value.activeUser?.id == userId) {
                     _uiStateFlow.update { it.copy(overloadSuggestion = sug) }
@@ -521,51 +896,80 @@ class SwonalRepository(
 
     private suspend fun refreshMusicAll(userId: String) {
         val provider = _uiStateFlow.value.preferredMusicProvider
-        runCatching { api.getMusicState(provider, userId) }
+        runCatching { fetchMusicStateForProvider(provider, userId) }
             .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
             .onFailure { err ->
                 if (err is ApiHttpException && err.statusCode == 401) {
                     _uiStateFlow.update { it.copy(musicState = it.musicState.copy(isConnected = false)) }
                 }
             }
-        runCatching { api.getMusicDevices(provider, userId) }
-            .onSuccess { devs ->
-                _uiStateFlow.update { it.copy(musicDevices = devs) }
-                // Default to on-device librespot ("Tonal Gym") if online and no speaker is currently active
-                val hasActive = devs.any { it.isActive } || !_uiStateFlow.value.musicState.activeDeviceId.isNullOrBlank()
-                val librespot = findLibrespotDevice(devs)
-                if (!hasActive && librespot != null && autoSelectedLibrespot.compareAndSet(false, true)) {
-                    runCatching { api.transferMusicDevice(provider, userId, librespot.id) }
-                        .onSuccess { st ->
-                            _uiStateFlow.update {
-                                it.copy(
-                                    musicState = st.copy(activeDeviceId = st.activeDeviceId ?: librespot.id),
-                                    musicDevices = devs.map { d -> d.copy(isActive = d.id == librespot.id) }
-                                )
+
+        if (provider == "spotify") {
+            runCatching { localSpotify.getDevices(userId) }
+                .onSuccess { devs ->
+                    _uiStateFlow.update { it.copy(musicDevices = devs) }
+                    val hasActive = devs.any { it.isActive } || !_uiStateFlow.value.musicState.activeDeviceId.isNullOrBlank()
+                    val librespot = findLibrespotDevice(devs)
+                    if (!hasActive && librespot != null && librespot.id != "tonal-gym-librespot" && autoSelectedLibrespot.compareAndSet(false, true)) {
+                        runCatching { localSpotify.transferPlayback(userId, librespot.id) }
+                            .onSuccess { st ->
+                                _uiStateFlow.update {
+                                    it.copy(
+                                        musicState = st.copy(activeDeviceId = st.activeDeviceId ?: librespot.id),
+                                        musicDevices = devs.map { d -> d.copy(isActive = d.id == librespot.id) }
+                                    )
+                                }
                             }
-                        }
+                    }
                 }
-            }
-        runCatching { api.getMusicPlaylists(provider, userId) }
-            .onSuccess { pls -> _uiStateFlow.update { it.copy(musicPlaylists = pls) } }
-        runCatching { api.getMusicFavorites(userId) }
-            .onSuccess { favs -> _uiStateFlow.update { it.copy(favoritePlaylistIds = favs.playlistIds.toSet()) } }
+            runCatching { localSpotify.getPlaylists(userId) }
+                .onSuccess { pls -> _uiStateFlow.update { it.copy(musicPlaylists = pls) } }
+        } else if (hasRemoteSync()) {
+            runCatching { api.getMusicDevices(provider, userId) }
+                .onSuccess { devs -> _uiStateFlow.update { it.copy(musicDevices = devs) } }
+            runCatching { api.getMusicPlaylists(provider, userId) }
+                .onSuccess { pls -> _uiStateFlow.update { it.copy(musicPlaylists = pls) } }
+        } else {
+            _uiStateFlow.update { it.copy(musicDevices = emptyList(), musicPlaylists = emptyList()) }
+        }
+
+        runCatching { localSpotify.getFavoritePlaylists(userId) }
+            .onSuccess { favs -> _uiStateFlow.update { it.copy(favoritePlaylistIds = favs.toSet()) } }
     }
 
     fun refreshDiagnostics() {
         scope.launch {
             refreshDaemonHealth()
-            runCatching { api.getCalibration() }
-                .onSuccess { cal -> _uiStateFlow.update { it.copy(calibrationStatus = cal) } }
-            runCatching { api.getHomeAssistantStatus() }
+            val cal = localDaemon.getCalibrationDirect()
+                ?: runCatching {
+                    if (hasRemoteSync()) api.getCalibration() else null
+                }.getOrNull()
+            if (cal != null) {
+                _uiStateFlow.update { it.copy(calibrationStatus = cal) }
+            }
+            runCatching { localHaClient.getStatus() }
                 .onSuccess { ha -> _uiStateFlow.update { it.copy(haStatus = ha) } }
-            runCatching { api.getNetworkInfo() }
-                .onSuccess { net -> _uiStateFlow.update { it.copy(networkInfo = net) } }
-            runCatching { api.getCoachConfig() }
+            runCatching { localAiCoach.getPublicConfig() }
                 .onSuccess { cfg -> _uiStateFlow.update { it.copy(coachConfig = cfg) } }
+            if (hasRemoteSync()) {
+                runCatching { api.getHomeAssistantStatus() }
+                    .onSuccess { remoteHa ->
+                        _uiStateFlow.update { cur ->
+                            val localHa = cur.haStatus
+                            cur.copy(
+                                haStatus = remoteHa.copy(
+                                    webhookConfigured = remoteHa.webhookConfigured || (localHa?.webhookConfigured == true),
+                                    recentEvents = (remoteHa.recentEvents + (localHa?.recentEvents.orEmpty())).take(15)
+                                )
+                            )
+                        }
+                    }
+                runCatching { api.getNetworkInfo() }
+                    .onSuccess { net -> _uiStateFlow.update { it.copy(networkInfo = net) } }
+            }
             val uid = _uiStateFlow.value.activeUser?.id
             if (uid != null) {
-                runCatching { api.getSessions(uid) }
+                runCatching { localEngine.listSessions(uid) }
                     .onSuccess { sessions -> _uiStateFlow.update { it.copy(recentSessions = sessions) } }
             }
         }
@@ -814,7 +1218,7 @@ class SwonalRepository(
                         _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.COUNTDOWN_TICK))
                     } else if (remaining == 0 && prevRestCountdown > 0 && endsAt != null) {
                         _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.COUNTDOWN_FINAL))
-                        // Notify server to clear expired restTimerEndsAt
+                        localEngine.setRestTimer(null)
                         sendWs(buildJsonObject { put("type", "skip_rest_timer") })
                     }
                     prevRestCountdown = remaining
@@ -831,8 +1235,8 @@ class SwonalRepository(
                 delay(2000L)
                 val ui = _uiStateFlow.value
                 val uid = ui.activeUser?.id
-                if (uiActive.get() && !ui.authRequired && ui.wsConnected && uid != null && ui.musicState.isPlaying) {
-                    runCatching { api.getMusicState(ui.preferredMusicProvider, uid) }
+                if (uiActive.get() && !ui.authRequired && uid != null && ui.musicState.isPlaying) {
+                    runCatching { fetchMusicStateForProvider(ui.preferredMusicProvider, uid) }
                         .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st) } }
                 }
             }
@@ -872,15 +1276,15 @@ class SwonalRepository(
         if (now - prevTap < 350L) return
         lastEnableTapMs.set(now)
 
-        val sent = if (canSendMotorViaServer()) {
-            sendWs(buildJsonObject { put("type", "enable_weight") })
-        } else {
-            false
-        }
-        if (!sent) {
-            val localOk = localDaemon.enableWeightDirect()
-            if (!localOk) {
-                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Unable to reach server or local daemon"))
+        val localOk = if (localDaemon.connected.value) localDaemon.enableWeightDirect() else false
+        if (!localOk) {
+            val sent = if (canSendMotorViaServer()) {
+                sendWs(buildJsonObject { put("type", "enable_weight") })
+            } else {
+                false
+            }
+            if (!sent) {
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Unable to reach local daemon or server"))
             }
         }
     }
@@ -891,6 +1295,20 @@ class SwonalRepository(
             localDaemon.emergencyDisableWeight()
         }
         sendWs(buildJsonObject { put("type", "disable_weight") })
+    }
+
+    fun setWeightEnabled(enabled: Boolean) {
+        if (!enabled) {
+            disableWeight()
+            return
+        }
+        if (!isUiAliveForWatchdog()) {
+            _effectsFlow.tryEmit(KioskEffect.ShowMessage("Cannot engage motor while Kiosk UI is inactive or locked"))
+            return
+        }
+        if (!isWeightCurrentlyEngaged()) {
+            toggleWeight()
+        }
     }
 
     suspend fun disableWeightAndAwait(): Boolean {
@@ -928,15 +1346,15 @@ class SwonalRepository(
             )
         }
 
-        val payload = buildJsonObject {
-            put("type", "set_weight")
-            put("weight_lb", safeLb)
-            put("profile", mode)
-            put("modifier_pct", effMod)
-        }
-        val sentServer = if (canSendMotorViaServer()) sendWs(payload) else false
-        if (!sentServer) {
-            localDaemon.setWeightDirect(safeLb, mode, effMod)
+        val sentLocal = if (localDaemon.connected.value) localDaemon.setWeightDirect(safeLb, mode, effMod) else false
+        if (!sentLocal && canSendMotorViaServer()) {
+            val payload = buildJsonObject {
+                put("type", "set_weight")
+                put("weight_lb", safeLb)
+                put("profile", mode)
+                put("modifier_pct", effMod)
+            }
+            sendWs(payload)
         }
     }
 
@@ -956,25 +1374,22 @@ class SwonalRepository(
 
     fun setAccessory(accessory: String) {
         if (_uiStateFlow.value.authRequired) return
-        val payload = buildJsonObject {
-            put("type", "set_accessory")
-            put("accessory", accessory)
-        }
-        val sentServer = if (canSendMotorViaServer()) sendWs(payload) else false
-        if (!sentServer) {
-            localDaemon.setAccessoryDirect(accessory)
+        val sentLocal = if (localDaemon.connected.value) localDaemon.setAccessoryDirect(accessory) else false
+        if (!sentLocal && canSendMotorViaServer()) {
+            sendWs(
+                buildJsonObject {
+                    put("type", "set_accessory")
+                    put("accessory", accessory)
+                }
+            )
         }
     }
 
     fun resetReps() {
         if (_uiStateFlow.value.authRequired) return
-        val sentServer = if (canSendMotorViaServer()) {
+        val sentLocal = if (localDaemon.connected.value) localDaemon.resetRepsDirect() else false
+        if (!sentLocal && canSendMotorViaServer()) {
             sendWs(buildJsonObject { put("type", "reset_reps") })
-        } else {
-            false
-        }
-        if (!sentServer) {
-            localDaemon.resetRepsDirect()
         }
     }
 
@@ -983,7 +1398,10 @@ class SwonalRepository(
         if (ui.authRequired || !ui.isMockMode) return
         val ex = ui.activeExercise ?: return
         scope.launch {
-            runCatching { api.syncMockArmPositions(ex) }
+            val ok = localDaemon.setMockArmPositionsDirect(ex)
+            if (!ok && prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
+                runCatching { api.syncMockArmPositions(ex) }
+            }
         }
     }
 
@@ -991,16 +1409,17 @@ class SwonalRepository(
 
     fun switchUser(userId: String) {
         if (_uiStateFlow.value.authRequired) return
-        sendWs(
-            buildJsonObject {
-                put("type", "set_active_user")
-                put("userId", userId)
-            }
-        )
-        _uiStateFlow.update {
-            it.copy(sessionState = it.sessionState.copy(activeUserId = userId))
-        }
         scope.launch {
+            val nextState = localEngine.setActiveUser(userId)
+            _uiStateFlow.update { it.copy(sessionState = nextState) }
+            if (canSendMotorViaServer()) {
+                sendWs(
+                    buildJsonObject {
+                        put("type", "set_active_user")
+                        put("userId", userId)
+                    }
+                )
+            }
             refreshUserScopedData(userId)
             if (!isWeightCurrentlyEngaged()) {
                 val exId = _uiStateFlow.value.activeExercise?.id
@@ -1019,15 +1438,19 @@ class SwonalRepository(
         if (ui.authRequired || ui.users.size < 2) return
         val nextEnabled = !ui.sessionState.partnerModeEnabled
         val ids = listOf(ui.users[0].id, ui.users[1].id)
-        sendWs(
-            buildJsonObject {
-                put("type", "set_partner_mode")
-                put("enabled", nextEnabled)
-                putJsonArray("partnerUserIds") {
-                    ids.forEach { add(JsonPrimitive(it)) }
+        val nextState = localEngine.setPartnerMode(nextEnabled, ids)
+        _uiStateFlow.update { it.copy(sessionState = nextState) }
+        if (canSendMotorViaServer()) {
+            sendWs(
+                buildJsonObject {
+                    put("type", "set_partner_mode")
+                    put("enabled", nextEnabled)
+                    putJsonArray("partnerUserIds") {
+                        ids.forEach { add(JsonPrimitive(it)) }
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     fun toggleUnit() {
@@ -1035,8 +1458,13 @@ class SwonalRepository(
         val user = _uiStateFlow.value.activeUser ?: return
         val nextUnit = if (Units.isKg(user.weightUnit)) "LB" else "KG"
         scope.launch {
-            runCatching { api.patchUser(user.id, weightUnit = nextUnit) }
-                .onSuccess { updated -> updateUserInState(updated) }
+            localEngine.updateUser(user.id, weightUnit = nextUnit)?.let { updated ->
+                updateUserInState(updated)
+                emitLocalBroadcast("user_updated") {
+                    put("user", SwonalJson.encodeToJsonElement(User.serializer(), updated))
+                }
+                notifyDirtySync()
+            }
         }
     }
 
@@ -1045,8 +1473,13 @@ class SwonalRepository(
         val user = _uiStateFlow.value.activeUser ?: return
         val nextTheme = if (user.themeMode == "light") "dark" else "light"
         scope.launch {
-            runCatching { api.patchUser(user.id, themeMode = nextTheme) }
-                .onSuccess { updated -> updateUserInState(updated) }
+            localEngine.updateUser(user.id, themeMode = nextTheme)?.let { updated ->
+                updateUserInState(updated)
+                emitLocalBroadcast("user_updated") {
+                    put("user", SwonalJson.encodeToJsonElement(User.serializer(), updated))
+                }
+                notifyDirtySync()
+            }
         }
     }
 
@@ -1054,8 +1487,13 @@ class SwonalRepository(
         if (_uiStateFlow.value.authRequired) return
         val user = _uiStateFlow.value.activeUser ?: return
         scope.launch {
-            runCatching { api.patchUser(user.id, accentColor = accentHex, avatarColor = accentHex) }
-                .onSuccess { updated -> updateUserInState(updated) }
+            localEngine.updateUser(user.id, accentColor = accentHex, avatarColor = accentHex)?.let { updated ->
+                updateUserInState(updated)
+                emitLocalBroadcast("user_updated") {
+                    put("user", SwonalJson.encodeToJsonElement(User.serializer(), updated))
+                }
+                notifyDirtySync()
+            }
         }
     }
 
@@ -1064,10 +1502,12 @@ class SwonalRepository(
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
         scope.launch {
-            runCatching { api.createUser(trimmed, accentHex, accentHex) }
+            runCatching { localEngine.createUser(trimmed, avatarColor = accentHex, accentColor = accentHex) }
                 .onSuccess { created ->
                     refreshAppState()
                     switchUser(created.id)
+                    emitLocalBroadcast("users_updated")
+                    notifyDirtySync()
                 }
                 .onFailure { err ->
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to create profile"))
@@ -1080,7 +1520,12 @@ class SwonalRepository(
         _uiStateFlow.update { it.copy(showDemoPip = enabled) }
         val uid = _uiStateFlow.value.activeUser?.id ?: return
         scope.launch {
-            runCatching { api.setDemoPip(uid, enabled) }
+            localEngine.setDemoPip(uid, enabled)
+            emitLocalBroadcast("demo_pip_updated") {
+                put("userId", uid)
+                put("enabled", enabled)
+            }
+            notifyDirtySync()
         }
     }
 
@@ -1134,14 +1579,18 @@ class SwonalRepository(
             )
         }
         scope.launch {
-            runCatching { api.updateTemplateSchedule(template.id, normalized) }
+            runCatching { localEngine.updateTemplate(template.id, scheduleDays = normalized) }
                 .onSuccess { updated ->
-                    _uiStateFlow.update { st ->
-                        st.copy(
-                            templates = st.templates.map { t ->
-                                if (t.id == updated.id) updated else t
-                            }
-                        )
+                    if (updated != null) {
+                        _uiStateFlow.update { st ->
+                            st.copy(
+                                templates = st.templates.map { t ->
+                                    if (t.id == updated.id) updated else t
+                                }
+                            )
+                        }
+                        emitLocalBroadcast("templates_updated")
+                        notifyDirtySync()
                     }
                 }
                 .onFailure { err ->
@@ -1163,6 +1612,7 @@ class SwonalRepository(
     }
 
     fun clearQueuedWorkout() {
+        localEngine.clearQueuedWorkout()
         sendWs(buildJsonObject { put("type", "clear_queued_workout") })
         _uiStateFlow.update {
             it.copy(sessionState = it.sessionState.copy(queuedWorkout = null))
@@ -1185,7 +1635,7 @@ class SwonalRepository(
             if (isWeightCurrentlyEngaged()) {
                 disableWeightAndAwait()
             }
-            val session = runCatching { api.createSession(uid, templateId) }.getOrNull()
+            val session = runCatching { localEngine.createSession(uid, templateId) }.getOrNull()
             val step0 = steps[0]
             val ex0 = _uiStateFlow.value.exercises.firstOrNull { it.id == step0.exerciseId }
             lastAutoLoggedStepKey = null
@@ -1205,6 +1655,7 @@ class SwonalRepository(
             setWeight(step0.targetWeightLb, step0.mode, step0.modifierPct, allowWhileEngaged = false)
             resetReps()
             refreshOverload(uid, step0.exerciseId)
+            notifyDirtySync()
         }
     }
 
@@ -1287,7 +1738,7 @@ class SwonalRepository(
 
             var sessionId = ui.sessionState.activeSessionId
             if (sessionId == null) {
-                val created = runCatching { api.createSession(user.id, null) }.getOrNull() ?: return
+                val created = runCatching { localEngine.createSession(user.id, null) }.getOrNull() ?: return
                 sessionId = created.id
                 _uiStateFlow.update {
                     it.copy(sessionState = it.sessionState.copy(activeSessionId = sessionId))
@@ -1299,7 +1750,7 @@ class SwonalRepository(
             val setNumber = step?.setNumber ?: 1
 
             val resp = runCatching {
-                api.logSet(
+                localEngine.logSet(
                     sessionId = sessionId,
                     userId = user.id,
                     exerciseId = exercise.id,
@@ -1315,8 +1766,19 @@ class SwonalRepository(
                 return
             }
 
-            // Reset reps immediately so stale telemetry cannot double-trigger auto-log
-            resetReps()
+            emitLocalBroadcast("set_logged") {
+                put("setLog", SwonalJson.encodeToJsonElement(SetLog.serializer(), resp.setLog))
+                put("newPr", resp.newPr)
+                put("totalVolume", resp.totalVolume)
+            }
+            resp.partnerRotation?.let { prRot ->
+                emitLocalBroadcast("partner_rotated") {
+                    put("userId", prRot.rotatedToUserId)
+                    put("targetWeightLb", prRot.targetWeightLb)
+                    put("exerciseId", exercise.id)
+                }
+            }
+            notifyDirtySync()
 
             if (resp.newPr) {
                 _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.PERSONAL_RECORD))
@@ -1340,9 +1802,14 @@ class SwonalRepository(
             }
 
             val effectiveUid = resp.partnerRotation?.rotatedToUserId ?: user.id
-            runCatching { api.getPrs(effectiveUid) }.onSuccess { prs ->
+            runCatching { localEngine.getPrs(effectiveUid) }.onSuccess { prs ->
                 if (_uiStateFlow.value.activeUser?.id == effectiveUid) {
                     _uiStateFlow.update { it.copy(prs = prs) }
+                }
+            }
+            runCatching { localEngine.listSessions(effectiveUid) }.onSuccess { sessions ->
+                if (_uiStateFlow.value.activeUser?.id == effectiveUid) {
+                    _uiStateFlow.update { it.copy(recentSessions = sessions) }
                 }
             }
 
@@ -1380,7 +1847,7 @@ class SwonalRepository(
         disableWeight()
         skipRestTimer()
         val completed = if (sessionId != null) {
-            runCatching { api.completeSession(sessionId) }.getOrNull()
+            runCatching { localEngine.completeSession(sessionId) }.getOrNull()
         } else {
             null
         }
@@ -1395,6 +1862,13 @@ class SwonalRepository(
             )
         }
         if (completed != null) {
+            _uiStateFlow.value.activeUser?.id?.let { uid ->
+                runCatching { localEngine.listSessions(uid) }.onSuccess { sessions ->
+                    if (_uiStateFlow.value.activeUser?.id == uid) {
+                        _uiStateFlow.update { it.copy(recentSessions = sessions) }
+                    }
+                }
+            }
             _effectsFlow.tryEmit(KioskEffect.ShowWorkoutSummary(completed, prHits))
         }
     }
@@ -1402,6 +1876,8 @@ class SwonalRepository(
     fun addRestSeconds(extraSec: Int) {
         if (_uiStateFlow.value.authRequired) return
         val total = (_uiStateFlow.value.restSecondsRemaining + extraSec).coerceAtLeast(1)
+        val nextState = localEngine.startRestTimerSeconds(total)
+        _uiStateFlow.update { it.copy(sessionState = nextState) }
         sendWs(
             buildJsonObject {
                 put("type", "start_rest_timer")
@@ -1412,11 +1888,12 @@ class SwonalRepository(
 
     fun skipRestTimer() {
         prevRestCountdown = 0
+        val nextState = localEngine.setRestTimer(null)
         sendWs(buildJsonObject { put("type", "skip_rest_timer") })
         _uiStateFlow.update {
             it.copy(
                 restSecondsRemaining = 0,
-                sessionState = it.sessionState.copy(restTimerEndsAt = null)
+                sessionState = nextState
             )
         }
     }
@@ -1427,6 +1904,27 @@ class SwonalRepository(
 
     // --- Music Actions ---
 
+    private suspend fun executeSecondaryMusicAction(
+        provider: String,
+        userId: String,
+        action: String,
+        volumePct: Int? = null
+    ): MusicPlaybackState {
+        val local = localLanMusic.controlAction(provider, action, volumePct)
+        if (local.isConnected) return local
+        if (hasRemoteSync()) {
+            return when (action) {
+                "play" -> api.playMusic(provider, userId)
+                "pause" -> api.pauseMusic(provider, userId)
+                "next" -> api.nextTrack(provider, userId)
+                "previous" -> api.previousTrack(provider, userId)
+                "volume" -> api.setMusicVolume(provider, userId, volumePct ?: 70)
+                else -> local
+            }
+        }
+        return local
+    }
+
     fun toggleMusicPlayPause() {
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
@@ -1435,10 +1933,14 @@ class SwonalRepository(
         val defaultDeviceId = resolvePreferredMusicDeviceId(ui)
         scope.launch {
             runCatching {
-                if (ui.musicState.isPlaying) {
-                    api.pauseMusic(provider, uid)
+                if (provider == "spotify") {
+                    if (ui.musicState.isPlaying) {
+                        localSpotify.pause(uid)
+                    } else {
+                        localSpotify.play(uid, deviceId = defaultDeviceId)
+                    }
                 } else {
-                    api.playMusic(provider, uid, deviceId = defaultDeviceId)
+                    executeSecondaryMusicAction(provider, uid, if (ui.musicState.isPlaying) "pause" else "play")
                 }
             }.onSuccess { st ->
                 _uiStateFlow.update { it.copy(musicState = st, musicError = null) }
@@ -1452,8 +1954,15 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         scope.launch {
-            runCatching { api.previousTrack(ui.preferredMusicProvider, uid) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.previousTrack(uid)
+                } else {
+                    executeSecondaryMusicAction(provider, uid, "previous")
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1463,8 +1972,15 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         scope.launch {
-            runCatching { api.nextTrack(ui.preferredMusicProvider, uid) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.nextTrack(uid)
+                } else {
+                    executeSecondaryMusicAction(provider, uid, "next")
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1474,9 +1990,16 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         _uiStateFlow.update { it.copy(musicState = it.musicState.copy(volumePct = volumePct)) }
         scope.launch {
-            runCatching { api.setMusicVolume(ui.preferredMusicProvider, uid, volumePct) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.setVolume(uid, volumePct)
+                } else {
+                    executeSecondaryMusicAction(provider, uid, "volume", volumePct)
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1486,9 +2009,18 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         val defaultDeviceId = resolvePreferredMusicDeviceId(ui)
         scope.launch {
-            runCatching { api.playMusic(ui.preferredMusicProvider, uid, contextUri = uri, deviceId = defaultDeviceId) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.play(uid, contextUri = uri, deviceId = defaultDeviceId)
+                } else if (hasRemoteSync()) {
+                    api.playMusic(provider, uid, contextUri = uri, deviceId = defaultDeviceId)
+                } else {
+                    localLanMusic.controlAction(provider, "play")
+                }
+            }
                 .onSuccess { st -> _uiStateFlow.update { it.copy(musicState = st, musicError = null) } }
                 .onFailure { err -> _uiStateFlow.update { it.copy(musicError = err.message) } }
         }
@@ -1507,9 +2039,11 @@ class SwonalRepository(
 
     fun completeSpotifySpeakerAuth(codeOrUrl: String, onDone: (Boolean, String) -> Unit = { _, _ -> }) {
         val uid = _uiStateFlow.value.activeUser?.id
+        val fallbackUid = uid ?: _uiStateFlow.value.users.firstOrNull()?.id ?: "11111111-1111-4111-8111-111111111111"
         scope.launch {
-            runCatching { api.completeSpotifySpeakerAuth(uid, codeOrUrl) }
+            runCatching { localSpotify.exchangeKeymasterPkceCode(fallbackUid, codeOrUrl) }
                 .onSuccess {
+                    notifyDirtySync()
                     if (uid != null) {
                         delay(1500L)
                         refreshMusicAll(uid)
@@ -1526,8 +2060,17 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
         val uid = ui.activeUser?.id ?: return
+        val provider = ui.preferredMusicProvider
         scope.launch {
-            runCatching { api.transferMusicDevice(ui.preferredMusicProvider, uid, deviceId) }
+            runCatching {
+                if (provider == "spotify") {
+                    localSpotify.transferPlayback(uid, deviceId)
+                } else if (hasRemoteSync()) {
+                    api.transferMusicDevice(provider, uid, deviceId)
+                } else {
+                    MusicPlaybackState(isConnected = false)
+                }
+            }
                 .onSuccess { st ->
                     _uiStateFlow.update { it.copy(musicState = st, musicError = null) }
                     refreshMusicAll(uid)
@@ -1540,8 +2083,11 @@ class SwonalRepository(
         if (_uiStateFlow.value.authRequired) return
         val uid = _uiStateFlow.value.activeUser?.id ?: return
         scope.launch {
-            runCatching { api.toggleMusicFavorite(uid, playlistId) }
-                .onSuccess { fav -> _uiStateFlow.update { it.copy(favoritePlaylistIds = fav.playlistIds.toSet()) } }
+            runCatching { localSpotify.toggleFavoritePlaylist(uid, playlistId) }
+                .onSuccess { favIds ->
+                    _uiStateFlow.update { it.copy(favoritePlaylistIds = favIds.toSet()) }
+                    notifyDirtySync()
+                }
         }
     }
 
@@ -1549,10 +2095,13 @@ class SwonalRepository(
         if (_uiStateFlow.value.authRequired) return
         val user = _uiStateFlow.value.activeUser ?: return
         scope.launch {
-            runCatching { api.patchUser(user.id, preferredMusicProvider = providerId) }
+            runCatching { localEngine.updateUser(user.id, preferredMusicProvider = providerId) }
                 .onSuccess { updated ->
-                    updateUserInState(updated)
-                    refreshMusicAll(updated.id)
+                    if (updated != null) {
+                        updateUserInState(updated)
+                        notifyDirtySync()
+                        refreshMusicAll(updated.id)
+                    }
                 }
         }
     }
@@ -1560,7 +2109,15 @@ class SwonalRepository(
     suspend fun loadPlaylistTracks(playlistId: String): Result<List<MusicTrack>> {
         val ui = _uiStateFlow.value
         val uid = ui.activeUser?.id ?: return Result.failure(IllegalStateException("No active user"))
-        return runCatching { api.getPlaylistTracks(ui.preferredMusicProvider, playlistId, uid) }
+        return runCatching {
+            if (ui.preferredMusicProvider == "spotify") {
+                localSpotify.getPlaylistTracks(playlistId, uid)
+            } else if (hasRemoteSync()) {
+                api.getPlaylistTracks(ui.preferredMusicProvider, playlistId, uid)
+            } else {
+                emptyList()
+            }
+        }
     }
 
     fun clearMusicError() {
@@ -1572,7 +2129,13 @@ class SwonalRepository(
         if (!ui.musicState.isPlaying || !ui.musicState.isConnected) return
         val uid = ui.activeUser?.id ?: return
         scope.launch {
-            runCatching { api.duckMusic(ui.preferredMusicProvider, uid, targetPct = 25, durationMs = durationMs) }
+            runCatching {
+                if (ui.preferredMusicProvider == "spotify") {
+                    localSpotify.duckVolume(uid, targetPct = 25, durationMs = durationMs)
+                } else if (hasRemoteSync()) {
+                    api.duckMusic(ui.preferredMusicProvider, uid, targetPct = 25, durationMs = durationMs)
+                }
+            }
         }
     }
 
@@ -1589,7 +2152,7 @@ class SwonalRepository(
         _uiStateFlow.update { it.copy(coachLoading = true) }
         scope.launch {
             runCatching {
-                api.askCoach(
+                localAiCoach.ask(
                     userId = uid,
                     prompt = trimmed,
                     exerciseName = ui.activeExercise?.name,
@@ -1641,9 +2204,10 @@ class SwonalRepository(
     fun saveCoachConfig(provider: String, model: String, apiKey: String?, baseUrl: String?) {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
-            runCatching { api.saveCoachConfig(provider, model, apiKey, baseUrl) }
+            runCatching { localAiCoach.setConfig(provider = provider, model = model, apiKey = apiKey, baseUrl = baseUrl) }
                 .onSuccess { cfg ->
                     _uiStateFlow.update { it.copy(coachConfig = cfg) }
+                    notifyDirtySync()
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage("AI Coach settings saved"))
                 }
                 .onFailure { err ->
@@ -1656,8 +2220,11 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired || !ui.isMockMode) return
         scope.launch {
-            runCatching { api.triggerMockBle(action) }
-                .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "BLE sim failed")) }
+            val ok = localDaemon.triggerMockBleDirect(action)
+            if (!ok) {
+                runCatching { api.triggerMockBle(action) }
+                    .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "BLE sim failed")) }
+            }
         }
     }
 
@@ -1665,14 +2232,23 @@ class SwonalRepository(
         val ui = _uiStateFlow.value
         if (ui.authRequired || !ui.isMockMode) return
         scope.launch {
-            runCatching { api.triggerMockBarTilt(autoEnable = true) }
-                .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Bar tilt failed")) }
+            val ok = localDaemon.triggerMockBarTiltDirect(autoEnable = true)
+            if (!ok) {
+                runCatching { api.triggerMockBarTilt(autoEnable = true) }
+                    .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Bar tilt failed")) }
+            }
         }
     }
 
     fun zeroCalibration() {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
+            val direct = localDaemon.zeroCalibrationDirect()
+            if (direct != null) {
+                _uiStateFlow.update { it.copy(calibrationStatus = direct) }
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Cable strain gauges zeroed"))
+                return@launch
+            }
             runCatching { api.zeroCalibration() }
                 .onSuccess { cal ->
                     _uiStateFlow.update { it.copy(calibrationStatus = cal) }
@@ -1687,7 +2263,18 @@ class SwonalRepository(
     fun testHomeAssistant() {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
-            runCatching { api.testHomeAssistantEvent() }
+            runCatching {
+                localHaClient.publishEvent(
+                    "test",
+                    buildJsonObject {
+                        put("source", "kiosk")
+                        put("message", "Swonal Home Assistant webhook test")
+                    }
+                )
+                if (hasRemoteSync()) {
+                    runCatching { api.testHomeAssistantEvent() }
+                }
+            }
                 .onSuccess {
                     refreshDiagnostics()
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage("Home Assistant test event published"))
@@ -1700,8 +2287,8 @@ class SwonalRepository(
 
     suspend fun switchToStockMode(): Boolean {
         if (_uiStateFlow.value.authRequired) return false
-        val ok = runCatching { api.switchToStockMode(); true }
-            .getOrElse { localDaemon.switchToStockModeDirect() }
+        val ok = localDaemon.switchToStockModeDirect() ||
+            runCatching { api.switchToStockMode(); true }.getOrDefault(false)
         if (ok) {
             _effectsFlow.tryEmit(KioskEffect.ShowMessage("Handed motor daemon to Stock Tonal mode"))
         } else {
@@ -1713,6 +2300,11 @@ class SwonalRepository(
     fun switchToCustomMode() {
         if (_uiStateFlow.value.authRequired) return
         scope.launch {
+            val ok = localDaemon.switchToCustomModeDirect()
+            if (ok) {
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage("Switched daemon to Custom mode"))
+                return@launch
+            }
             runCatching { api.switchToCustomMode() }
                 .onSuccess { _effectsFlow.tryEmit(KioskEffect.ShowMessage("Switched daemon to Custom mode")) }
                 .onFailure { err -> _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Mode switch failed")) }

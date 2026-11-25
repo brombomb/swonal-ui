@@ -518,7 +518,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     if (!trimmed || !activeUser) return;
 
     // Zero-latency client-side voice command detection & immediate auto-execution
-    const fastAction = matchClientVoiceCommand(trimmed);
+    const fastAction = matchClientVoiceCommand(trimmed, activeUnit);
     let executedClientSide = false;
     let spokenConfirmation = '';
     if (fastAction) {
@@ -550,14 +550,22 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           reply: string;
           suggestedAction?: CoachSuggestedAction | null;
         };
-        const serverAction = data.suggestedAction ?? null;
-        setCoachAction(serverAction);
+        const rawServerAction = data.suggestedAction ?? null;
+        const safeServerAction =
+          rawServerAction &&
+          rawServerAction.type !== 'toggle_weight' &&
+          !(rawServerAction.type === 'set_weight_enabled' && rawServerAction.enabled)
+            ? rawServerAction.type === 'set_weight_delta' && rawServerAction.deltaLb !== undefined
+              ? { ...rawServerAction, deltaLb: Math.max(-20, Math.min(20, rawServerAction.deltaLb)) }
+              : rawServerAction
+            : null;
+        setCoachAction(safeServerAction);
 
-        if (serverAction && !executedClientSide) {
-          const confirmText = executeVoiceAction(serverAction);
+        if (safeServerAction && !executedClientSide) {
+          const confirmText = executeVoiceAction(safeServerAction);
           const finalReply = confirmText || data.reply;
           setCoachReply(finalReply);
-          showVoiceStatusToast(trimmed, finalReply, serverAction.label);
+          showVoiceStatusToast(trimmed, finalReply, safeServerAction.label);
           speakCoachAudio(finalReply, soundMuted);
         } else if (!executedClientSide) {
           setCoachReply(data.reply);
@@ -870,8 +878,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          npub: kioskAddFriendCode.trim(),
-          nickname: kioskAddFriendNick.trim() || undefined,
+          npubOrHex: kioskAddFriendCode.trim(),
+          displayName: kioskAddFriendNick.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -888,13 +896,13 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     }
   };
 
-  const handleKioskReact = async (activityId: string, emoji: string) => {
+  const handleKioskReact = async (activityId: string, targetPubkey: string, emoji: string) => {
     if (!activeUser?.id) return;
     try {
       await fetch(`/api/friends/react/${encodeURIComponent(activeUser.id)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activityId, emoji }),
+        body: JSON.stringify({ targetEventId: activityId, targetPubkey, emoji }),
       });
       const feedRes = await fetch(`/api/friends/feed/${encodeURIComponent(activeUser.id)}?limit=25`);
       if (feedRes.ok) setKioskFriendsFeed(await feedRes.json());
@@ -907,7 +915,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     if (!activeUser?.id || !kioskFriendIdentity) return;
     try {
       const res = await fetch(`/api/friends/identity/${encodeURIComponent(activeUser.id)}`, {
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shareWorkouts: share }),
       });
@@ -3455,7 +3463,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => void handleKioskReact(post.id, '💪')}
+                            onClick={() => void handleKioskReact(post.id, post.authorPubkey, '💪')}
                             className="px-2.5 py-1 rounded-lg text-xs font-bold elevated-pill hover:scale-105 active:scale-95 transition flex items-center gap-1"
                           >
                             <span>💪</span>
@@ -3463,7 +3471,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                           </button>
                           <button
                             type="button"
-                            onClick={() => void handleKioskReact(post.id, '🔥')}
+                            onClick={() => void handleKioskReact(post.id, post.authorPubkey, '🔥')}
                             className="px-2.5 py-1 rounded-lg text-xs font-bold elevated-pill hover:scale-105 active:scale-95 transition flex items-center gap-1"
                           >
                             <span>🔥</span>
@@ -3471,7 +3479,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                           </button>
                           <button
                             type="button"
-                            onClick={() => void handleKioskReact(post.id, '🏆')}
+                            onClick={() => void handleKioskReact(post.id, post.authorPubkey, '🏆')}
                             className="px-2.5 py-1 rounded-lg text-xs font-bold elevated-pill hover:scale-105 active:scale-95 transition flex items-center gap-1"
                           >
                             <span>🏆</span>

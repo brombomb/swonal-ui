@@ -1,7 +1,8 @@
-# Swonal Native Android Kiosk — Implementation Plan
+# Swonal Native Android Kiosk — Implementation Plan (Completed & Superseded by Standalone-First Architecture)
 
 Target audience: **High-Level Agent Coordinator**  
-Goal: Replace the browser-based Tonal V1 wall display with a lightweight, 60fps native Android kiosk app (`packages/android-kiosk`) while keeping `packages/server-app` as the backend brain and `packages/tonal-daemon` as the hardware bridge.
+Status: **Completed** — `packages/android-kiosk` is now **standalone-first** (on-device SQLite + embedded `:3000` server + native pickers & Routine Builder) with optional `packages/server-app` cloud/home sync via `/api/sync/*` & `/ws/sync`.  
+Goal: Replace the browser-based Tonal V1 wall display with a lightweight, 60fps native Android kiosk app (`packages/android-kiosk`) that works offline by default while keeping `packages/server-app` as an optional sync/MCP/MQTT backend and `packages/tonal-daemon` as the hardware bridge.
 
 ---
 
@@ -92,7 +93,7 @@ Use the existing web UI as the **authoritative visual design spec** (`packages/s
   - Add direct local fallback client targeting `http://127.0.0.1:8765` (`tonal-daemon`) for safety-critical actions (`WEIGHT OFF` / emergency disengage / weight toggle) when `server-app` is unreachable or experiencing Wi-Fi latency, while reconciling state when `/ws` reconnects.
 - **Exit Criteria**: Disconnecting LAN/Wi-Fi still allows immediate `WEIGHT OFF` from the Tonal screen in <5ms.
 
-### Phase 4 — Low-Frequency Screens & Parity Verification
+### Phase 4 — Low-Frequency Screens & Parity Verification (Completed via Embedded `:3000` Server + Native Screens)
 - **Deliverables**:
-  - Keep `/history`, `/settings`, `/admin`, and `/companion` on `server-app` (either rendered in an on-demand browser/activity or ported to native RecyclerView/MPAndroidChart screens if desired).
+  - Bundled `/companion`, `/history`, `/settings`, and `/admin` React SPA inside `android-kiosk` (`assets/web/`) served directly on port `:3000` via `EmbeddedSwonalServer` alongside native `RoutineBuilderDialog` and `ServerSyncSettingsDialog`, with optional background sync to external `packages/server-app`.
   - End-to-end verification on `<tonal-ip>:5555`: live 30Hz pull test, PR celebration + `SoundPool` chime, Spotify dock playback, and `adb logcat` check for zero ANRs/crashes.

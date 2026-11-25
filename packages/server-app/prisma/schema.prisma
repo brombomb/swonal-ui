@@ -22,6 +22,7 @@ model User {
   shareWorkouts          Boolean            @default(true)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
+  deletedAt              DateTime?
   musicIntegrations      MusicIntegration[]
   templates              WorkoutTemplate[]
   sessions               WorkoutSession[]
@@ -41,6 +42,7 @@ model Friend {
   lastSeenAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
   @@unique([userId, pubkeyHex])
 }
@@ -83,6 +85,8 @@ model Exercise {
   unilateral          Boolean          @default(false)
   notes               String?
   mediaUrl            String?
+  updatedAt           DateTime         @default(now()) @updatedAt
+  deletedAt           DateTime?
   setLogs             SetLog[]
   personalRecords     PersonalRecord[]
 }
@@ -96,6 +100,8 @@ model WorkoutTemplate {
   blocksJson   String           // JSON serialized structured layout of warmups, supersets, and blocks
   scheduleDays String?          // Optional JSON array of weekday numbers (0=Sun..6=Sat)
   createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @default(now()) @updatedAt
+  deletedAt    DateTime?
   sessions     WorkoutSession[]
 }
 
@@ -108,6 +114,7 @@ model WorkoutSession {
   startedAt   DateTime         @default(now())
   completedAt DateTime?
   totalVolume Float            @default(0.0)
+  updatedAt   DateTime         @default(now()) @updatedAt
   setLogs     SetLog[]
 }
 
@@ -119,11 +126,13 @@ model SetLog {
   exercise      Exercise       @relation(fields: [exerciseId], references: [id])
   setNumber     Int
   mode          String         @default("standard") // standard, eccentric, chains, spotter, burnout
+  modifierPct   Int            @default(0)
   weightLb      Float
   repsCompleted Int
   volumeLb      Float
   rpe           Float?
   timestamp     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
 }
 
 model PersonalRecord {
@@ -137,4 +146,10 @@ model PersonalRecord {
   updatedAt    DateTime @updatedAt
 
   @@unique([userId, exerciseId])
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }

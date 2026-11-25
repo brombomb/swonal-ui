@@ -74,40 +74,6 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Quick Preferences Trigger -->
-            <FrameLayout
-                android:id="@+id/btnQuickPrefs"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="8dp"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:id="@+id/ivQuickPrefs"
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_settings" />
-            </FrameLayout>
-
-            <!-- Swocial Friends Feed Trigger (Icon-Only) -->
-            <FrameLayout
-                android:id="@+id/btnSwocial"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="8dp"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:id="@+id/ivSwocial"
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_users" />
-            </FrameLayout>
-
             <!-- Companion Phone QR Trigger -->
             <LinearLayout
                 android:id="@+id/btnCompanionQr"
@@ -136,9 +102,9 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Kiosk Launcher App Drawer Trigger -->
+            <!-- Swocial Friends Feed Trigger (Icon-Only) -->
             <FrameLayout
-                android:id="@+id/btnAppDrawer"
+                android:id="@+id/btnSwocial"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_marginStart="8dp"
@@ -146,11 +112,45 @@
                 android:focusable="true">
 
                 <ImageView
-                    android:id="@+id/ivAppDrawer"
-                    android:layout_width="17dp"
-                    android:layout_height="17dp"
+                    android:id="@+id/ivSwocial"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ic_apps" />
+                    android:src="@drawable/ic_users" />
+            </FrameLayout>
+
+            <!-- History & PRs Trigger (Trophy Icon-Only) -->
+            <FrameLayout
+                android:id="@+id/btnHistory"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/ivHistory"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_trophy" />
+            </FrameLayout>
+
+            <!-- Quick Preferences / Settings Trigger -->
+            <FrameLayout
+                android:id="@+id/btnQuickPrefs"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/ivQuickPrefs"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_settings" />
             </FrameLayout>
 
             <!-- Hardware Telemetry Status Dot Trigger (Tap for full Tonal CDC details) -->
@@ -1799,6 +1799,34 @@
                         android:gravity="end"
                         android:text="75%"
                         android:textSize="10.5sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Voice Control Trigger Pill -->
+                <LinearLayout
+                    android:id="@+id/btnVoiceControl"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp">
+
+                    <ImageView
+                        android:id="@+id/ivVoiceControl"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:src="@drawable/ic_mic" />
+
+                    <TextView
+                        android:id="@+id/tvVoiceControl"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="Voice"
+                        android:textSize="11.5sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 

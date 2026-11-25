@@ -106,12 +106,32 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     });
   });
 
+const PUBLIC_USER_SELECT = {
+  id: true,
+  name: true,
+  avatarColor: true,
+  preferredMusicProvider: true,
+  themeMode: true,
+  accentColor: true,
+  weightUnit: true,
+  nostrPubKeyHex: true,
+  nostrNpub: true,
+  nostrRelays: true,
+  shareWorkouts: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
   router.get('/state', async (_req, res, next) => {
     try {
       const [users, exercises, templates] = await Promise.all([
-        prisma.user.findMany({ orderBy: { createdAt: 'asc' } }),
+        prisma.user.findMany({
+          where: { deletedAt: null },
+          select: PUBLIC_USER_SELECT,
+          orderBy: { createdAt: 'asc' },
+        }),
         getExercisesCatalog(),
-        prisma.workoutTemplate.findMany({ orderBy: { createdAt: 'desc' } }),
+        prisma.workoutTemplate.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } }),
       ]);
       res.json({
         sessionState: sessionCoordinator.getState(),
@@ -132,7 +152,11 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   // Users
   router.get('/users', async (_req, res, next) => {
     try {
-      const users = await prisma.user.findMany({ orderBy: { createdAt: 'asc' } });
+      const users = await prisma.user.findMany({
+        where: { deletedAt: null },
+        select: PUBLIC_USER_SELECT,
+        orderBy: { createdAt: 'asc' },
+      });
       res.json(users);
     } catch (err) {
       next(err);
@@ -142,7 +166,10 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   router.post('/users', async (req, res, next) => {
     try {
       const parsed = CreateUserSchema.parse(req.body);
-      const user = await prisma.user.create({ data: parsed });
+      const user = await prisma.user.create({
+        data: parsed,
+        select: PUBLIC_USER_SELECT,
+      });
       bridge.broadcastToClients({ type: 'users_updated' });
       res.status(201).json(user);
     } catch (err) {
@@ -153,9 +180,18 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   router.patch('/users/:id', async (req, res, next) => {
     try {
       const parsed = UpdateUserSchema.parse(req.body);
+      const existing = await prisma.user.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
       const user = await prisma.user.update({
         where: { id: req.params.id },
         data: parsed,
+        select: PUBLIC_USER_SELECT,
       });
       bridge.broadcastToClients({ type: 'user_updated', user });
       res.json(user);
@@ -166,14 +202,39 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
 
   router.delete('/users/:id', async (req, res, next) => {
     try {
-      const total = await prisma.user.count();
+      const existing = await prisma.user.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+      const total = await prisma.user.count({ where: { deletedAt: null } });
       if (total <= 1) {
         res.status(400).json({ error: 'Cannot delete the last user profile' });
         return;
       }
-      await prisma.user.delete({ where: { id: req.params.id } });
+      const now = new Date();
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: req.params.id },
+          data: { deletedAt: now },
+        }),
+        prisma.workoutTemplate.updateMany({
+          where: { userId: req.params.id, deletedAt: null },
+          data: { deletedAt: now },
+        }),
+        prisma.friend.updateMany({
+          where: { userId: req.params.id, deletedAt: null },
+          data: { deletedAt: now },
+        }),
+      ]);
       if (sessionCoordinator.getState().activeUserId === req.params.id) {
-        const nextUser = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+        const nextUser = await prisma.user.findFirst({
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
         if (nextUser) {
           sessionCoordinator.setActiveUser(nextUser.id);
         }
@@ -254,7 +315,8 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     name: z.string().min(1).max(80),
     muscleGroup: z.string().min(1).max(40),
     accessory: z.enum(['HANDLES', 'BAR', 'ROPE', 'BODYWEIGHT']).default('HANDLES'),
-    isUnilateral: z.boolean().default(false),
+    unilateral: z.boolean().optional(),
+    isUnilateral: z.boolean().optional(),
     recommendedHeight: z.number().int().min(1).max(12).default(4),
     recommendedRotation: z.number().int().min(1).max(3).default(2),
     recommendedAngle: z.number().int().min(1).max(5).default(1),
@@ -264,10 +326,20 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   router.post('/exercises', async (req, res, next) => {
     try {
       const parsed = ExerciseSchema.parse(req.body);
-      const created = await prisma.exercise.create({
-        data: {
-          ...parsed,
-          mediaUrl: parsed.mediaUrl || null,
+      const { isUnilateral, unilateral, ...rest } = parsed;
+      const effectiveUnilateral = unilateral ?? isUnilateral ?? false;
+      const created = await prisma.exercise.upsert({
+        where: { name: rest.name },
+        create: {
+          ...rest,
+          unilateral: effectiveUnilateral,
+          mediaUrl: rest.mediaUrl || null,
+        },
+        update: {
+          ...rest,
+          unilateral: effectiveUnilateral,
+          mediaUrl: rest.mediaUrl || null,
+          deletedAt: null,
         },
       });
       bridge.broadcastToClients({ type: 'exercises_updated' });
@@ -280,9 +352,22 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
   router.patch('/exercises/:id', async (req, res, next) => {
     try {
       const parsed = ExerciseSchema.partial().parse(req.body);
+      const existing = await prisma.exercise.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) {
+        res.status(404).json({ error: 'Exercise not found' });
+        return;
+      }
+      const { isUnilateral, unilateral, ...rest } = parsed;
+      const effectiveUnilateral = unilateral ?? isUnilateral;
       const updated = await prisma.exercise.update({
         where: { id: req.params.id },
-        data: parsed,
+        data: {
+          ...rest,
+          ...(effectiveUnilateral !== undefined ? { unilateral: effectiveUnilateral } : {}),
+        },
       });
       bridge.broadcastToClients({ type: 'exercises_updated' });
       res.json(updated);
@@ -293,6 +378,14 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
 
   router.delete('/exercises/:id', async (req, res, next) => {
     try {
+      const existing = await prisma.exercise.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) {
+        res.status(404).json({ error: 'Exercise not found' });
+        return;
+      }
       const usageCount = await prisma.setLog.count({
         where: { exerciseId: req.params.id },
       });
@@ -302,7 +395,10 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
         });
         return;
       }
-      await prisma.exercise.delete({ where: { id: req.params.id } });
+      await prisma.exercise.update({
+        where: { id: req.params.id },
+        data: { deletedAt: new Date() },
+      });
       bridge.broadcastToClients({ type: 'exercises_updated' });
       res.json({ ok: true });
     } catch (err) {
@@ -315,7 +411,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
     try {
       const userId = typeof req.query.userId === 'string' ? req.query.userId : undefined;
       const templates = await prisma.workoutTemplate.findMany({
-        where: userId ? { userId } : undefined,
+        where: { deletedAt: null, ...(userId ? { userId } : {}) },
         orderBy: { createdAt: 'desc' },
       });
       res.json(
@@ -365,7 +461,18 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
 
   router.delete('/templates/:id', async (req, res, next) => {
     try {
-      await prisma.workoutTemplate.delete({ where: { id: req.params.id } });
+      const existing = await prisma.workoutTemplate.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) {
+        res.status(404).json({ error: 'Template not found' });
+        return;
+      }
+      await prisma.workoutTemplate.update({
+        where: { id: req.params.id },
+        data: { deletedAt: new Date() },
+      });
       bridge.broadcastToClients({ type: 'templates_updated' });
       res.json({ status: 'deleted', id: req.params.id });
     } catch (err) {
@@ -375,8 +482,8 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
 
   router.post('/templates/:id/queue', async (req, res, next) => {
     try {
-      const template = await prisma.workoutTemplate.findUnique({
-        where: { id: req.params.id },
+      const template = await prisma.workoutTemplate.findFirst({
+        where: { id: req.params.id, deletedAt: null },
       });
       if (!template) {
         res.status(404).json({ error: 'Template not found' });
@@ -451,6 +558,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
           exerciseId: parsed.exerciseId,
           setNumber: parsed.setNumber,
           mode: parsed.mode,
+          modifierPct: parsed.modifierPct,
           weightLb: parsed.weightLb,
           repsCompleted: parsed.repsCompleted,
           volumeLb,
@@ -842,7 +950,7 @@ export function createApiRouter(bridge: DaemonCommandSender): Router {
       fs.promises.unlink(tmpPath).catch(() => {});
     };
     try {
-      await prisma.$executeRawUnsafe(`VACUUM INTO '${tmpPath.replace(/'/g, "''")}'`);
+      await prisma.$executeRaw`VACUUM INTO ${tmpPath}`;
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="swonal-backup-${new Date().toISOString().slice(0, 10)}.db"`);
       const stream = fs.createReadStream(tmpPath);

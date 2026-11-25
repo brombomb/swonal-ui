@@ -179,7 +179,7 @@ class DiagnosticsDialog : BaseSwonalDialog() {
             ).apply { bottomMargin = dp(8) }
         })
 
-        val baseServer = ui.serverUrl.trimEnd('/')
+        val baseLocalWeb = ui.localWebServerUrl.trimEnd('/')
         val uidQuery = ui.activeUser?.id?.let { "?userId=$it" }.orEmpty()
         val exportRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -189,9 +189,9 @@ class DiagnosticsDialog : BaseSwonalDialog() {
             ).apply { bottomMargin = dp(8) }
         }
         listOf(
-            "Export CSV" to "$baseServer/api/export/sessions.csv$uidQuery",
-            "Export JSON" to "$baseServer/api/export/sessions.json$uidQuery",
-            "Backup DB" to "$baseServer/api/admin/backup/db"
+            "Export CSV" to "$baseLocalWeb/api/export/sessions.csv$uidQuery",
+            "Export JSON" to "$baseLocalWeb/api/export/sessions.json$uidQuery",
+            "Backup DB" to "$baseLocalWeb/api/admin/backup/db"
         ).forEachIndexed { idx, (label, url) ->
             exportRow.addView(makePillButton(label) {
                 openSafeHttpUrl(url, label)
@@ -240,10 +240,35 @@ class DiagnosticsDialog : BaseSwonalDialog() {
         }
         content.addView(checkUpdateBtn)
 
-        // Link to Application Settings (where AI Coach configuration lives)
+        content.addView(makePillButton("Send Bug Report (Discord)") {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("bug_report") == null) {
+                BugReportDialog().show(fm, "bug_report")
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(8) }
+        })
+
+        // Link to Application Settings & Standalone/Server Sync Settings
         content.addView(makePillButton("Application & AI Coach Settings →") {
             dismiss()
-            openSafeHttpUrl("$baseServer/settings", "Application Settings")
+            openSafeHttpUrl("$baseLocalWeb/settings", "Application Settings")
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(8) }
+        })
+        content.addView(makePillButton("Standalone & Home Server Sync →") {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("server_sync") == null) {
+                ServerSyncSettingsDialog().show(fm, "server_sync")
+            }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -349,7 +374,12 @@ class DiagnosticsDialog : BaseSwonalDialog() {
                     val lastSession = st.recentSessions.firstOrNull()
                     val unit = st.activeUnit
                     statusBox.text = buildString {
-                        append("Server WS:    ").append(if (st.wsConnected) "CONNECTED" else "DISCONNECTED").append('\n')
+                        val tabletLanIp = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s().firstOrNull()
+                        val tabletPort = repo.embeddedServerPort.takeIf { it > 0 } ?: 53013
+                        val localWebDisplay = tabletLanIp?.let { "http://$it:$tabletPort" } ?: st.localWebServerUrl
+                        append("Mode:         ").append(if (st.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) "STANDALONE (OFFLINE-FIRST)" else "HOME / CLOUD SYNC").append('\n')
+                        append("Local Web:    ").append(localWebDisplay).append('\n')
+                        append("Server Sync:  ").append(if (st.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) "OFF (LOCAL ONLY)" else if (st.syncConnected || st.wsConnected) "CONNECTED (${st.pendingSyncCount} pending)" else "OFFLINE (${st.pendingSyncCount} pending)").append('\n')
                         append("Daemon Link:  ").append(if (st.daemonConnected) (if (st.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz") else "OFFLINE").append('\n')
                         append("Fail-Safe:    ").append(if (st.localFailSafeConnected) "LOCAL 127.0.0.1 READY (<5ms)" else "STANDBY").append('\n')
                         if (lastSession != null) {

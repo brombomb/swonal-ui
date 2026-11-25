@@ -4,8 +4,10 @@ set -euo pipefail
 # Swonal All-in-One Tonal Device Installer
 # Installs: Native Swonal Kiosk APK, Termux (Android 5/6), optional Bromite 108 APK, librespot, and tonal-daemon (assumes Magisk is already installed)
 # Usage:
-#   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--server-url http://192.168.1.100:3000] [--apk-dir packages/device-assets] [--kiosk-apk path/to/swonal-kiosk.apk] [--sync|--fast] [--clean-disk] [--skip-apks] [--skip-librespot] [--skip-daemon]
+#   ./scripts/install-device.sh [--target 192.168.1.50:5555] [--standalone | --server-url https://swonal.example.com] [--apk-dir packages/device-assets] [--kiosk-apk path/to/swonal-kiosk.apk] [--sync|--fast] [--clean-disk] [--skip-apks] [--skip-librespot] [--skip-daemon]
 # Options:
+#   --standalone                    Configure Swonal Kiosk in Serverless Standalone Mode (default)
+#   --server-url URL                Optionally pair Kiosk with a Home/Cloud Sync server URL
 #   --sync, --fast, --incremental   Incrementally push only modified daemon files (via adb push --sync) and restart service
 #   --clean-disk                    Purge temporary files, caches, and truncate oversized logs on device
 
@@ -14,15 +16,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APK_DIR="${ROOT_DIR}/packages/device-assets"
 KIOSK_APK=""
 ADB_TARGET=""
-DETECTED_HOST_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || true)
-if [[ -z "${DETECTED_HOST_IP:-}" ]]; then
-  DETECTED_HOST_IP=$(ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || true)
-fi
-if [[ -n "${DETECTED_HOST_IP:-}" ]]; then
-  SERVER_URL="http://${DETECTED_HOST_IP}:3000"
-else
-  SERVER_URL="http://192.168.1.100:3000"
-fi
+SERVER_URL=""
 USE_BROMITE=0
 ALLOW_DEBUG=0
 ALLOW_DOWNGRADE=0
@@ -50,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       require_arg "$@"
       SERVER_URL="$2"
       shift 2
+      ;;
+    --standalone)
+      SERVER_URL=""
+      shift
       ;;
     --apk-dir)
       require_arg "$@"
@@ -107,8 +105,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate SERVER_URL strictly to prevent adb shell injection
-if [[ ! "${SERVER_URL}" =~ ^https?://[A-Za-z0-9._:/?=\&%-]+$ ]]; then
+if [[ -n "${SERVER_URL}" && ! "${SERVER_URL}" =~ ^https?://[A-Za-z0-9._:/?=\&%-]+$ ]]; then
   echo "Error: Invalid --server-url '${SERVER_URL}'. Must start with http:// or https:// without shell metacharacters." >&2
+  exit 1
+fi
+
+if [[ "${USE_BROMITE}" -eq 1 && -z "${SERVER_URL}" ]]; then
+  echo "Error: --bromite browser-only mode requires --server-url http://<SERVER_IP>:3000 (Bromite does not host the embedded :3000 server)." >&2
+  echo "       For standalone mode, omit --bromite and install the Swonal Native Kiosk APK." >&2
   exit 1
 fi
 
@@ -215,6 +219,17 @@ if [[ -z "${KIOSK_APK}" ]]; then
   done
 fi
 
+KIOSK_INSTALLED=0
+if "${ADB[@]}" shell pm path com.swonal.kiosk 2>/dev/null | grep -q "package:"; then
+  KIOSK_INSTALLED=1
+fi
+
+if [[ "${USE_BROMITE}" -eq 0 && -z "${KIOSK_APK}" && "${KIOSK_INSTALLED}" -eq 0 && -z "${SERVER_URL}" ]]; then
+  echo "Error: Standalone mode requires the Swonal Native Kiosk APK (embedded :3000 server), but no local APK was found and com.swonal.kiosk is not installed on the device." >&2
+  echo "       Build packages/android-kiosk (:app:assembleRelease), pass --kiosk-apk <path>, or pass --bromite --server-url http://<SERVER_IP>:3000." >&2
+  exit 1
+fi
+
 INSTALL_FLAGS=(-r)
 if [[ "${ALLOW_DOWNGRADE}" -eq 1 ]]; then
   INSTALL_FLAGS+=(-d)
@@ -231,7 +246,7 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
     "${TERMUX_SHA256}" || true
 
   BROMITE_APK=""
-  if [[ "${USE_BROMITE}" -eq 1 || -z "${KIOSK_APK}" ]]; then
+  if [[ "${USE_BROMITE}" -eq 1 || ( -z "${KIOSK_APK}" && "${KIOSK_INSTALLED}" -eq 0 ) ]]; then
     BROMITE_APK="${APK_DIR}/bromite-108-arm64.apk"
     BROMITE_URL="https://github.com/bromite/bromite/releases/download/108.0.5359.156/arm64_ChromePublic.apk"
     BROMITE_SHA256="20585771da0551be5b1fa8dff05b5898ae21c4602a0caba473a67fd3011234cb"
@@ -509,22 +524,36 @@ fi
 clean_device_disk
 show_device_disk
 
-if [[ "${USE_BROMITE}" -eq 0 && -n "${KIOSK_APK}" ]]; then
-  echo "==> Step 4/4: Launching Swonal Native Kiosk (${SERVER_URL})..."
-  "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity --es server_url '${SERVER_URL}'" || \
-    echo "  [info] Launch Swonal Kiosk manually from the Android launcher"
+if [[ "${USE_BROMITE}" -eq 0 && ( -n "${KIOSK_APK}" || "${KIOSK_INSTALLED}" -eq 1 ) ]]; then
+  if [[ -n "${SERVER_URL}" ]]; then
+    echo "==> Step 4/4: Launching Swonal Native Kiosk (Home Server Sync: ${SERVER_URL})..."
+    "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity --es server_url '${SERVER_URL}'" || \
+      echo "  [info] Launch Swonal Kiosk manually from the Android launcher"
+    echo "  [note] Release builds ignore ADB --es extras for launch security; if not debug, pair under Menu -> Standalone & Home Server Sync."
+  else
+    echo "==> Step 4/4: Launching Swonal Native Kiosk (Standalone Offline-First Mode)..."
+    "${ADB[@]}" shell "am start -n com.swonal.kiosk/.ui.MainActivity --es sync_mode standalone" || \
+      echo "  [info] Launch Swonal Kiosk manually from the Android launcher"
+    echo "  [note] Release builds ignore ADB --es extras; if switching an already-paired tablet to Standalone, select Standalone under Menu -> Standalone & Home Server Sync."
+  fi
 else
-  echo "==> Step 4/4: Launching Bromite to ${SERVER_URL}..."
-  "${ADB[@]}" shell "am start -a android.intent.action.VIEW -d '${SERVER_URL}' org.bromite.bromite" || \
-    echo "  [info] Open Bromite manually and navigate to ${SERVER_URL}"
+  TARGET_WEB_URL="${SERVER_URL:-http://127.0.0.1:3000}"
+  echo "==> Step 4/4: Launching Bromite to ${TARGET_WEB_URL}..."
+  "${ADB[@]}" shell "am start -a android.intent.action.VIEW -d '${TARGET_WEB_URL}' org.bromite.bromite" || \
+    echo "  [info] Open Bromite manually and navigate to ${TARGET_WEB_URL}"
 fi
 
 echo ""
 echo "All-in-one device setup complete!"
 echo "  - Tonal Gym (librespot) boot script: /data/adb/service.d/99-swonal-librespot.sh"
 echo "  - tonal-daemon boot script:          /data/adb/service.d/98-swonal-daemon.sh"
-if [[ "${USE_BROMITE}" -eq 0 && -n "${KIOSK_APK}" ]]; then
-  echo "  - Native Android Kiosk APK:          ${KIOSK_APK} -> ${SERVER_URL}"
+if [[ "${USE_BROMITE}" -eq 0 && ( -n "${KIOSK_APK}" || "${KIOSK_INSTALLED}" -eq 1 ) ]]; then
+  KIOSK_LABEL="${KIOSK_APK:-installed on device (com.swonal.kiosk)}"
+  if [[ -n "${SERVER_URL}" ]]; then
+    echo "  - Native Android Kiosk APK:          ${KIOSK_LABEL} -> Home Server Sync (${SERVER_URL})"
+  else
+    echo "  - Native Android Kiosk APK:          ${KIOSK_LABEL} (Standalone-First, Embedded Web :3000)"
+  fi
 else
-  echo "  - Kiosk URL in Bromite:              ${SERVER_URL}"
+  echo "  - Kiosk URL in Bromite:              ${SERVER_URL:-http://<tonal-ip>:3000}"
 fi

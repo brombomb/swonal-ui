@@ -224,7 +224,7 @@ class PostWorkoutSummaryDialog : BaseSwonalDialog() {
         root.addView(wrapScrollable(content, 460))
 
         // Footer: CSV & JSON Export + Done CTA
-        val baseServer = ui.serverUrl.trimEnd('/')
+        val baseServer = ui.localWebServerUrl.trimEnd('/')
         val uidQuery = "?userId=${session.userId}"
         val footerRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL

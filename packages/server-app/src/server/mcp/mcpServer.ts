@@ -83,6 +83,7 @@ export async function getExercisesCatalog(filters?: {
 }) {
   return prisma.exercise.findMany({
     where: {
+      deletedAt: null,
       ...(filters?.muscleGroup ? { muscleGroup: filters.muscleGroup } : {}),
       ...(filters?.accessory ? { accessory: filters.accessory } : {}),
       ...(filters?.unilateral !== undefined ? { unilateral: filters.unilateral } : {}),
@@ -92,8 +93,8 @@ export async function getExercisesCatalog(filters?: {
 }
 
 export async function getUserProfileAndPrs(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     include: {
       personalRecords: {
         include: { exercise: true },
@@ -142,7 +143,7 @@ export async function getUserProfileAndPrs(userId: string) {
 
 export async function getUserWorkouts(userId: string) {
   const templates = await prisma.workoutTemplate.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
     orderBy: { createdAt: 'desc' },
   });
   const sessions = await prisma.workoutSession.findMany({
@@ -172,7 +173,7 @@ export async function getUserStrengthHistory(params: {
   limit?: number;
   unit?: WeightUnit;
 }) {
-  const user = await prisma.user.findUnique({ where: { id: params.userId } });
+  const user = await prisma.user.findFirst({ where: { id: params.userId, deletedAt: null } });
   if (!user) throw new Error(`User not found: ${params.userId}`);
   const effectiveUnit: WeightUnit =
     params.unit ?? (user.weightUnit === 'KG' ? 'KG' : 'LB');
@@ -254,8 +255,8 @@ export async function updateCustomWorkoutTemplate(params: {
   blocks?: WorkoutBlockInput[];
   scheduleDays?: number[];
 }) {
-  const existing = await prisma.workoutTemplate.findUnique({
-    where: { id: params.templateId },
+  const existing = await prisma.workoutTemplate.findFirst({
+    where: { id: params.templateId, deletedAt: null },
     include: { user: true },
   });
   if (!existing) throw new Error(`Workout template not found: ${params.templateId}`);
@@ -279,27 +280,93 @@ export async function updateCustomWorkoutTemplate(params: {
   });
 }
 
+let queueMutationChain: Promise<void> = Promise.resolve();
+
+function withQueuedWorkoutLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queueMutationChain.then(fn, fn);
+  queueMutationChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export async function queueWorkoutForSession(params: {
   userId: string;
   templateId: string;
 }): Promise<QueuedWorkoutPayload> {
-  const template = await prisma.workoutTemplate.findUnique({
-    where: { id: params.templateId },
-  });
-  if (!template) {
-    throw new Error(`Workout template not found: ${params.templateId}`);
-  }
+  return withQueuedWorkoutLock(async () => {
+    const template = await prisma.workoutTemplate.findFirst({
+      where: { id: params.templateId, deletedAt: null },
+    });
+    if (!template) {
+      throw new Error(`Workout template not found: ${params.templateId}`);
+    }
 
-  const payload: QueuedWorkoutPayload = {
-    userId: params.userId,
-    templateId: template.id,
-    templateName: template.name,
-    description: template.description,
-    blocks: JSON.parse(template.blocksJson),
-    queuedAt: new Date().toISOString(),
-  };
-  sessionCoordinator.queueWorkout(payload);
-  return payload;
+    const payload: QueuedWorkoutPayload = {
+      userId: params.userId,
+      templateId: template.id,
+      templateName: template.name,
+      description: template.description,
+      blocks: JSON.parse(template.blocksJson),
+      queuedAt: new Date().toISOString(),
+    };
+    await prisma.appSetting.upsert({
+      where: { key: 'pending_queued_workout' },
+      create: { key: 'pending_queued_workout', value: JSON.stringify(payload) },
+      update: { value: JSON.stringify(payload) },
+    });
+    sessionCoordinator.queueWorkout(payload);
+    return payload;
+  });
+}
+
+export async function getPendingQueuedWorkout(): Promise<QueuedWorkoutPayload | null> {
+  const inMem = sessionCoordinator.getState().queuedWorkout;
+  if (inMem) return inMem;
+  const row = await prisma.appSetting.findUnique({
+    where: { key: 'pending_queued_workout' },
+  });
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value) as QueuedWorkoutPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingQueuedWorkout(expectedQueuedAt?: string): Promise<void> {
+  return withQueuedWorkoutLock(async () => {
+    await prisma.$transaction(async (tx) => {
+      if (expectedQueuedAt) {
+        const row = await tx.appSetting.findUnique({
+          where: { key: 'pending_queued_workout' },
+        });
+        if (row) {
+          let storedQueuedAt: string | undefined;
+          try {
+            storedQueuedAt = (JSON.parse(row.value) as { queuedAt?: string }).queuedAt;
+          } catch {
+            storedQueuedAt = undefined;
+          }
+          if (storedQueuedAt && storedQueuedAt !== expectedQueuedAt) {
+            return;
+          }
+          await tx.appSetting.deleteMany({
+            where: { key: 'pending_queued_workout', value: row.value },
+          });
+        }
+        if (sessionCoordinator.getState().queuedWorkout?.queuedAt === expectedQueuedAt) {
+          sessionCoordinator.clearQueuedWorkout();
+        }
+        return;
+      }
+      await tx.appSetting.deleteMany({
+        where: { key: 'pending_queued_workout' },
+      });
+      sessionCoordinator.clearQueuedWorkout();
+    });
+  });
 }
 
 export function createSwonalMcpServer(): McpServer {

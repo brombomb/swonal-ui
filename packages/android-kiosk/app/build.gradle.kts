@@ -16,6 +16,11 @@ android {
         val propVersionName = (project.findProperty("swonalVersionName") as String?)?.trim()?.takeIf { it.isNotEmpty() }
         versionCode = propVersionCode ?: 10101
         versionName = propVersionName ?: "1.1.1"
+        val bugWebhook = (project.findProperty("swonalBugReportWebhook") as String?)?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: System.getenv("SWONAL_BUG_REPORT_WEBHOOK")?.trim().orEmpty()
+        val escapedBugWebhook = bugWebhook.replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "BUG_REPORT_WEBHOOK_URL", "\"$escapedBugWebhook\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -107,9 +112,46 @@ dependencies {
     // Native QR Code generation
     implementation("com.google.zxing:core:3.5.3")
 
-    // Unit Tests (JUnit 5 + MockWebServer)
+    // Bundled Modern SQLite (SQLite 3.46+ for API 23 compatibility & UPSERT/WAL/VACUUM INTO)
+    implementation("androidx.sqlite:sqlite:2.5.1")
+    implementation("androidx.sqlite:sqlite-bundled:2.5.1")
+
+    // Embedded lightweight HTTP & WebSocket server for serverless LAN Companion & local web views
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+
+    // Unit Tests (JUnit 5 + MockWebServer + Host JVM Bundled SQLite)
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("androidx.sqlite:sqlite-bundled-jvm:2.5.1")
+}
+
+configurations.matching { it.name.contains("UnitTest") }.configureEach {
+    exclude(group = "androidx.sqlite", module = "sqlite-bundled-android")
+}
+
+val syncWebAssets by tasks.registering {
+    val distClientDir = file("../../server-app/dist/client")
+    val webAssetsDir = file("src/main/assets/web")
+    inputs.files(fileTree(distClientDir))
+    outputs.dir(webAssetsDir)
+    doLast {
+        val builtIndex = file("../../server-app/dist/client/index.html")
+        if (builtIndex.exists()) {
+            webAssetsDir.deleteRecursively()
+            distClientDir.copyRecursively(webAssetsDir, overwrite = true)
+        } else if (!file("${webAssetsDir.path}/index.html").exists()) {
+            logger.warn("syncWebAssets: packages/server-app/dist/client/index.html not found; writing fallback stub index.html. Run `npm run build` in packages/server-app first for full web SPA.")
+            webAssetsDir.mkdirs()
+            file("${webAssetsDir.path}/index.html").writeText(
+                """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Swonal</title></head><body style="background:#0A0D14;color:#E2E8F0;font-family:sans-serif;padding:24px;"><h2>Swonal Embedded Server</h2><p>Web SPA assets have not been built yet. Run <code>npm run build</code> in <code>packages/server-app</code>.</p></body></html>"""
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn(syncWebAssets)
 }

@@ -40,5 +40,6 @@ packages/android-kiosk/build/
 packages/android-kiosk/app/build/
 packages/android-kiosk/local.properties
 packages/android-kiosk/.idea/
+packages/android-kiosk/app/src/main/assets/web/
 *.iml
 .kotlin/

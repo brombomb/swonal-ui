@@ -1,6 +1,9 @@
 package com.swonal.kiosk.net
 
+import com.swonal.kiosk.model.CalibrationStatus
 import com.swonal.kiosk.model.DaemonHealth
+import com.swonal.kiosk.model.Exercise
+import com.swonal.kiosk.model.HandleEvent
 import com.swonal.kiosk.model.SafetyEvent
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.TelemetryFrame
@@ -77,6 +80,12 @@ class LocalDaemonFailSafeClient(
     private val _localSafety = MutableSharedFlow<SafetyEvent>(extraBufferCapacity = 8)
     val localSafety: SharedFlow<SafetyEvent> = _localSafety.asSharedFlow()
 
+    private val _localHandleEvents = MutableSharedFlow<HandleEvent>(extraBufferCapacity = 16)
+    val localHandleEvents: SharedFlow<HandleEvent> = _localHandleEvents.asSharedFlow()
+
+    private val _localErrors = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val localErrors: SharedFlow<String> = _localErrors.asSharedFlow()
+
     @Volatile
     private var webSocket: WebSocket? = null
     @Volatile
@@ -151,6 +160,8 @@ class LocalDaemonFailSafeClient(
                         _localTelemetry.tryEmit(msg.frame)
                     }
                     is WsInboundMessage.Safety -> _localSafety.tryEmit(msg.event)
+                    is WsInboundMessage.Handle -> _localHandleEvents.tryEmit(msg.event)
+                    is WsInboundMessage.ServerError -> _localErrors.tryEmit(msg.message)
                     WsInboundMessage.Pong -> Unit
                     else -> Unit
                 }
@@ -272,6 +283,111 @@ class LocalDaemonFailSafeClient(
                 .build()
             emergencyHttpClient.newCall(req).execute().use { it.isSuccessful }
         }.getOrDefault(false)
+    }
+
+    suspend fun switchToCustomModeDirect(): Boolean = withContext(Dispatchers.IO) {
+        val url = "${safeLoopbackBaseUrl()}/api/mode/custom"
+        runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .post("{}".toRequestBody(jsonMediaType))
+                .build()
+            emergencyHttpClient.newCall(req).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun getCalibrationDirect(): CalibrationStatus? = withContext(Dispatchers.IO) {
+        val url = "${safeLoopbackBaseUrl()}/api/calibration"
+        runCatching {
+            val req = Request.Builder().url(url).get().build()
+            emergencyHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                SwonalJson.decodeFromString<CalibrationStatus>(resp.body?.string().orEmpty())
+            }
+        }.getOrNull()
+    }
+
+    suspend fun zeroCalibrationDirect(): CalibrationStatus? = withContext(Dispatchers.IO) {
+        val url = "${safeLoopbackBaseUrl()}/api/calibration/zero"
+        runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .post("{}".toRequestBody(jsonMediaType))
+                .build()
+            emergencyHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                SwonalJson.decodeFromString<CalibrationStatus>(resp.body?.string().orEmpty())
+            }
+        }.getOrNull()
+    }
+
+    suspend fun triggerMockBleDirect(action: String): Boolean = withContext(Dispatchers.IO) {
+        val url = "${safeLoopbackBaseUrl()}/api/mock/ble-event"
+        runCatching {
+            val body = SwonalJson.encodeToString(buildJsonObject { put("action", action) })
+                .toRequestBody(jsonMediaType)
+            val req = Request.Builder().url(url).post(body).build()
+            emergencyHttpClient.newCall(req).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun triggerMockBarTiltDirect(
+        delta: Double = 48.0,
+        durationSec: Double = 0.7,
+        autoEnable: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val url = "${safeLoopbackBaseUrl()}/api/mock/bar-tilt"
+        runCatching {
+            val body = SwonalJson.encodeToString(
+                buildJsonObject {
+                    put("delta", delta)
+                    put("duration_sec", durationSec)
+                    put("auto_enable", autoEnable)
+                }
+            ).toRequestBody(jsonMediaType)
+            val req = Request.Builder().url(url).post(body).build()
+            emergencyHttpClient.newCall(req).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun setMockArmPositionsDirect(exercise: Exercise): Boolean = withContext(Dispatchers.IO) {
+        val url = "${safeLoopbackBaseUrl()}/api/mock/arm-positions"
+        runCatching {
+            val body = SwonalJson.encodeToString(
+                buildJsonObject {
+                    put("accessory", exercise.accessory)
+                    put("height_left", exercise.recommendedHeight)
+                    put("height_right", exercise.recommendedHeight)
+                    put("rot_left", exercise.recommendedRotation)
+                    put("rot_right", exercise.recommendedRotation)
+                    put("angle_left", exercise.recommendedAngle)
+                    put("angle_right", exercise.recommendedAngle)
+                }
+            ).toRequestBody(jsonMediaType)
+            val req = Request.Builder().url(url).post(body).build()
+            emergencyHttpClient.newCall(req).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun postDirectJson(path: String, jsonBody: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val cleanPath = if (path.startsWith("/")) path else "/$path"
+        val url = "${safeLoopbackBaseUrl()}$cleanPath"
+        val req = Request.Builder()
+            .url(url)
+            .post(jsonBody.toRequestBody(jsonMediaType))
+            .build()
+        emergencyHttpClient.newCall(req).execute().use { resp ->
+            resp.code to resp.body?.string().orEmpty()
+        }
+    }
+
+    suspend fun getDirectJson(path: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val cleanPath = if (path.startsWith("/")) path else "/$path"
+        val url = "${safeLoopbackBaseUrl()}$cleanPath"
+        val req = Request.Builder().url(url).get().build()
+        emergencyHttpClient.newCall(req).execute().use { resp ->
+            resp.code to resp.body?.string().orEmpty()
+        }
     }
 
     /**

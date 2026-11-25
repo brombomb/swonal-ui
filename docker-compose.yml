@@ -1,3 +1,6 @@
+# Optional Power-User Home / Cloud Sync Server + Mock Simulator Stack
+# The Android Kiosk APK operates 100% standalone without this stack; run `server-app`
+# for 24/7 MCP workout queuing, off-device rotating SQLite backups, and HA MQTT telemetry.
 services:
   tonal-daemon-mock:
     build:
@@ -25,6 +28,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_URL=file:/data/swonal.db
+      - SWONAL_BACKUP_DIR=/data/backups
       - TONAL_DAEMON_URL=${TONAL_DAEMON_URL:-http://tonal-daemon-mock:8765}
       - TONAL_DAEMON_WS_URL=${TONAL_DAEMON_WS_URL:-ws://tonal-daemon-mock:8765/ws}
       - PUBLIC_URL=${PUBLIC_URL:-}

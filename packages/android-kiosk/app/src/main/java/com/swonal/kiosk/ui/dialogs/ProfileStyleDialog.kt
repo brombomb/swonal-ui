@@ -6,9 +6,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.swonal.kiosk.model.ColorMath
+import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.theme.SwonalThemeTokens
+import com.swonal.kiosk.ui.PressFeedback
 
 class ProfileStyleDialog : BaseSwonalDialog() {
 
@@ -25,9 +28,16 @@ class ProfileStyleDialog : BaseSwonalDialog() {
         val d = resources.displayMetrics.density
         val p = palette
 
+        var localUnit = ui.activeUnit
+        var localDark = p.isDark
+        var localDemoPip = ui.showDemoPip
+        var localTelemetry = ui.telemetryDisplayMode
+
         val root = createCardRoot(20)
-        root.addView(createDialogHeader("Accent Color & Profiles"))
-        root.addView(makeSectionLabel("Active Profile: ${activeUser?.name ?: "Lifter"}"))
+        root.addView(createDialogHeader("User Prefs"))
+
+        val body = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
+        body.addView(makeSectionLabel("Active Profile: ${activeUser?.name ?: "Lifter"}"))
 
         SwonalThemeTokens.ACCENT_SWATCHES.chunked(4).forEach { rowSwatches ->
             val row = LinearLayout(requireContext()).apply {
@@ -67,7 +77,7 @@ class ProfileStyleDialog : BaseSwonalDialog() {
                 }
                 row.addView(item)
             }
-            root.addView(row)
+            body.addView(row)
         }
 
         val hexRow = LinearLayout(requireContext()).apply {
@@ -76,7 +86,7 @@ class ProfileStyleDialog : BaseSwonalDialog() {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
+            ).apply { bottomMargin = dp(10) }
         }
         val hexInput = makeInput("#00F0FF", currentHex).apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) }
@@ -90,41 +100,104 @@ class ProfileStyleDialog : BaseSwonalDialog() {
                 dismiss()
             }
         })
-        root.addView(hexRow)
+        body.addView(hexRow)
 
-        root.addView(makeDivider())
-        root.addView(makeSectionLabel("Add Household Lifter"))
+        // Theme toggle directly under Apply Hex
+        val (themeRow, themeValueTv) = makeToggleRow(
+            "Theme",
+            if (localDark) "Dark" else "Light",
+            d
+        )
+        themeRow.setOnClickListener {
+            localDark = !localDark
+            themeValueTv.text = if (localDark) "Dark" else "Light"
+            repo.toggleTheme()
+            dismiss()
+        }
+        body.addView(themeRow)
 
-        val nameInput = makeInput("Lifter name").apply {
+        // Display & Units Preferences
+        body.addView(makeDivider())
+        body.addView(makeSectionLabel("Display & Units"))
+
+        val (unitRow, unitValueTv) = makeToggleRow(
+            "Units",
+            localUnit,
+            d
+        )
+        unitRow.setOnClickListener {
+            localUnit = if (localUnit.equals("KG", ignoreCase = true)) "LB" else "KG"
+            unitValueTv.text = localUnit
+            repo.toggleUnit()
+        }
+        body.addView(unitRow)
+
+        val (demoRow, demoValueTv) = makeToggleRow(
+            "Form Demo Video",
+            if (localDemoPip) "Shown" else "Hidden",
+            d
+        )
+        demoRow.setOnClickListener {
+            localDemoPip = !localDemoPip
+            demoValueTv.text = if (localDemoPip) "Shown" else "Hidden"
+            repo.setShowDemoPip(localDemoPip)
+        }
+        body.addView(demoRow)
+
+        val (vbtRow, vbtValueTv) = makeToggleRow(
+            "VBT & Symmetry",
+            localTelemetry.label,
+            d
+        )
+        vbtRow.setOnClickListener {
+            localTelemetry = localTelemetry.next()
+            vbtValueTv.text = localTelemetry.label
+            repo.cycleTelemetryDisplayMode()
+        }
+        body.addView(vbtRow)
+
+        root.addView(ScrollView(requireContext()).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(42)
-            ).apply { bottomMargin = dp(8) }
-        }
-        root.addView(nameInput)
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            addView(body)
+        })
+        return root
+    }
 
-        val newColorRow = LinearLayout(requireContext()).apply {
+    private fun makeToggleRow(
+        label: String,
+        initialValue: String,
+        d: Float
+    ): Pair<LinearLayout, TextView> {
+        val p = palette
+        val valueTv = TextView(requireContext()).apply {
+            text = initialValue
+            textSize = 11.5f
+            typeface = SwonalFonts.monoBold(requireContext())
+            setTextColor(p.accentInk)
+        }
+        val row = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-        }
-        val newColorInput = makeInput("#CCFF00", "#CCFF00").apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) }
-        }
-        newColorRow.addView(newColorInput)
-        newColorRow.addView(makeAccentButton("+ Add Profile") {
-            val name = nameInput.text.toString().trim()
-            val hex = newColorInput.text.toString().trim().let {
-                if (it.matches(Regex("^#[0-9A-Fa-f]{6}$"))) it.uppercase() else "#CCFF00"
-            }
-            if (name.isNotEmpty()) {
-                repo.createHouseholdUser(name, hex)
-                dismiss()
-            }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42))
-        })
-        root.addView(newColorRow)
-
-        return root
+            background = p.elevatedPillDrawable(d, 10f)
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+            isClickable = true
+            isFocusable = true
+            addView(TextView(requireContext()).apply {
+                text = label
+                textSize = 12f
+                typeface = SwonalFonts.interBold(requireContext())
+                setTextColor(p.textPrimary)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(valueTv)
+        }.also { PressFeedback.attachSingle(it) }
+        return row to valueTv
     }
 }

@@ -1,0 +1,1048 @@
+{
+  "exercises": [
+    {
+      "id": "f8a69504-50bf-43f7-8fe2-8080b700acb9",
+      "name": "Bench Press",
+      "muscleGroup": "Chest",
+      "accessory": "BAR",
+      "recommendedHeight": 4,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Flat bench barbell press with Smart Bar.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "73039190-2de3-4786-8be7-c79563cae0d7",
+      "name": "Incline Bench Press",
+      "muscleGroup": "Chest",
+      "accessory": "BAR",
+      "recommendedHeight": 3,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Upper chest focus on 30-degree incline bench.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "b4bac3cb-6824-4620-8491-66d57a74f877",
+      "name": "Decline Bench Press",
+      "muscleGroup": "Chest",
+      "accessory": "HANDLES",
+      "recommendedHeight": 5,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Lower pectoral press using Smart Handles.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "437ad823-bbe2-4cbb-866c-45400b374d1b",
+      "name": "Cable Fly",
+      "muscleGroup": "Chest",
+      "accessory": "HANDLES",
+      "recommendedHeight": 4,
+      "recommendedRotation": 1,
+      "recommendedAngle": 2,
+      "unilateral": false,
+      "notes": "Wide arm sweep keeping soft bend in elbows.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "c416584e-f09d-4d33-8a11-1d0452d96ec1",
+      "name": "Incline Cable Fly",
+      "muscleGroup": "Chest",
+      "accessory": "HANDLES",
+      "recommendedHeight": 2,
+      "recommendedRotation": 1,
+      "recommendedAngle": 2,
+      "unilateral": false,
+      "notes": "Low-to-high fly targeting clavicular chest fibers.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "dd342b64-ed31-49d3-8134-3a7b37057629",
+      "name": "Decline Cable Fly",
+      "muscleGroup": "Chest",
+      "accessory": "HANDLES",
+      "recommendedHeight": 6,
+      "recommendedRotation": 1,
+      "recommendedAngle": 2,
+      "unilateral": false,
+      "notes": "High-to-low cable crossover.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "274136dc-64df-4247-8edf-8f6f65cde6b9",
+      "name": "Single-Arm Chest Press",
+      "muscleGroup": "Chest",
+      "accessory": "HANDLES",
+      "recommendedHeight": 4,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Anti-rotation unilateral standing press.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "afc14837-cfb7-434d-8b4c-632489f66024",
+      "name": "Push-Up",
+      "muscleGroup": "Chest",
+      "accessory": "BODYWEIGHT",
+      "recommendedHeight": 1,
+      "recommendedRotation": 1,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Bodyweight warmup and chest finisher.",
+      "mediaUrl": "/media/chest-press.svg"
+    },
+    {
+      "id": "c90f759e-b131-4a34-8e45-d824b1a4bb8e",
+      "name": "Lat Pulldown",
+      "muscleGroup": "Back",
+      "accessory": "BAR",
+      "recommendedHeight": 6,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Kneeling or seated wide-grip lat pulldown.",
+      "mediaUrl": "/media/lat-pulldown.svg"
+    },
+    {
+      "id": "34228ebe-52b9-41a5-863a-ce77ada32d95",
+      "name": "Neutral-Grip Lat Pulldown",
+      "muscleGroup": "Back",
+      "accessory": "HANDLES",
+      "recommendedHeight": 6,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Palms facing inward for deep lat stretch.",
+      "mediaUrl": "/media/lat-pulldown.svg"
+    },
+    {
+      "id": "8b138ee9-fc5f-4919-8172-69f7b5194de2",
+      "name": "Seated Cable Row",
+      "muscleGroup": "Back",
+      "accessory": "HANDLES",
+      "recommendedHeight": 3,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Pull handles toward lower ribcage with braced core.",
+      "mediaUrl": "/media/row.svg"
+    },
+    {
+      "id": "694de7a9-544b-4379-8f11-0050f5b7987a",
+      "name": "Single-Arm Low Row",
+      "muscleGroup": "Back",
+      "accessory": "HANDLES",
+      "recommendedHeight": 2,
+      "recommendedRotation": 3,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Unilateral row emphasizing scapular retraction.",
+      "mediaUrl": "/media/row.svg"
+    },
+    {
+      "id": "1d1448a1-25c7-46de-8c73-9494be779485",
+      "name": "Bent-Over Barbell Row",
+      "muscleGroup": "Back",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Hinge at hips 45 degrees and row bar to navel.",
+      "mediaUrl": "/media/row.svg"
+    },
+    {
+      "id": "9664663e-1671-47d8-8ac2-1bcc58b89ae1",
+      "name": "Face Pull",
+      "muscleGroup": "Back",
+      "accessory": "ROPE",
+      "recommendedHeight": 5,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "External rotation rear-delt and upper-back health.",
+      "mediaUrl": "/media/row.svg"
+    },
+    {
+      "id": "997faec0-ff69-40c4-83f9-7c505251bce1",
+      "name": "Straight-Arm Pulldown",
+      "muscleGroup": "Back",
+      "accessory": "ROPE",
+      "recommendedHeight": 6,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Lock elbows slightly and sweep rope to thighs.",
+      "mediaUrl": "/media/lat-pulldown.svg"
+    },
+    {
+      "id": "160c01a6-2af4-42b5-8fe5-0f0823a98aad",
+      "name": "Standing Reverse Fly",
+      "muscleGroup": "Back",
+      "accessory": "HANDLES",
+      "recommendedHeight": 4,
+      "recommendedRotation": 1,
+      "recommendedAngle": 2,
+      "unilateral": false,
+      "notes": "Cross cables for rear deltoid and rhomboid activation.",
+      "mediaUrl": "/media/row.svg"
+    },
+    {
+      "id": "e1990a2d-2297-407c-887b-e884bdf4d52d",
+      "name": "Single-Arm Lat Pulldown",
+      "muscleGroup": "Back",
+      "accessory": "HANDLES",
+      "recommendedHeight": 6,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Unilateral overhead pull.",
+      "mediaUrl": "/media/lat-pulldown.svg"
+    },
+    {
+      "id": "dfeeec68-360a-451d-8a16-c35a6c719a52",
+      "name": "Standing Overhead Press",
+      "muscleGroup": "Shoulders",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Strict vertical barbell press overhead.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "7728dd98-b36c-49ba-8e3d-2c7ac7236d56",
+      "name": "Seated Overhead Press",
+      "muscleGroup": "Shoulders",
+      "accessory": "HANDLES",
+      "recommendedHeight": 2,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Seated dual-handle shoulder press.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "aecb1e91-b4b1-4cbb-8af0-d78dec7c598a",
+      "name": "Lateral Raise",
+      "muscleGroup": "Shoulders",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 1,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Raise handles to shoulder height with controlled eccentric.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "2b645923-dd13-4c34-8c30-2b5463ad6545",
+      "name": "Single-Arm Cable Lateral Raise",
+      "muscleGroup": "Shoulders",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Cross-body constant tension lateral raise.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "6fb9c7ac-382b-4b9d-8d43-a5db4862e498",
+      "name": "Front Raise",
+      "muscleGroup": "Shoulders",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Raise Smart Bar to eye level.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "08942f71-0a41-4a45-8165-70f764c4e35c",
+      "name": "Arnold Press",
+      "muscleGroup": "Shoulders",
+      "accessory": "HANDLES",
+      "recommendedHeight": 2,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Rotational shoulder press.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "dae65215-244a-4a81-8b18-fcd01486319f",
+      "name": "Upright Row",
+      "muscleGroup": "Shoulders",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Lead with elbows to upper chest height.",
+      "mediaUrl": "/media/row.svg"
+    },
+    {
+      "id": "e27c644e-d199-4184-8aa3-9c6c9bb46173",
+      "name": "Cable Shrug",
+      "muscleGroup": "Shoulders",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Upper trapezius elevation with 1-sec hold.",
+      "mediaUrl": "/media/shoulder-press.svg"
+    },
+    {
+      "id": "ff0988cf-40ab-4959-8dcc-be8be5e05a4c",
+      "name": "Bicep Curl",
+      "muscleGroup": "Arms",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Supinated cable curls keeping elbows pinned.",
+      "mediaUrl": "/media/curl.svg"
+    },
+    {
+      "id": "2cad7613-df17-4020-8eba-c386a43a7131",
+      "name": "Barbell Bicep Curl",
+      "muscleGroup": "Arms",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Constant-tension Smart Bar curl.",
+      "mediaUrl": "/media/curl.svg"
+    },
+    {
+      "id": "5ae6d156-32dd-4226-880d-1f1dfc8a91f7",
+      "name": "Hammer Curl",
+      "muscleGroup": "Arms",
+      "accessory": "ROPE",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Neutral-grip rope curl targeting brachialis.",
+      "mediaUrl": "/media/curl.svg"
+    },
+    {
+      "id": "d6588b1a-37f2-4f5e-8faf-109039ab0bb5",
+      "name": "Single-Arm Concentration Curl",
+      "muscleGroup": "Arms",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Strict unilateral bicep peak isolation.",
+      "mediaUrl": "/media/curl.svg"
+    },
+    {
+      "id": "61101bce-68e1-49f8-8c1c-95aeafcdbea9",
+      "name": "Overhead Bicep Curl",
+      "muscleGroup": "Arms",
+      "accessory": "HANDLES",
+      "recommendedHeight": 5,
+      "recommendedRotation": 1,
+      "recommendedAngle": 2,
+      "unilateral": false,
+      "notes": "High-pulley double-bicep pose curl.",
+      "mediaUrl": "/media/curl.svg"
+    },
+    {
+      "id": "a0250170-b965-4290-85a0-f3e4e7537744",
+      "name": "Tricep Extension",
+      "muscleGroup": "Arms",
+      "accessory": "ROPE",
+      "recommendedHeight": 6,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Split rope at bottom for full tricep lockout.",
+      "mediaUrl": "/media/tricep.svg"
+    },
+    {
+      "id": "c0074f70-2be1-42f4-8bc6-3463c4394900",
+      "name": "Overhead Tricep Extension",
+      "muscleGroup": "Arms",
+      "accessory": "ROPE",
+      "recommendedHeight": 4,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Long-head tricep stretch overhead.",
+      "mediaUrl": "/media/tricep.svg"
+    },
+    {
+      "id": "ab1a5d5c-48e9-4c23-88ac-caaa7894f16e",
+      "name": "Single-Arm Tricep Kickback",
+      "muscleGroup": "Arms",
+      "accessory": "HANDLES",
+      "recommendedHeight": 2,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Hinged unilateral tricep extension.",
+      "mediaUrl": "/media/tricep.svg"
+    },
+    {
+      "id": "a8796e04-fc3a-47c2-84f6-073ecb2e3cc6",
+      "name": "Close-Grip Bench Press",
+      "muscleGroup": "Arms",
+      "accessory": "BAR",
+      "recommendedHeight": 4,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Heavy compound tricep and inner chest press.",
+      "mediaUrl": "/media/tricep.svg"
+    },
+    {
+      "id": "e3861112-7827-4193-89c9-eb8693e62ceb",
+      "name": "Goblet Squat",
+      "muscleGroup": "Legs",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Front-racked Smart Bar squat.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "cfc981b9-6737-4796-8750-06413ab9f3d7",
+      "name": "Barbell Front Squat",
+      "muscleGroup": "Legs",
+      "accessory": "BAR",
+      "recommendedHeight": 2,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Quad-dominant front squat with upright torso.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "300bc655-400b-486b-8d4a-48d036bcc497",
+      "name": "Resisted Split Squat",
+      "muscleGroup": "Legs",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Staggered stance quad and glute builder.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "38c9a60e-937c-4ac6-87cf-a75c376f9166",
+      "name": "Bulgarian Split Squat",
+      "muscleGroup": "Legs",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Rear foot elevated on bench.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "e0d217ce-e597-4277-85e0-c7b71567c3b9",
+      "name": "Alternating Reverse Lunge",
+      "muscleGroup": "Legs",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Knee-friendly backward stepping lunge.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "ffa80342-c3f3-4d61-8592-1c3877e5cec5",
+      "name": "Lateral Lunge",
+      "muscleGroup": "Legs",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Frontal plane hip mobility and adductor strength.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "4711b4c1-4ce2-44d0-882e-406706892ff7",
+      "name": "Standing Calf Raise",
+      "muscleGroup": "Legs",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Full plantarflexion pause at top.",
+      "mediaUrl": "/media/squat.svg"
+    },
+    {
+      "id": "26d44c1a-b0a4-4460-8e4b-ac8dba9ae318",
+      "name": "Romanian Deadlift",
+      "muscleGroup": "Legs / Posterior",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Hip hinge keeping bar close to shins.",
+      "mediaUrl": "/media/deadlift.svg"
+    },
+    {
+      "id": "3fa07054-1b4b-40f2-8688-b023a04949c7",
+      "name": "Sumo Deadlift",
+      "muscleGroup": "Legs / Posterior",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Wide stance posterior chain pull.",
+      "mediaUrl": "/media/deadlift.svg"
+    },
+    {
+      "id": "2e56f972-83b1-4fe8-86e7-d4d7487bc81e",
+      "name": "Barbell Hip Thrust",
+      "muscleGroup": "Legs / Posterior",
+      "accessory": "BAR",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Back supported on bench for maximal glute drive.",
+      "mediaUrl": "/media/deadlift.svg"
+    },
+    {
+      "id": "7ea00337-3a99-4570-8349-08ef1d4fbeb1",
+      "name": "Single-Leg RDL",
+      "muscleGroup": "Legs / Posterior",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Unilateral hamstring and balance hinge.",
+      "mediaUrl": "/media/deadlift.svg"
+    },
+    {
+      "id": "a04ecc2c-f00f-465e-800b-9f9fe1ada665",
+      "name": "Cable Pull-Through",
+      "muscleGroup": "Legs / Posterior",
+      "accessory": "ROPE",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Explosive hip extension with rope between legs.",
+      "mediaUrl": "/media/deadlift.svg"
+    },
+    {
+      "id": "b1263cd8-68d4-4ea6-8380-02d832b37496",
+      "name": "Pallof Press",
+      "muscleGroup": "Core",
+      "accessory": "HANDLES",
+      "recommendedHeight": 3,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Anti-rotation core stability press.",
+      "mediaUrl": "/media/core.svg"
+    },
+    {
+      "id": "6a4c790b-2ad2-4b3c-8c14-db9a1eef55d7",
+      "name": "Standing Woodchopper",
+      "muscleGroup": "Core",
+      "accessory": "HANDLES",
+      "recommendedHeight": 5,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Diagonal oblique rotation across torso.",
+      "mediaUrl": "/media/core.svg"
+    },
+    {
+      "id": "40a01de2-21c2-4a78-8b1f-e93027bb129b",
+      "name": "Kneeling Cable Crunch",
+      "muscleGroup": "Core",
+      "accessory": "ROPE",
+      "recommendedHeight": 6,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": false,
+      "notes": "Flex spine rather than hips under load.",
+      "mediaUrl": "/media/core.svg"
+    },
+    {
+      "id": "0adfaff0-5a73-48b6-85d0-1af1e71457de",
+      "name": "Rotational Lift",
+      "muscleGroup": "Core",
+      "accessory": "HANDLES",
+      "recommendedHeight": 1,
+      "recommendedRotation": 2,
+      "recommendedAngle": 1,
+      "unilateral": true,
+      "notes": "Low-to-high athletic rotational core drive.",
+      "mediaUrl": "/media/core.svg"
+    }
+  ],
+  "users": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Alex",
+      "avatarColor": "#FF007A",
+      "accentColor": "#FF007A",
+      "preferredMusicProvider": "spotify",
+      "themeMode": "dark",
+      "weightUnit": "LB"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Taylor",
+      "avatarColor": "#00F0FF",
+      "accentColor": "#00F0FF",
+      "preferredMusicProvider": "spotify",
+      "themeMode": "dark",
+      "weightUnit": "LB"
+    }
+  ],
+  "templates": [
+    {
+      "id": "6c1bf938-a2b5-4f45-8878-b47ceaa19edd",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "name": "Upper Body Sculpt & Eccentric",
+      "description": "Balanced chest, back, and shoulder superset routine with eccentric overload.",
+      "scheduleDays": [],
+      "blocks": [
+        {
+          "blockType": "WARMUP",
+          "restSeconds": 30,
+          "items": [
+            {
+              "exerciseId": "9664663e-1671-47d8-8ac2-1bcc58b89ae1",
+              "sets": 2,
+              "targetReps": 12,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 20
+            }
+          ]
+        },
+        {
+          "blockType": "SUPERSET",
+          "restSeconds": 60,
+          "items": [
+            {
+              "exerciseId": "73039190-2de3-4786-8be7-c79563cae0d7",
+              "sets": 3,
+              "targetReps": 10,
+              "mode": "eccentric",
+              "modifierPct": 25,
+              "targetWeightLb": 45
+            },
+            {
+              "exerciseId": "694de7a9-544b-4379-8f11-0050f5b7987a",
+              "sets": 3,
+              "targetReps": 10,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 35
+            }
+          ]
+        },
+        {
+          "blockType": "CIRCUIT",
+          "restSeconds": 45,
+          "items": [
+            {
+              "exerciseId": "aecb1e91-b4b1-4cbb-8af0-d78dec7c598a",
+              "sets": 3,
+              "targetReps": 12,
+              "mode": "chains",
+              "modifierPct": 20,
+              "targetWeightLb": 15
+            },
+            {
+              "exerciseId": "a0250170-b965-4290-85a0-f3e4e7537744",
+              "sets": 3,
+              "targetReps": 12,
+              "mode": "burnout",
+              "modifierPct": 0,
+              "targetWeightLb": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f8f9cdcf-4706-44c3-8ce5-9928e53919dc",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "name": "Glutes & Posterior Power",
+      "description": "Lower body strength block with smart bar hinge and split squats.",
+      "scheduleDays": [],
+      "blocks": [
+        {
+          "blockType": "WARMUP",
+          "restSeconds": 30,
+          "items": [
+            {
+              "exerciseId": "a04ecc2c-f00f-465e-800b-9f9fe1ada665",
+              "sets": 2,
+              "targetReps": 12,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 35
+            }
+          ]
+        },
+        {
+          "blockType": "STRAIGHT_SET",
+          "restSeconds": 75,
+          "items": [
+            {
+              "exerciseId": "2e56f972-83b1-4fe8-86e7-d4d7487bc81e",
+              "sets": 4,
+              "targetReps": 10,
+              "mode": "chains",
+              "modifierPct": 25,
+              "targetWeightLb": 95
+            }
+          ]
+        },
+        {
+          "blockType": "SUPERSET",
+          "restSeconds": 60,
+          "items": [
+            {
+              "exerciseId": "26d44c1a-b0a4-4460-8e4b-ac8dba9ae318",
+              "sets": 3,
+              "targetReps": 10,
+              "mode": "eccentric",
+              "modifierPct": 20,
+              "targetWeightLb": 75
+            },
+            {
+              "exerciseId": "38c9a60e-937c-4ac6-87cf-a75c376f9166",
+              "sets": 3,
+              "targetReps": 10,
+              "mode": "spotter",
+              "modifierPct": 0,
+              "targetWeightLb": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ac0decea-231f-4223-8e0e-5f8097da844d",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "name": "Heavy Push / Pull Hypertrophy",
+      "description": "Smart Bar compound presses paired with heavy lat pulldowns and chains.",
+      "scheduleDays": [],
+      "blocks": [
+        {
+          "blockType": "WARMUP",
+          "restSeconds": 30,
+          "items": [
+            {
+              "exerciseId": "9664663e-1671-47d8-8ac2-1bcc58b89ae1",
+              "sets": 2,
+              "targetReps": 15,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 30
+            }
+          ]
+        },
+        {
+          "blockType": "STRAIGHT_SET",
+          "restSeconds": 90,
+          "items": [
+            {
+              "exerciseId": "f8a69504-50bf-43f7-8fe2-8080b700acb9",
+              "sets": 4,
+              "targetReps": 8,
+              "mode": "chains",
+              "modifierPct": 25,
+              "targetWeightLb": 115
+            }
+          ]
+        },
+        {
+          "blockType": "SUPERSET",
+          "restSeconds": 75,
+          "items": [
+            {
+              "exerciseId": "c90f759e-b131-4a34-8e45-d824b1a4bb8e",
+              "sets": 4,
+              "targetReps": 10,
+              "mode": "eccentric",
+              "modifierPct": 25,
+              "targetWeightLb": 105
+            },
+            {
+              "exerciseId": "dfeeec68-360a-451d-8a16-c35a6c719a52",
+              "sets": 3,
+              "targetReps": 8,
+              "mode": "spotter",
+              "modifierPct": 0,
+              "targetWeightLb": 70
+            }
+          ]
+        },
+        {
+          "blockType": "CIRCUIT",
+          "restSeconds": 45,
+          "items": [
+            {
+              "exerciseId": "ff0988cf-40ab-4959-8dcc-be8be5e05a4c",
+              "sets": 3,
+              "targetReps": 12,
+              "mode": "burnout",
+              "modifierPct": 0,
+              "targetWeightLb": 35
+            },
+            {
+              "exerciseId": "a0250170-b965-4290-85a0-f3e4e7537744",
+              "sets": 3,
+              "targetReps": 12,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 50
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "044bafbf-85b6-4dcb-8640-12788d65a374",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "name": "Athletic Lower & Core",
+      "description": "Squats, RDLs, and anti-rotation core work.",
+      "scheduleDays": [],
+      "blocks": [
+        {
+          "blockType": "STRAIGHT_SET",
+          "restSeconds": 90,
+          "items": [
+            {
+              "exerciseId": "e3861112-7827-4193-89c9-eb8693e62ceb",
+              "sets": 4,
+              "targetReps": 10,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 95
+            }
+          ]
+        },
+        {
+          "blockType": "SUPERSET",
+          "restSeconds": 60,
+          "items": [
+            {
+              "exerciseId": "26d44c1a-b0a4-4460-8e4b-ac8dba9ae318",
+              "sets": 3,
+              "targetReps": 8,
+              "mode": "eccentric",
+              "modifierPct": 25,
+              "targetWeightLb": 135
+            },
+            {
+              "exerciseId": "b1263cd8-68d4-4ea6-8380-02d832b37496",
+              "sets": 3,
+              "targetReps": 12,
+              "mode": "standard",
+              "modifierPct": 0,
+              "targetWeightLb": 25
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "personalRecords": [
+    {
+      "id": "514d8b24-7f4b-497d-887a-a1fa859ce83b",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "f8a69504-50bf-43f7-8fe2-8080b700acb9",
+      "maxWeightLb": 65,
+      "oneRepMaxEst": 85
+    },
+    {
+      "id": "17ec6130-7652-4853-86d2-d6e902983600",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "73039190-2de3-4786-8be7-c79563cae0d7",
+      "maxWeightLb": 55,
+      "oneRepMaxEst": 70
+    },
+    {
+      "id": "ebdac452-043c-41d7-8b9f-95cc8c4f75f2",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "437ad823-bbe2-4cbb-866c-45400b374d1b",
+      "maxWeightLb": 30,
+      "oneRepMaxEst": 38
+    },
+    {
+      "id": "f4a0ce71-dc8a-4143-8865-d991b44a436a",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "c90f759e-b131-4a34-8e45-d824b1a4bb8e",
+      "maxWeightLb": 70,
+      "oneRepMaxEst": 92
+    },
+    {
+      "id": "2e4866e4-53a1-4300-8f9b-ddc2055539ff",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "8b138ee9-fc5f-4919-8172-69f7b5194de2",
+      "maxWeightLb": 65,
+      "oneRepMaxEst": 84
+    },
+    {
+      "id": "89aecd13-1c05-44aa-8a0e-7d98a86a4582",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "dfeeec68-360a-451d-8a16-c35a6c719a52",
+      "maxWeightLb": 45,
+      "oneRepMaxEst": 58
+    },
+    {
+      "id": "27a9c60f-0fc5-4029-8db7-64e839d10d0f",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "ff0988cf-40ab-4959-8dcc-be8be5e05a4c",
+      "maxWeightLb": 25,
+      "oneRepMaxEst": 32
+    },
+    {
+      "id": "e6e53296-62a0-468e-8880-0c87b040d5e1",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "a0250170-b965-4290-85a0-f3e4e7537744",
+      "maxWeightLb": 35,
+      "oneRepMaxEst": 45
+    },
+    {
+      "id": "e7c757fc-a00a-4011-8425-b3c97c3863a5",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "e3861112-7827-4193-89c9-eb8693e62ceb",
+      "maxWeightLb": 75,
+      "oneRepMaxEst": 96
+    },
+    {
+      "id": "c4fcc176-60f5-4a41-8805-b3289be7bfd0",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "26d44c1a-b0a4-4460-8e4b-ac8dba9ae318",
+      "maxWeightLb": 95,
+      "oneRepMaxEst": 122
+    },
+    {
+      "id": "7cff3846-381b-4e42-8c73-a4dc7227bdf8",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "2e56f972-83b1-4fe8-86e7-d4d7487bc81e",
+      "maxWeightLb": 120,
+      "oneRepMaxEst": 156
+    },
+    {
+      "id": "e9608f07-73c7-46ea-8945-4f476d40581e",
+      "userId": "11111111-1111-4111-8111-111111111111",
+      "exerciseId": "b1263cd8-68d4-4ea6-8380-02d832b37496",
+      "maxWeightLb": 20,
+      "oneRepMaxEst": 26
+    },
+    {
+      "id": "9f843266-b009-45c6-849a-f0e735d0485b",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "f8a69504-50bf-43f7-8fe2-8080b700acb9",
+      "maxWeightLb": 135,
+      "oneRepMaxEst": 175
+    },
+    {
+      "id": "7cb5f55d-e8c7-4ea6-822c-a30b94b2c2f2",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "73039190-2de3-4786-8be7-c79563cae0d7",
+      "maxWeightLb": 110,
+      "oneRepMaxEst": 142
+    },
+    {
+      "id": "8cb86ea6-e84c-453e-8b0d-c9bd13344da3",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "437ad823-bbe2-4cbb-866c-45400b374d1b",
+      "maxWeightLb": 45,
+      "oneRepMaxEst": 58
+    },
+    {
+      "id": "1ecf44db-7083-40e7-8d51-a3683963153b",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "c90f759e-b131-4a34-8e45-d824b1a4bb8e",
+      "maxWeightLb": 125,
+      "oneRepMaxEst": 160
+    },
+    {
+      "id": "3a4de9c1-c058-4681-8613-e472284d02e6",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "8b138ee9-fc5f-4919-8172-69f7b5194de2",
+      "maxWeightLb": 120,
+      "oneRepMaxEst": 155
+    },
+    {
+      "id": "840404fe-45c6-4ba2-895f-66af7c24fde3",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "dfeeec68-360a-451d-8a16-c35a6c719a52",
+      "maxWeightLb": 85,
+      "oneRepMaxEst": 108
+    },
+    {
+      "id": "36ccab1a-b065-4d34-80fb-29026e1ae76d",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "ff0988cf-40ab-4959-8dcc-be8be5e05a4c",
+      "maxWeightLb": 45,
+      "oneRepMaxEst": 57
+    },
+    {
+      "id": "ce33080e-2ee4-4a79-8a28-4c13eeeb9763",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "a0250170-b965-4290-85a0-f3e4e7537744",
+      "maxWeightLb": 60,
+      "oneRepMaxEst": 78
+    },
+    {
+      "id": "f11962d0-f435-4167-81e4-1a503d2c6d57",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "e3861112-7827-4193-89c9-eb8693e62ceb",
+      "maxWeightLb": 115,
+      "oneRepMaxEst": 148
+    },
+    {
+      "id": "7a855a28-37a8-44db-80b0-bb835eda471b",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "26d44c1a-b0a4-4460-8e4b-ac8dba9ae318",
+      "maxWeightLb": 165,
+      "oneRepMaxEst": 200
+    },
+    {
+      "id": "5f2960bd-6098-48c3-8065-6b80fd732f86",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "2e56f972-83b1-4fe8-86e7-d4d7487bc81e",
+      "maxWeightLb": 180,
+      "oneRepMaxEst": 200
+    },
+    {
+      "id": "fc0f5a26-14a0-4cf5-86c1-546ea10e646e",
+      "userId": "22222222-2222-4222-8222-222222222222",
+      "exerciseId": "b1263cd8-68d4-4ea6-8380-02d832b37496",
+      "maxWeightLb": 35,
+      "oneRepMaxEst": 44
+    }
+  ]
+}

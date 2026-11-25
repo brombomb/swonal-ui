@@ -103,13 +103,23 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
         val d = resources.displayMetrics.density
         val p = palette
 
-        // Horizontal filter chips: Active Lifter, All Lifters, plus individual household profiles
-        val filterScroll = HorizontalScrollView(requireContext()).apply {
-            isHorizontalScrollBarEnabled = false
+        val topControls = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(12) }
+        }
+
+        // Horizontal filter chips: Active Lifter, All Lifters, plus individual household profiles
+        val filterScroll = HorizontalScrollView(requireContext()).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { marginEnd = dp(8) }
         }
         val filterRow = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
         val filters = mutableListOf("ACTIVE" to "Active Lifter", "ALL" to "All Lifters")
@@ -127,7 +137,17 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
             })
         }
         filterScroll.addView(filterRow)
-        contentContainer.addView(filterScroll)
+        topControls.addView(filterScroll)
+        topControls.addView(makeAccentButton("+ New Routine") {
+            val fm = parentFragmentManager
+            if (!fm.isStateSaved && fm.findFragmentByTag("routine_builder") == null) {
+                RoutineBuilderDialog.newInstance(null) { renderContent() }.show(fm, "routine_builder")
+            }
+        }.apply {
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+        })
+        contentContainer.addView(topControls)
 
         val filtered = ui.templates.filter { tpl ->
             when (selectedLifterFilter) {
@@ -139,7 +159,7 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
 
         if (filtered.isEmpty()) {
             contentContainer.addView(TextView(requireContext()).apply {
-                text = "No saved routines found. Create one in the Companion app or via MCP."
+                text = "No saved routines found. Tap '+ New Routine' to create one directly on Tonal!"
                 setTextColor(p.textMuted)
                 textSize = 13f
                 setPadding(dp(8), dp(20), dp(8), dp(20))
@@ -313,15 +333,32 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
                 layoutParams = LinearLayout.LayoutParams(1, 0, 1f)
             })
 
-            addView(makeAccentButton(if (isScheduledToday) "Start Today's Routine" else "Start Routine") {
+            val actionRow = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(10) }
+            }
+            actionRow.addView(makePillButton("Edit") {
+                val fm = parentFragmentManager
+                if (!fm.isStateSaved && fm.findFragmentByTag("routine_builder") == null) {
+                    RoutineBuilderDialog.newInstance(tpl.id) { renderContent() }.show(fm, "routine_builder")
+                }
+            }.apply {
+                textSize = 12f
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    dp(38)
+                ).apply { marginEnd = dp(8) }
+            })
+            actionRow.addView(makeAccentButton(if (isScheduledToday) "Start Today's Routine" else "Start Routine") {
                 repo.startWorkoutTemplate(tpl)
                 dismiss()
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(38)
-                ).apply { topMargin = dp(10) }
+                layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
             })
+            addView(actionRow)
         }
     }
 

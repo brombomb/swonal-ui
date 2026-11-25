@@ -27,7 +27,7 @@ import { ZodError } from 'zod';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { prisma } from './db';
 import { seedDatabase } from '../../prisma/seed';
-import { createSwonalMcpServer } from './mcp/mcpServer';
+import { createSwonalMcpServer, clearPendingQueuedWorkout, getPendingQueuedWorkout } from './mcp/mcpServer';
 import { musicRegistry } from './music/Registry';
 import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
@@ -35,6 +35,8 @@ import { createMusicRouter } from './routes/musicRoutes';
 import { createSpotifyRouter } from './routes/spotify';
 import { createAuthRouter } from './routes/authRoutes';
 import { createFriendsRouter } from './routes/friendsRoutes';
+import { createSyncRouter } from './routes/syncRoutes';
+import { startScheduledBackupLoop } from './services/backupService';
 import { getServerConfig } from './config';
 import { isRequestAuthenticated } from './services/authService';
 import { getEffectivePublicBaseUrl } from './services/runtimeSettings';
@@ -84,43 +86,45 @@ export async function createSwonalServer(
     options.daemonWsUrl ?? serverConfig.TONAL_DAEMON_WS_URL;
   const connectDaemonWs = options.connectDaemonWs ?? true;
 
+  const isAllowedOrigin = (origin: string): boolean => {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+      }
+      const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      const isLocalOrLan =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '::1' ||
+        host.endsWith('.local') ||
+        /^10\.\d+\.\d+\.\d+$/.test(host) ||
+        /^192\.168\.\d+\.\d+$/.test(host) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host);
+
+      const publicBase = getEffectivePublicBaseUrl();
+      let isPublicOrigin = false;
+      if (publicBase) {
+        try {
+          isPublicOrigin = new URL(publicBase).origin === parsed.origin;
+        } catch {
+          isPublicOrigin = false;
+        }
+      }
+      return isLocalOrLan || isPublicOrigin;
+    } catch {
+      return false;
+    }
+  };
+
   const app = express();
-  app.set('trust proxy', 1);
+  app.set('trust proxy', 'loopback');
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin) {
+        if (!origin || isAllowedOrigin(origin)) {
           callback(null, true);
           return;
-        }
-        try {
-          const parsed = new URL(origin);
-          const host = parsed.hostname.toLowerCase();
-          const isLocalOrLan =
-            host === 'localhost' ||
-            host === '127.0.0.1' ||
-            host === '::1' ||
-            host.endsWith('.local') ||
-            /^10\.\d+\.\d+\.\d+$/.test(host) ||
-            /^192\.168\.\d+\.\d+$/.test(host) ||
-            /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host);
-
-          const publicBase = getEffectivePublicBaseUrl();
-          let isPublicOrigin = false;
-          if (publicBase) {
-            try {
-              isPublicOrigin = new URL(publicBase).origin === parsed.origin;
-            } catch {
-              isPublicOrigin = false;
-            }
-          }
-
-          if (isLocalOrLan || isPublicOrigin) {
-            callback(null, true);
-            return;
-          }
-        } catch {
-          // Invalid Origin URL
         }
         callback(new Error('CORS origin not allowed'));
       },
@@ -140,14 +144,40 @@ export async function createSwonalServer(
   app.use('/media', express.static(resolvedMediaDir));
 
   const httpServer = http.createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
+  const syncWss = new WebSocketServer({ noServer: true });
   const browserClients = new Set<WebSocket>();
+  const tonalSyncClients = new Set<WebSocket>();
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const origin = req.headers.origin;
+    if (origin && !isAllowedOrigin(origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const pathname = (req.url || '/').split('?')[0];
+    if (pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/sync') {
+      syncWss.handleUpgrade(req, socket, head, (ws) => {
+        syncWss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  const stopBackupLoop = startScheduledBackupLoop(prisma);
 
   let daemonWs: WebSocket | null = null;
   let daemonConnected = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let closing = false;
+  let lastSyncTelemetryAt = 0;
   let latestTelemetry: Record<string, unknown> = {
     type: 'telemetry',
     mode: 'CUSTOM',
@@ -167,12 +197,76 @@ export async function createSwonalServer(
     },
   };
 
+  const normalizeTelemetryFrame = (
+    incoming: Record<string, unknown>,
+    fallback: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const isObj = (v: unknown): v is Record<string, unknown> =>
+      typeof v === 'object' && v !== null && !Array.isArray(v);
+    const fbLeft = isObj(fallback.left_cable)
+      ? fallback.left_cable
+      : { position: 0, velocity: 0, load_lb: 0 };
+    const fbRight = isObj(fallback.right_cable)
+      ? fallback.right_cable
+      : { position: 0, velocity: 0, load_lb: 0 };
+    const fbArms = isObj(fallback.arm_positions)
+      ? fallback.arm_positions
+      : {
+          height: { left: 4, right: 4 },
+          rotation: { left: 2, right: 2, left_unlocked: false, right_unlocked: false },
+          angle: { left: 1, right: 1 },
+        };
+    const inLeft = isObj(incoming.left_cable) ? incoming.left_cable : {};
+    const inRight = isObj(incoming.right_cable) ? incoming.right_cable : {};
+    const inArms = isObj(incoming.arm_positions) ? incoming.arm_positions : {};
+    return {
+      ...fallback,
+      ...incoming,
+      type: 'telemetry',
+      left_cable: { ...fbLeft, ...inLeft },
+      right_cable: { ...fbRight, ...inRight },
+      arm_positions: {
+        height: {
+          ...(isObj(fbArms.height) ? fbArms.height : { left: 4, right: 4 }),
+          ...(isObj(inArms.height) ? inArms.height : {}),
+        },
+        rotation: {
+          ...(isObj(fbArms.rotation)
+            ? fbArms.rotation
+            : { left: 2, right: 2, left_unlocked: false, right_unlocked: false }),
+          ...(isObj(inArms.rotation) ? inArms.rotation : {}),
+        },
+        angle: {
+          ...(isObj(fbArms.angle) ? fbArms.angle : { left: 1, right: 1 }),
+          ...(isObj(inArms.angle) ? inArms.angle : {}),
+        },
+      },
+    };
+  };
+
+  const broadcastToSyncClients = (payload: Record<string, unknown>) => {
+    const serialized = JSON.stringify(payload);
+    for (const client of tonalSyncClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(serialized);
+      }
+    }
+  };
+
   const broadcastToClients = (payload: Record<string, unknown>) => {
     const serialized = JSON.stringify(payload);
     for (const client of browserClients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(serialized);
       }
+    }
+    if (
+      payload.type === 'users_updated' ||
+      payload.type === 'user_updated' ||
+      payload.type === 'templates_updated' ||
+      payload.type === 'exercises_updated'
+    ) {
+      broadcastToSyncClients({ type: 'sync_poke' });
     }
   };
 
@@ -226,6 +320,7 @@ export async function createSwonalServer(
   };
   const onWorkoutQueued = (payload: unknown) => {
     broadcastToClients({ type: 'workout_queued', workout: payload });
+    broadcastToSyncClients({ type: 'workout_queued', workout: payload });
     void homeAssistantBus.publishSessionEvent('workout_queued', {
       userId: sessionCoordinator.getState().activeUserId,
       workout: payload,
@@ -251,7 +346,11 @@ export async function createSwonalServer(
         try {
           const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
           if (msg.type === 'telemetry') {
-            latestTelemetry = msg;
+            // Suppress direct/mock daemon telemetry while a paired tablet is streaming live sync telemetry
+            if (tonalSyncClients.size > 0 && Date.now() - lastSyncTelemetryAt < 10_000) {
+              return;
+            }
+            latestTelemetry = normalizeTelemetryFrame(msg, latestTelemetry);
             publishHaState();
           } else if (msg.type === 'safety_event') {
             publishHaState(String(msg.reason || 'SAFETY_CUTOUT'));
@@ -341,11 +440,44 @@ export async function createSwonalServer(
 
         if (DAEMON_FORWARD_TYPES.has(type)) {
           if (type === 'set_weight') {
+            if (latestTelemetry.weight_enabled) {
+              client.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: 'Cannot change weight from remote WebSocket while resistance is engaged',
+                })
+              );
+              return;
+            }
             const w = Number(msg.weight_lb);
             if (!Number.isFinite(w) || w < 5 || w > 200) {
               client.send(JSON.stringify({ type: 'error', message: `Invalid weight_lb: ${msg.weight_lb}` }));
               return;
             }
+            if (msg.profile !== undefined) {
+              const p = String(msg.profile).trim().toUpperCase();
+              if (!['STANDARD', 'ECCENTRIC', 'CHAINS', 'SPOTTER', 'BURNOUT'].includes(p)) {
+                client.send(JSON.stringify({ type: 'error', message: `Invalid weight profile: ${msg.profile}` }));
+                return;
+              }
+              msg.profile = p.toLowerCase();
+            }
+            if (msg.modifier_pct !== undefined) {
+              const mod = Number(msg.modifier_pct);
+              msg.modifier_pct = Number.isFinite(mod) ? Math.max(0, Math.min(100, Math.round(mod))) : 0;
+            }
+          }
+          if (
+            (type === 'enable_weight' || (type === 'toggle_weight' && !latestTelemetry.weight_enabled)) &&
+            latestTelemetry.safety_event
+          ) {
+            client.send(
+              JSON.stringify({
+                type: 'error',
+                message: `Cannot engage weight during active safety event: ${latestTelemetry.safety_event}`,
+              })
+            );
+            return;
           }
           const sent = sendToDaemon(msg);
           if (!sent && type === 'set_weight') {
@@ -392,7 +524,7 @@ export async function createSwonalServer(
           const sec = Number(msg.seconds ?? 60);
           sessionCoordinator.setRestTimer(Date.now() + sec * 1000);
         } else if (type === 'clear_queued_workout') {
-          sessionCoordinator.clearQueuedWorkout();
+          void clearPendingQueuedWorkout();
         } else if (type === 'music_updated') {
           broadcastToClients(msg);
         }
@@ -403,11 +535,61 @@ export async function createSwonalServer(
 
     client.on('close', () => {
       browserClients.delete(client);
-      if (browserClients.size === 0 && latestTelemetry.weight_enabled) {
-        console.warn('[SwonalServer] Last UI client disconnected while weight engaged — immediately disabling resistance.');
+      if (
+        process.env.SWONAL_LEGACY_WS_WATCHDOG === '1' &&
+        browserClients.size === 0 &&
+        tonalSyncClients.size === 0 &&
+        latestTelemetry.weight_enabled
+      ) {
+        console.warn('[SwonalServer] Legacy WS watchdog: last client disconnected while weight engaged — disabling resistance.');
         sendToDaemon({ type: 'disable_weight' });
         fetch(`${daemonHttpUrl}/api/motor/disable`, { method: 'POST' }).catch(() => {});
       }
+    });
+  });
+
+  syncWss.on('connection', (client, req) => {
+    if (!isRequestAuthenticated(req)) {
+      client.close(4401, 'Unauthorized');
+      return;
+    }
+    tonalSyncClients.add(client);
+    client.send(JSON.stringify({ type: 'sync_hello', serverTimeMs: Date.now() }));
+    void getPendingQueuedWorkout()
+      .then((pending) => {
+        if (pending && client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'workout_queued', workout: pending }));
+        }
+      })
+      .catch(() => {});
+
+    client.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+        const type = String(msg.type || '');
+        if (type === 'ping') {
+          client.send(JSON.stringify({ type: 'pong', serverTimeMs: Date.now() }));
+        } else if (type === 'telemetry') {
+          lastSyncTelemetryAt = Date.now();
+          latestTelemetry = normalizeTelemetryFrame(msg, latestTelemetry);
+          broadcastToClients(latestTelemetry);
+          publishHaState();
+        } else if (type === 'session_event' && typeof msg.eventType === 'string') {
+          void homeAssistantBus.publishSessionEvent(
+            msg.eventType,
+            (typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {}) as Record<string, unknown>
+          );
+        } else if (type === 'ack_queued_workout') {
+          const queuedAt = typeof msg.queuedAt === 'string' ? msg.queuedAt : undefined;
+          void clearPendingQueuedWorkout(queuedAt);
+        }
+      } catch {
+        // Ignore invalid /ws/sync messages
+      }
+    });
+
+    client.on('close', () => {
+      tonalSyncClients.delete(client);
     });
   });
 
@@ -428,6 +610,14 @@ export async function createSwonalServer(
   });
 
   app.use(
+    '/api/sync',
+    createSyncRouter({
+      broadcastToClients,
+      notifyTonalSyncPoke: () => broadcastToSyncClients({ type: 'sync_poke' }),
+      isTonalSyncConnected: () => tonalSyncClients.size > 0,
+    })
+  );
+  app.use(
     '/api',
     createApiRouter({
       sendToDaemon,
@@ -447,10 +637,16 @@ export async function createSwonalServer(
   >();
 
   app.get('/mcp/sse', async (req, res) => {
-    if (!isRequestAuthenticated(req)) {
+    if (!isRequestAuthenticated(req, { allowQueryToken: true })) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
+    // Disable reverse-proxy (Nginx/Cloudflare/Caddy) buffering and Nagle delay so large
+    // SSE JSON-RPC payloads (e.g. unfiltered 50-exercise catalog) flush immediately.
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    req.socket.setNoDelay(true);
+
     const transport = new SSEServerTransport('/mcp/messages', res);
     const mcp = createSwonalMcpServer();
     sseTransports.set(transport.sessionId, { transport, server: mcp });
@@ -464,7 +660,7 @@ export async function createSwonalServer(
   });
 
   app.post('/mcp/messages', async (req, res) => {
-    if (!isRequestAuthenticated(req)) {
+    if (!isRequestAuthenticated(req, { allowQueryToken: true })) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
@@ -549,6 +745,12 @@ export async function createSwonalServer(
         client.terminate();
       }
       browserClients.clear();
+      for (const client of tonalSyncClients) {
+        client.terminate();
+      }
+      tonalSyncClients.clear();
+      stopBackupLoop();
+      await new Promise<void>((resolve) => syncWss.close(() => resolve()));
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       await homeAssistantBus.close();

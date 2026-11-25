@@ -23,8 +23,42 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Auto-Merge Release PR (if RELEASE_PLEASE_TOKEN configured)
+        if: steps.release.outputs.release_created != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "RELEASE_PLEASE_TOKEN not set; leaving Release Please PR open for manual merge."
+            exit 0
+          fi
+          PR_NUM=$(python3 - <<'PY'
+          import json, os
+          raw = os.environ.get("PR_JSON", "").strip()
+          if raw:
+              try:
+                  obj = json.loads(raw)
+                  if isinstance(obj, dict) and obj.get("number"):
+                      print(obj["number"])
+              except Exception:
+                  pass
+          PY
+          )
+          if [ -z "$PR_NUM" ]; then
+            PR_NUM=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "release-please--branches--main" --state open --json number --jq '.[0].number // empty')
+          fi
+          if [ -z "$PR_NUM" ]; then
+            echo "No open Release Please PR to auto-merge."
+            exit 0
+          fi
+          echo "Auto-merging Release Please PR #$PR_NUM..."
+          gh pr merge "$PR_NUM" --repo "$GITHUB_REPOSITORY" --auto --squash --delete-branch \
+            || gh pr merge "$PR_NUM" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
 
   build-apk:
     name: Build Android Kiosk APK
@@ -33,27 +67,69 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/server-app/package-lock.json
+
+      - name: Build Embedded Web SPA Assets
+        run: |
+          cd packages/server-app
+          npm ci
+          npm run build:client
+
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Decode Release Keystore (if configured)
         env:
           SWONAL_KEYSTORE_BASE64: ${{ secrets.SWONAL_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$SWONAL_KEYSTORE_BASE64" ]; then
-            echo "$SWONAL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/swonal-release.jks"
-            echo "SWONAL_KEYSTORE_PATH=$RUNNER_TEMP/swonal-release.jks" >> "$GITHUB_ENV"
-            echo "Release keystore configured."
+            python3 - <<'PY'
+          import base64, binascii, os, sys
+
+          raw = os.environ.get("SWONAL_KEYSTORE_BASE64", "")
+          # Strip whitespace/newlines and accidental surrounding quotes from copy-paste.
+          cleaned = "".join(raw.split()).strip("'\"")
+          # Support URL-safe base64 and restore missing '=' padding if truncated.
+          cleaned = cleaned.replace("-", "+").replace("_", "/")
+          if len(cleaned) % 4:
+              cleaned += "=" * (4 - (len(cleaned) % 4))
+
+          try:
+              data = base64.b64decode(cleaned, validate=True)
+          except binascii.Error as exc:
+              print(
+                  f"::error::SWONAL_KEYSTORE_BASE64 is not valid base64 ({exc}; cleaned length={len(cleaned)}). "
+                  "Re-encode your keystore with `base64 -w 0 <keystore.jks>` and update the GitHub Actions secret.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if not data:
+              print("::error::SWONAL_KEYSTORE_BASE64 decoded to 0 bytes.", file=sys.stderr)
+              sys.exit(1)
+
+          out_path = os.path.join(os.environ["RUNNER_TEMP"], "swonal-release.jks")
+          with open(out_path, "wb") as f:
+              f.write(data)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"SWONAL_KEYSTORE_PATH={out_path}\n")
+          print(f"Release keystore configured ({len(data)} bytes).")
+          PY
           else
             echo "SWONAL_KEYSTORE_BASE64 not set; falling back to default signing config."
           fi
@@ -64,6 +140,7 @@ jobs:
           SWONAL_KEYSTORE_PASSWORD: ${{ secrets.SWONAL_KEYSTORE_PASSWORD }}
           SWONAL_KEY_ALIAS: ${{ secrets.SWONAL_KEY_ALIAS }}
           SWONAL_KEY_PASSWORD: ${{ secrets.SWONAL_KEY_PASSWORD }}
+          SWONAL_BUG_REPORT_WEBHOOK: ${{ secrets.SWONAL_BUG_REPORT_WEBHOOK }}
         run: |
           VER="${RELEASE_TAG#v}"
           IFS='.' read -r MAJ MIN PAT <<< "${VER%%-*}"
@@ -73,7 +150,7 @@ jobs:
           ./gradlew assembleRelease -PswonalVersionName="$VER" -PswonalVersionCode="$VCODE" --no-daemon
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: swonal-kiosk-apk
           path: packages/android-kiosk/app/build/outputs/apk/release/app-release.apk
@@ -85,12 +162,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -100,10 +177,10 @@ jobs:
           npm ci
           npx prisma generate
           npm run build
-          tar -czvf ../../swonal-server-bundle.tar.gz dist/ prisma/ package.json
+          tar -czvf ../../swonal-server-bundle.tar.gz dist/ prisma/ package.json package-lock.json node_modules/.prisma
 
       - name: Upload Server Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: swonal-server-bundle
           path: swonal-server-bundle.tar.gz
@@ -117,18 +194,18 @@ jobs:
       contents: write
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
 
       - name: Download APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: swonal-kiosk-apk
           path: release-artifacts/
 
       - name: Download Server
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: swonal-server-bundle
           path: release-artifacts/
@@ -150,10 +227,9 @@ jobs:
             "release-artifacts/swonal-server-bundle.tar.gz" \
             --clobber
 
-      - name: Extract Human-Readable Changelog (Manual Tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Extract Human-Readable Changelog
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
         run: |
           python3 - "$RELEASE_TAG" <<'PY' > release-notes.md
           import re, sys
@@ -173,8 +249,86 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body_path: release-notes.md
           generate_release_notes: true
           files: |
             release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
             release-artifacts/swonal-server-bundle.tar.gz
+
+      - name: Notify Discord (if configured)
+        continue-on-error: true
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -z "$DISCORD_RELEASE_WEBHOOK" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK not set; skipping Discord notification."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          webhook = os.environ["DISCORD_RELEASE_WEBHOOK"].strip()
+          if webhook.endswith("/github"):
+              webhook = webhook[:-len("/github")]
+          tag = os.environ["RELEASE_TAG"].strip()
+          repo = os.environ["GITHUB_REPOSITORY"].strip()
+          is_pre = "-" in tag
+          release_url = f"https://github.com/{repo}/releases/tag/{tag}"
+          apk_url = f"https://github.com/{repo}/releases/download/{tag}/swonal-kiosk-{tag}.apk"
+
+          notes = ""
+          if os.path.exists("release-notes.md"):
+              notes = open("release-notes.md", encoding="utf-8").read().strip()
+          if not notes:
+              notes = (
+                  "New pre-release build available for testing."
+                  if is_pre
+                  else "New stable release available."
+              )
+          if len(notes) > 1800:
+              notes = notes[:1797] + "..."
+
+          payload = {
+              "username": "Swonal Releases",
+              "embeds": [
+                  {
+                      "title": f"Swonal {tag} {'(Pre-release)' if is_pre else 'Released'}",
+                      "url": release_url,
+                      "description": notes,
+                      "color": 0xF59E0B if is_pre else 0x10B981,
+                      "fields": [
+                          {
+                              "name": "Android Kiosk APK",
+                              "value": f"[swonal-kiosk-{tag}.apk]({apk_url})",
+                              "inline": True,
+                          },
+                          {
+                              "name": "Release Page",
+                              "value": f"[View on GitHub]({release_url})",
+                              "inline": True,
+                          },
+                      ],
+                  }
+              ],
+          }
+
+          req = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "Swonal-Release-Bot/1.0",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  print(f"Discord notification sent (HTTP {resp.status}).")
+          except urllib.error.HTTPError as exc:
+              print(f"::warning::Discord webhook returned HTTP {exc.code}: {exc.reason}")
+          except Exception as exc:
+              print(f"::warning::Failed to post Discord notification: {exc}")
+          PY

@@ -1,10 +1,13 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-- **Active Milestone:** All Milestones Complete (Milestone 1 – Milestone 6)
-- **Last Completed Task:** Milestone 6 verified (`docker compose config`, `pytest` 7/7, `vitest` 5/5, `tsc --noEmit`, `vite build` + `esbuild`, `scripts/verify-e2e.mjs`) & committed
-- **Next Immediate Task:** None — Phase 1 and Phase 1.5 implementation complete
-- **Verification / Test Status:** ALL PASSED (`pytest` 7/7 | `vitest` 5/5 | `tsc --noEmit` 0 errors | `npm run build` clean | `verify-e2e.mjs` exited 0 | `docker compose config` OK)
+# swonal-ui Implementation Progress
+
+## Current Status
+- **Active Milestone:** Milestone 8 Complete — Standalone-First Architecture + Optional Home/Cloud Server Sync
+- **Last Completed Task:** Embedded `:3000` Kiosk server, native SQLite engine (`BundledSQLiteDriver`), native Routine Builder, Spotify PKCE, local AI Voice Coach, Nostr Swocial, Home Assistant webhooks, idempotent `/api/sync/*` + `/ws/sync` server sync, and security/audit hardening on `feat/standalone-first-sync`
+- **Next Immediate Task:** None — ready for review/merge
+- **Verification / Test Status:** Pending final `./scripts/ci-local.sh` & `:app:assembleRelease` verification pass after audit hardening
 
 ---
 
@@ -110,3 +113,16 @@
 - [x] Add live motivational friend ticker to rest-timer overlay in Kiosk (`KioskView.tsx`).
 - [x] Add automated unit tests (`tests/friends.test.ts` - 12 tests, 100% pass; 29/29 Vitest total).
 - [x] Update `README.md` and `PROGRESS.md`.
+
+## Milestone 8: Standalone-First Architecture + Optional Home/Cloud Server Sync (`feat/standalone-first-sync`)
+- [x] **On-Device Persistence & Engine (Checkpoint 1):** Bundled Android SQLite (`androidx.sqlite.driver.bundled.BundledSQLiteDriver`) with 50 seeded exercises + 9 bundled SVG diagrams (`seed_catalog.json`), Android API 23 (`minSdk = 23`) compatibility (`CompatUtil`, `IsoTime`, `SecretCipher`, `CryptoCompat`), `LocalWorkoutEngine` (dynamic cable physics, PR tracking, analytics, CSV export, backup/restore), and `LocalDaemonFailSafeClient` (`127.0.0.1:8765`).
+- [x] **On-Device Integrations & Native Dialogs (Checkpoint 2):** Native `LocalAiCoachEngine` (regex voice parser, workout insights, BYOK cloud/Ollama endpoints), `LocalHomeAssistantClient` webhooks, `LocalNostrSwocialEngine` (`NostrCrypto` secp256k1 + Schnorr + NIP-19), `LocalSpotifyController` (PKCE speaker pairing), and `LocalLanMusicProviders` (Plexamp/AirPlay/Chromecast).
+- [x] **Embedded `:3000` Server & Native Routine Builder (Checkpoint 3):** Embedded NanoWSD HTTP + `/ws` server inside `android-kiosk` (`EmbeddedSwonalServer` + `EmbeddedApiRouter`) serving the bundled Vite React SPA (`/companion`, `/history`, `/settings`) plus native `RoutineBuilderDialog` and `ServerSyncSettingsDialog`.
+- [x] **Optional Home/Cloud Server Sync & 24/7 MCP Queue (Checkpoint 4):** Bidirectional idempotent sync (`/api/sync/push`, `/api/sync/pull`, `/api/sync/restore-bundle`, `/api/sync/ack-queued-workout`, `/ws/sync`), Prisma tombstone (`deletedAt`) & monotonic `updatedAt` sync metadata, rotating SQLite backups (`backupService.ts`), persistent MCP `pending_queued_workout` delivery across offline Tonal reboots, and `scripts/install-device.sh` `--standalone` / `--server-url` installer flow.
+- [x] **Adversarial Audit Remediation & Docs (Checkpoint 5):** API 24+ -> API 23 fixes, R8 serializer keep rules, CSWSH Origin validation on `/ws` & `/ws/sync`, bounded chunked body reader, remote `/ws` safety guards, Keystore failure safety, SSRF host filtering, sync FK/PR merge/ACK race fixes, and repository documentation updates.
+
+### Follow-Up TODOs (Post-Standalone PR #3)
+- [ ] **Native Android Screens for Everything Except `/companion`:** Migrate `/settings` (Users, Swocial, AI Coach/MCP, Network, Security), `/history` (History & PRs), and `/admin` (Exercise Catalog & Calibration) from the embedded GeckoView Web SPA to native Android screens inside `packages/android-kiosk`, keeping the embedded Web SPA strictly for `/companion` on phones/laptops (eliminates GeckoView startup overhead and memory footprint on Android 6.0).
+- [ ] **MCP Streamable HTTP (`2025-03-26`) Transport:** Add `POST /mcp` Streamable HTTP transport alongside legacy `/mcp/sse` (`2024-11-05`) in `packages/server-app` so modern MCP clients can connect directly without `mcp-remote`.
+- [ ] **Optional On-Device HTTPS for Companion (`:53443`):** Add an opt-in on-device HTTPS listener (with downloadable local CA profile for iOS/Android mic support without a reverse proxy).
+- [ ] **Bundled Offline Voice STT (Vosk over `AudioRecord`):** Bundle a lightweight offline speech-to-text engine (`vosk-android` small English model on ARM64 / API 23) so the Kiosk's inline **Voice** toggle works 100% natively on stock AOSP Tonal V1 ROMs without Google Speech Services.

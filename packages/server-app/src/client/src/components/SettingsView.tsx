@@ -204,6 +204,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
   const [haCoreTokenDraft, setHaCoreTokenDraft] = useState('');
   const [diagMsg, setDiagMsg] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [activeDemoPip, setActiveDemoPip] = useState<boolean>(true);
+  const [vbtDisplayMode, setVbtDisplayMode] = useState<'always' | 'off'>(() => {
+    if (typeof window === 'undefined') return 'always';
+    return window.localStorage.getItem('swonal_telemetry_display') === 'off' ? 'off' : 'always';
+  });
+  const [qrModal, setQrModal] = useState<{
+    title: string;
+    text: string;
+    dataUrl: string | null;
+    error: string | null;
+  } | null>(null);
+
+  const isKioskTouchscreen = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const host = window.location.hostname;
+    return (
+      host === '127.0.0.1' ||
+      host === 'localhost' ||
+      /GeckoView/i.test(window.navigator.userAgent)
+    );
+  }, []);
+
+  const openQrModal = async (title: string, text: string) => {
+    setQrModal({ title, text, dataUrl: null, error: null });
+    try {
+      const dataUrl = await QRCode.toDataURL(text, {
+        width: 320,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#07090E', light: '#FFFFFF' },
+      });
+      setQrModal({ title, text, dataUrl, error: null });
+    } catch {
+      setQrModal({ title, text, dataUrl: null, error: 'Could not generate QR code for this text.' });
+    }
+  };
+
+  useEffect(() => {
+    if (!activeUser?.id) return;
+    fetch(`/api/users/${encodeURIComponent(activeUser.id)}/demo-pip`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.enabled === 'boolean') setActiveDemoPip(d.enabled);
+      })
+      .catch(() => {});
+  }, [activeUser?.id]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -1013,6 +1059,82 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
               </div>
             </div>
 
+            {/* Display & Units for Active Lifter */}
+            {activeUser && (
+              <div className="space-y-2.5 pt-2 border-t border-[var(--border-subtle)]">
+                <p className="text-xs uppercase tracking-widest font-bold opacity-70">
+                  Display &amp; Units — {activeUser.name}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void updateUserPreferences(activeUser.id, {
+                        weightUnit: activeUser.weightUnit === 'LB' ? 'KG' : 'LB',
+                      })
+                    }
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>Units</span>
+                    <span className="font-mono" style={{ color: 'var(--accent-ink)' }}>
+                      {activeUser.weightUnit}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void updateUserPreferences(activeUser.id, {
+                        themeMode: activeUser.themeMode === 'light' ? 'dark' : 'light',
+                      })
+                    }
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>Theme</span>
+                    <span style={{ color: 'var(--accent-ink)' }}>
+                      {activeUser.themeMode === 'light' ? 'Light' : 'Dark'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = !activeDemoPip;
+                      setActiveDemoPip(next);
+                      await fetch(`/api/users/${encodeURIComponent(activeUser.id)}/demo-pip`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: next }),
+                      }).catch(() => {});
+                    }}
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>Demo Video</span>
+                    <span style={{ color: 'var(--accent-ink)' }}>
+                      {activeDemoPip ? 'Shown' : 'Hidden'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = vbtDisplayMode === 'off' ? 'always' : 'off';
+                      setVbtDisplayMode(next);
+                      if (typeof window !== 'undefined') {
+                        window.localStorage.setItem('swonal_telemetry_display', next);
+                      }
+                    }}
+                    className="elevated-pill rounded-xl px-3 py-2.5 flex items-center justify-between text-xs font-bold hover:opacity-90"
+                  >
+                    <span>VBT &amp; Symmetry</span>
+                    <span style={{ color: 'var(--accent-ink)' }}>
+                      {vbtDisplayMode === 'off' ? 'Off' : 'On'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Create User Form */}
             <form
               onSubmit={async (e) => {
@@ -1372,6 +1494,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                 </button>
               </div>
 
+              {/* Per-Profile Swocial Switcher */}
+              {users.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] uppercase tracking-wider font-bold opacity-65 mr-1">
+                    Profile:
+                  </span>
+                  {users.map((u) => {
+                    const isCurrent = u.id === activeUser?.id;
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => void switchUser(u.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                          isCurrent ? 'shadow-sm' : 'elevated-pill opacity-75 hover:opacity-100'
+                        }`}
+                        style={
+                          isCurrent
+                            ? {
+                                backgroundColor: u.accentColor || 'var(--accent-primary)',
+                                color: getContrastTextColor(u.accentColor || '#00F0FF'),
+                              }
+                            : undefined
+                        }
+                      >
+                        <span>{u.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               {friendsLoading ? (
                 <div className="p-8 text-center text-xs opacity-60">Loading Swocial identity...</div>
               ) : nostrIdentity ? (
@@ -1701,14 +1855,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           <div className="elevated-pill rounded-2xl p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold uppercase opacity-70">HTTP SSE Endpoint</span>
-              <button
-                type="button"
-                onClick={() => copyText('mcp-url', mcpSseUrl)}
-                className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
-              >
-                {copiedKey === 'mcp-url' ? <Check size={12} /> : <Copy size={12} />}
-                <span>{copiedKey === 'mcp-url' ? 'Copied' : 'Copy URL'}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                {!isKioskTouchscreen && (
+                  <button
+                    type="button"
+                    onClick={() => copyText('mcp-url', mcpSseUrl)}
+                    className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                  >
+                    {copiedKey === 'mcp-url' ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{copiedKey === 'mcp-url' ? 'Copied' : 'Copy URL'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void openQrModal('MCP SSE Endpoint URL', mcpSseUrl)}
+                  className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                  title="Show QR code to scan & copy on your phone"
+                >
+                  <QrCode size={12} />
+                  <span>{isKioskTouchscreen ? 'QR URL' : 'QR'}</span>
+                </button>
+              </div>
             </div>
             <p className="font-mono text-xs break-all">{mcpSseUrl}</p>
           </div>
@@ -1716,16 +1883,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
           {/* Copy-Paste JSON Snippets */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="elevated-pill rounded-2xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold uppercase opacity-70">Remote SSE Config (JSON)</span>
-                <button
-                  type="button"
-                  onClick={() => copyText('mcp-sse-json', mcpSseJson)}
-                  className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
-                >
-                  {copiedKey === 'mcp-sse-json' ? <Check size={12} /> : <Copy size={12} />}
-                  <span>{copiedKey === 'mcp-sse-json' ? 'Copied' : 'Copy JSON'}</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!isKioskTouchscreen && (
+                    <button
+                      type="button"
+                      onClick={() => copyText('mcp-sse-json', mcpSseJson)}
+                      className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                    >
+                      {copiedKey === 'mcp-sse-json' ? <Check size={12} /> : <Copy size={12} />}
+                      <span>{copiedKey === 'mcp-sse-json' ? 'Copied' : 'Copy JSON'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void openQrModal('Remote SSE Config (JSON)', mcpSseJson)}
+                    className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                    title="Show QR code to scan & copy JSON on your phone"
+                  >
+                    <QrCode size={12} />
+                    <span>{isKioskTouchscreen ? 'QR JSON' : 'QR'}</span>
+                  </button>
+                </div>
               </div>
               <pre className="text-[11px] font-mono overflow-x-auto opacity-90 leading-relaxed">
                 {mcpSseJson}
@@ -1733,16 +1913,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
             </div>
 
             <div className="elevated-pill rounded-2xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold uppercase opacity-70">Local Stdio Config (JSON)</span>
-                <button
-                  type="button"
-                  onClick={() => copyText('mcp-stdio-json', mcpStdioJson)}
-                  className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
-                >
-                  {copiedKey === 'mcp-stdio-json' ? <Check size={12} /> : <Copy size={12} />}
-                  <span>{copiedKey === 'mcp-stdio-json' ? 'Copied' : 'Copy JSON'}</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!isKioskTouchscreen && (
+                    <button
+                      type="button"
+                      onClick={() => copyText('mcp-stdio-json', mcpStdioJson)}
+                      className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                    >
+                      {copiedKey === 'mcp-stdio-json' ? <Check size={12} /> : <Copy size={12} />}
+                      <span>{copiedKey === 'mcp-stdio-json' ? 'Copied' : 'Copy JSON'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void openQrModal('Local Stdio Config (JSON)', mcpStdioJson)}
+                    className="surface-card px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 hover:opacity-90"
+                    title="Show QR code to scan & copy JSON on your phone"
+                  >
+                    <QrCode size={12} />
+                    <span>{isKioskTouchscreen ? 'QR JSON' : 'QR'}</span>
+                  </button>
+                </div>
               </div>
               <pre className="text-[11px] font-mono overflow-x-auto opacity-90 leading-relaxed">
                 {mcpStdioJson}
@@ -1773,14 +1966,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                         <p className="font-mono text-[10px] opacity-65 truncate">{handle}</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => copyText(`uid-${u.id}`, u.id)}
-                      className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0"
-                    >
-                      {copiedKey === `uid-${u.id}` ? <Check size={11} /> : <Copy size={11} />}
-                      <span>{copiedKey === `uid-${u.id}` ? 'Copied' : 'Copy MCP ID'}</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!isKioskTouchscreen && (
+                        <button
+                          type="button"
+                          onClick={() => copyText(`uid-${u.id}`, u.id)}
+                          className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0"
+                        >
+                          {copiedKey === `uid-${u.id}` ? <Check size={11} /> : <Copy size={11} />}
+                          <span>{copiedKey === `uid-${u.id}` ? 'Copied' : 'Copy MCP ID'}</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void openQrModal(`MCP User ID — ${u.name}`, u.id)}
+                        className="elevated-pill px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0"
+                        title={`Show QR code for ${u.name}'s MCP User ID`}
+                      >
+                        <QrCode size={11} />
+                        <span>{isKioskTouchscreen ? 'QR MCP ID' : 'QR'}</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -2231,6 +2437,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
         )}
       
       </main>
+
+      {qrModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={qrModal.title}
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setQrModal(null)}
+        >
+          <div
+            className="surface-card rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-white/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black">{qrModal.title}</h3>
+                <p className="text-xs opacity-70">
+                  Scan with your phone camera to copy this text directly.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQrModal(null)}
+                className="elevated-pill px-3 py-1.5 rounded-xl text-xs font-bold hover:opacity-90"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex justify-center">
+              {qrModal.dataUrl ? (
+                <div className="bg-white p-3 rounded-2xl shadow-inner">
+                  <img
+                    src={qrModal.dataUrl}
+                    alt={`QR code for ${qrModal.title}`}
+                    className="w-64 h-64 block"
+                  />
+                </div>
+              ) : qrModal.error ? (
+                <p className="text-xs text-rose-400 font-bold py-8">{qrModal.error}</p>
+              ) : (
+                <p className="text-xs opacity-70 py-8">Generating QR code...</p>
+              )}
+            </div>
+
+            <pre className="elevated-pill rounded-xl p-3 text-[11px] font-mono max-h-40 overflow-auto whitespace-pre-wrap break-all opacity-90">
+              {qrModal.text}
+            </pre>
+
+            {!isKioskTouchscreen && (
+              <button
+                type="button"
+                onClick={() => copyText('qr-modal-text', qrModal.text)}
+                className="w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+                style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
+              >
+                {copiedKey === 'qr-modal-text' ? <Check size={14} /> : <Copy size={14} />}
+                <span>{copiedKey === 'qr-modal-text' ? 'Copied to Clipboard' : 'Copy Text'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

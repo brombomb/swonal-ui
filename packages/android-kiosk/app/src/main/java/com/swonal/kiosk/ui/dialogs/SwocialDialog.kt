@@ -1,25 +1,36 @@
 package com.swonal.kiosk.ui.dialogs
 
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.ui.PressFeedback
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.Locale
 
 /**
@@ -62,13 +73,43 @@ class SwocialDialog : BaseSwonalDialog() {
         loading = true
         renderBody()
         viewLifecycleOwner.lifecycleScope.launch {
-            val ident = runCatching { repo.api.getSwocialIdentity(uid) }.getOrNull()
-            val friends = runCatching { repo.api.getSwocialFriends(uid) }.getOrNull()
-            val feed = runCatching { repo.api.getSwocialFeed(uid, 25) }.getOrNull()
+            val ident = runCatching { repo.localNostr.getOrCreateIdentity(uid) }.getOrNull()
+            val friends = runCatching { repo.localNostr.listFriends(uid) }.getOrDefault(emptyList())
+            val feed = runCatching { repo.localNostr.getFeed(uid, 25) }.getOrDefault(emptyList())
 
-            myNpub = ident?.get("npub")?.jsonPrimitive?.content.orEmpty()
-            friendsList = friends?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
-            feedItems = feed?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
+            myNpub = ident?.npub.orEmpty()
+            friendsList = friends.map { f ->
+                buildJsonObject {
+                    put("id", f.id)
+                    put("npub", f.npub)
+                    put("pubkeyHex", f.pubkeyHex)
+                    put("displayName", f.displayName)
+                }
+            }
+            feedItems = feed.map { item ->
+                buildJsonObject {
+                    put("id", item.id)
+                    put("kind", item.kind)
+                    put("authorPubkey", item.authorPubkey)
+                    put("authorName", item.authorName)
+                    put("createdAt", item.createdAt)
+                    put("payload", item.payload)
+                    put(
+                        "reactions",
+                        JsonArray(
+                            item.reactions.map { r ->
+                                buildJsonObject {
+                                    put("id", r.id)
+                                    put("authorPubkey", r.authorPubkey)
+                                    put("authorName", r.authorName)
+                                    put("emoji", r.emoji)
+                                    put("createdAt", r.createdAt)
+                                }
+                            }
+                        )
+                    )
+                }
+            }
             loading = false
             renderBody()
         }
@@ -79,7 +120,8 @@ class SwocialDialog : BaseSwonalDialog() {
         syncing = true
         renderBody()
         viewLifecycleOwner.lifecycleScope.launch {
-            runCatching { repo.api.syncSwocialFeed(uid) }
+            runCatching { repo.localNostr.syncFeed(uid) }
+            repo.notifyDirtySync()
             syncing = false
             loadSwocialData()
         }
@@ -168,7 +210,8 @@ class SwocialDialog : BaseSwonalDialog() {
 
             feedItems.forEach { post ->
                 val postId = post["id"]?.jsonPrimitive?.content.orEmpty()
-                val pubkey = post["pubkey"]?.jsonPrimitive?.content.orEmpty()
+                val pubkey = post["authorPubkey"]?.jsonPrimitive?.content
+                    ?: post["pubkey"]?.jsonPrimitive?.content.orEmpty()
                 val kind = post["kind"]?.jsonPrimitive?.intOrNull ?: 30101
                 val author = post["authorName"]?.jsonPrimitive?.content?.ifBlank { "Friend" } ?: "Friend"
                 val payload = runCatching { post["payload"]?.jsonObject }.getOrNull()
@@ -195,7 +238,9 @@ class SwocialDialog : BaseSwonalDialog() {
                     val rName = payload?.get("name")?.jsonPrimitive?.content ?: "Shared Routine"
                     "$author shared routine: $rName"
                 } else {
-                    val tName = payload?.get("templateName")?.jsonPrimitive?.content ?: "Workout Session"
+                    val tName = payload?.get("templateName")?.jsonPrimitive?.content
+                        ?: payload?.get("routineName")?.jsonPrimitive?.content
+                        ?: "Workout Session"
                     "$author completed $tName"
                 }
                 card.addView(TextView(requireContext()).apply {
@@ -209,7 +254,9 @@ class SwocialDialog : BaseSwonalDialog() {
                     payload?.get("description")?.jsonPrimitive?.content ?: "Custom Swonal workout template"
                 } else {
                     val vol = payload?.get("totalVolumeLb")?.jsonPrimitive?.doubleOrNull ?: 0.0
-                    val sets = payload?.get("totalSets")?.jsonPrimitive?.intOrNull ?: 0
+                    val sets = payload?.get("totalSets")?.jsonPrimitive?.intOrNull
+                        ?: payload?.get("setsCount")?.jsonPrimitive?.intOrNull
+                        ?: 0
                     val prs = payload?.get("prCount")?.jsonPrimitive?.intOrNull ?: 0
                     String.format(Locale.US, "Volume: %.0f LB • %d sets%s", vol, sets, if (prs > 0) " • 🏆 $prs PRs" else "")
                 }
@@ -227,7 +274,8 @@ class SwocialDialog : BaseSwonalDialog() {
                 }
                 actionRow.addView(makePillButton("💪 ${if (flexCount > 0) flexCount else ""}".trim()) {
                     viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching { repo.api.reactSwocialPost(uid, postId, pubkey, "💪") }
+                        runCatching { repo.localNostr.publishReaction(uid, postId, pubkey, "💪") }
+                        repo.notifyDirtySync()
                         loadSwocialData()
                     }
                 }.apply {
@@ -238,7 +286,8 @@ class SwocialDialog : BaseSwonalDialog() {
                 })
                 actionRow.addView(makePillButton("🔥 ${if (fireCount > 0) fireCount else ""}".trim()) {
                     viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching { repo.api.reactSwocialPost(uid, postId, pubkey, "🔥") }
+                        runCatching { repo.localNostr.publishReaction(uid, postId, pubkey, "🔥") }
+                        repo.notifyDirtySync()
                         loadSwocialData()
                     }
                 }.apply {
@@ -251,10 +300,11 @@ class SwocialDialog : BaseSwonalDialog() {
                 if (kind == 30102 && postId.isNotBlank()) {
                     actionRow.addView(makeAccentButton("Import Routine") {
                         viewLifecycleOwner.lifecycleScope.launch {
-                            runCatching { repo.api.importSwocialRoutine(uid, postId) }
+                            runCatching { repo.localNostr.importRoutine(uid, postId) }
                                 .onSuccess { tpl ->
                                     statusMessage = "Imported '${tpl.name}' into your Workout Library!"
                                     repo.refreshAppState()
+                                    repo.notifyDirtySync()
                                     renderBody()
                                 }
                                 .onFailure { err ->
@@ -272,19 +322,73 @@ class SwocialDialog : BaseSwonalDialog() {
             }
         } else {
             // Friends & My Code tab
-            bodyContainer.addView(makeSectionLabel("Your Public Swocial Code"))
-            bodyContainer.addView(TextView(requireContext()).apply {
-                text = myNpub.ifBlank { "Generating Swocial code..." }
-                textSize = 11.5f
-                typeface = SwonalFonts.monoBold(requireContext())
-                setTextColor(p.accentInk)
-                background = p.elevatedPillDrawable(d, 10f, interactive = false)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
+            val activeName = repo.uiStateFlow.value.activeUser?.name ?: "Lifter"
+            bodyContainer.addView(makeSectionLabel("Your Public Swocial Code — $activeName"))
+
+            val codeCard = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = p.elevatedPillDrawable(d, 12f, interactive = false)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = dp(12) }
+            }
+
+            if (myNpub.isNotBlank()) {
+                val qrFrame = LinearLayout(requireContext()).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(6), dp(6), dp(6), dp(6))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = 10f * d
+                    }
+                    layoutParams = LinearLayout.LayoutParams(dp(128), dp(128)).apply {
+                        marginEnd = dp(12)
+                    }
+                }
+                val qrView = ImageView(requireContext()).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+                qrFrame.addView(qrView)
+                codeCard.addView(qrFrame)
+                val npubSnapshot = myNpub
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val bmp = withContext(Dispatchers.Default) { encodeQr(npubSnapshot, 320) }
+                    if (isAdded) qrView.setImageBitmap(bmp)
+                }
+            }
+
+            val codeCol = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            codeCol.addView(TextView(requireContext()).apply {
+                text = if (myNpub.isNotBlank()) {
+                    "Scan this QR code with a friend's phone to share your Swocial code:"
+                } else {
+                    "Generating Swocial code..."
+                }
+                textSize = 11f
+                setTextColor(p.textMuted)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(6) }
             })
+            codeCol.addView(TextView(requireContext()).apply {
+                text = myNpub.ifBlank { "Generating Swocial code..." }
+                textSize = 11f
+                typeface = SwonalFonts.monoBold(requireContext())
+                setTextColor(p.accentInk)
+            })
+            codeCard.addView(codeCol)
+            bodyContainer.addView(codeCard)
 
             bodyContainer.addView(makeSectionLabel("Add Friend by Swocial Code"))
             val npubInput = EditText(requireContext()).apply {
@@ -318,8 +422,9 @@ class SwocialDialog : BaseSwonalDialog() {
                 val nick = nickInput.text?.toString()?.trim()
                 if (code.isNotBlank()) {
                     viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching { repo.api.addSwocialFriend(uid, code, nick) }
+                        runCatching { repo.localNostr.addFriend(uid, code, nick) }
                             .onSuccess {
+                                repo.notifyDirtySync()
                                 statusMessage = "Friend added! Syncing Swocial feed..."
                                 syncRelays()
                             }
@@ -375,6 +480,27 @@ class SwocialDialog : BaseSwonalDialog() {
                     bodyContainer.addView(row)
                 }
             }
+        }
+    }
+
+    private fun encodeQr(text: String, dim: Int): Bitmap {
+        val bitMatrix = QRCodeWriter().encode(
+            text,
+            BarcodeFormat.QR_CODE,
+            dim,
+            dim,
+            mapOf(EncodeHintType.MARGIN to 2)
+        )
+        val pixels = IntArray(dim * dim)
+        val dark = 0xFF07090E.toInt()
+        for (y in 0 until dim) {
+            val row = y * dim
+            for (x in 0 until dim) {
+                pixels[row + x] = if (bitMatrix[x, y]) dark else Color.WHITE
+            }
+        }
+        return Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888).apply {
+            setPixels(pixels, 0, dim, 0, 0, dim, dim)
         }
     }
 }

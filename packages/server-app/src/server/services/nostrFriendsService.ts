@@ -1,3 +1,4 @@
+import WebSocket from 'ws';
 import {
   generateSecretKey,
   getPublicKey,
@@ -7,7 +8,14 @@ import {
   SimplePool,
   type Event as NostrEvent,
 } from 'nostr-tools';
+import { useWebSocketImplementation as usePoolWebSocket } from 'nostr-tools/pool';
+import { useWebSocketImplementation as useRelayWebSocket } from 'nostr-tools/relay';
 import { prisma } from '../db';
+
+// Use the `ws` package instead of Node 22's built-in undici WebSocket, which can trigger
+// infinite `onerror -> close -> onerror` recursion inside nostr-tools when a relay rejects a connection.
+usePoolWebSocket(WebSocket as unknown as typeof globalThis.WebSocket);
+useRelayWebSocket(WebSocket as unknown as typeof globalThis.WebSocket);
 
 export const DEFAULT_RELAYS: string[] = [
   'wss://relay.damus.io',
@@ -117,8 +125,8 @@ export function normalizePubkey(input: string): { pubkeyHex: string; npub: strin
 }
 
 export async function getOrCreateUserIdentity(userId: string): Promise<NostrIdentity> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -196,8 +204,8 @@ async function getUserSecretKey(userId: string): Promise<{
   relays: string[];
   name: string;
 }> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -235,6 +243,9 @@ async function getUserSecretKey(userId: string): Promise<{
 }
 
 export async function publishToRelays(relays: string[], event: NostrEvent): Promise<void> {
+  if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+    return;
+  }
   const pool = getSimplePool();
   const targetRelays = relays && relays.length > 0 ? relays : DEFAULT_RELAYS;
   try {
@@ -247,7 +258,7 @@ export async function publishToRelays(relays: string[], event: NostrEvent): Prom
 
 export async function listFriends(userId: string) {
   return prisma.friend.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
     orderBy: { displayName: 'asc' },
   });
 }
@@ -260,8 +271,8 @@ export async function addFriend(
   const { pubkeyHex, npub } = normalizePubkey(npubOrHex);
 
   // Prevent adding own key
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { nostrPubKeyHex: true },
   });
   if (user?.nostrPubKeyHex && user.nostrPubKeyHex.toLowerCase() === pubkeyHex.toLowerCase()) {
@@ -287,6 +298,7 @@ export async function addFriend(
     update: {
       displayName: displayName?.trim() ? displayName.trim() : undefined,
       npub,
+      deletedAt: null,
     },
   });
 
@@ -297,12 +309,16 @@ export async function addFriend(
 }
 
 export async function removeFriend(userId: string, friendId: string) {
-  return prisma.friend.delete({
+  await prisma.friend.updateMany({
     where: {
       id: friendId,
       userId,
     },
+    data: {
+      deletedAt: new Date(),
+    },
   });
+  return { deleted: true, id: friendId };
 }
 
 export async function updateUserFriendsSettings(
@@ -338,8 +354,8 @@ export async function publishWorkout(
   userId: string,
   summary: WorkoutSummaryPayload
 ): Promise<NostrEvent | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { shareWorkouts: true, name: true },
   });
   if (!user || !user.shareWorkouts) {
@@ -565,10 +581,10 @@ export async function publishReaction(
 
 export async function syncFeed(userId: string): Promise<{ syncedCount: number }> {
   const friends = await prisma.friend.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
   });
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { nostrPubKeyHex: true, nostrRelays: true, name: true },
   });
 
@@ -669,10 +685,10 @@ export async function syncFeed(userId: string): Promise<{ syncedCount: number }>
 
 export async function getFeed(userId: string, limit = 50): Promise<FeedItem[]> {
   const friends = await prisma.friend.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
   });
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
     select: { nostrPubKeyHex: true, name: true },
   });
 

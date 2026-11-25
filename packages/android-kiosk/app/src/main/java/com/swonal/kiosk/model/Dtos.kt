@@ -144,7 +144,8 @@ data class WorkoutTemplate(
     val blocksJson: String = "[]",
     val blocks: List<WorkoutBlock> = emptyList(),
     val scheduleDays: List<Int> = emptyList(),
-    val createdAt: String = ""
+    val createdAt: String = "",
+    val updatedAt: String = ""
 )
 
 data class RoutineStep(
@@ -385,6 +386,9 @@ data class HomeAssistantStatus(
     val mqttTopicPrefix: String = "swonal",
     val lastMqttError: String? = null,
     val webhookConfigured: Boolean = false,
+    val webhookUrl: String? = null,
+    val haUrl: String? = null,
+    val haRestConfigured: Boolean = false,
     val recentEvents: List<JsonObject> = emptyList()
 )
 
