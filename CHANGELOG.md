@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [1.2.0](https://github.com/brombomb/swonal-ui/compare/v1.1.1...v1.2.0) (2026-11-23)
+
+
+### New Features
+
+* **android:** add in-app auto-updater with human-readable changelog ([#1](https://github.com/brombomb/swonal-ui/issues/1)) ([2bcca57](https://github.com/brombomb/swonal-ui/commit/2bcca574faf6eec8a97aa02ab3a693fd0bbaffff))
+
 ## [v1.2.0] - 2026-11-23
 - **In-App Auto-Updater**: Automatically checks for new Swonal releases on startup and installs updates silently with a 1-tap root installer (blocked while weight is engaged for safety).
 - **Human-Readable What's New**: View a concise changelog right on the Tonal screen before installing an update, or check anytime from Settings / Diagnostics.
