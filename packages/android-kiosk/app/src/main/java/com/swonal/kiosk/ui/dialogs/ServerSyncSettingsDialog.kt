@@ -204,7 +204,7 @@ class ServerSyncSettingsDialog : BaseSwonalDialog() {
                     val lastSync = st.lastSyncedAtMs?.let { IsoTime.formatUtc(it) } ?: "Never"
                     statusCard.text = buildString {
                         append("Mode:         ").append(if (st.syncMode == SyncMode.STANDALONE) "STANDALONE (SERVERLESS)" else "HOME / CLOUD SYNC").append('\n')
-                        append("Local Web:    ").append(lanPrimary?.let { "http://$it:${st.networkInfo?.port ?: 3000}" } ?: st.localWebServerUrl).append('\n')
+                        append("Local Web:    ").append(lanPrimary?.let { "http://$it:${repo.embeddedServerPort.takeIf { p -> p > 0 } ?: 53013}" } ?: st.localWebServerUrl).append('\n')
                         append("Sync Link:    ").append(
                             when {
                                 st.syncMode == SyncMode.STANDALONE -> "NOT NEEDED (100% LOCAL)"

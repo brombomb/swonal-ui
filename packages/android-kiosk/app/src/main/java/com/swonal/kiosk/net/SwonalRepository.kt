@@ -352,7 +352,7 @@ class SwonalRepository(
     fun buildSpeakerPairingUrl(userId: String): String = localSpotify.buildSpeakerPkceUrl(userId)
 
     @Volatile
-    var embeddedServerPort: Int = 3000
+    var embeddedServerPort: Int = 53013
         private set
 
     fun latestTelemetryFrame(): TelemetryFrame = _telemetryFlow.value

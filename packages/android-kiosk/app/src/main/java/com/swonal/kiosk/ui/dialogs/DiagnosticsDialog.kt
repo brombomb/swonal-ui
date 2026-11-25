@@ -375,7 +375,7 @@ class DiagnosticsDialog : BaseSwonalDialog() {
                     val unit = st.activeUnit
                     statusBox.text = buildString {
                         val tabletLanIp = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s().firstOrNull()
-                        val tabletPort = repo.embeddedServerPort.takeIf { it > 0 } ?: 3000
+                        val tabletPort = repo.embeddedServerPort.takeIf { it > 0 } ?: 53013
                         val localWebDisplay = tabletLanIp?.let { "http://$it:$tabletPort" } ?: st.localWebServerUrl
                         append("Mode:         ").append(if (st.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) "STANDALONE (OFFLINE-FIRST)" else "HOME / CLOUD SYNC").append('\n')
                         append("Local Web:    ").append(localWebDisplay).append('\n')

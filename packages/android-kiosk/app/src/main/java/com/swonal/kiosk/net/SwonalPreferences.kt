@@ -245,7 +245,7 @@ class SwonalPreferences(context: Context) {
     companion object {
         const val DEFAULT_SERVER_URL = "http://127.0.0.1:3000"
         const val DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
-        const val DEFAULT_EMBEDDED_PORT = 3000
+        const val DEFAULT_EMBEDDED_PORT = 53013
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "swonal_kiosk_secret_key_v1"

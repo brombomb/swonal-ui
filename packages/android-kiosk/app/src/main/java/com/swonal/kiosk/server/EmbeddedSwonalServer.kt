@@ -49,7 +49,7 @@ class PayloadTooLargeException(message: String = "Request payload too large") : 
  */
 class EmbeddedSwonalServer(
     val repo: SwonalRepository,
-    port: Int = 3000,
+    port: Int = 53013,
     val mediaDir: File,
     private val webAssetOpener: (String) -> InputStream?,
     private val mediaAssetOpener: (String) -> InputStream?,
