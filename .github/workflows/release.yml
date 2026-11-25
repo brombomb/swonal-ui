@@ -221,3 +221,80 @@ jobs:
           files: |
             release-artifacts/swonal-kiosk-${{ github.ref_name }}.apk
             release-artifacts/swonal-server-bundle.tar.gz
+
+      - name: Notify Discord (if configured)
+        continue-on-error: true
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -z "$DISCORD_RELEASE_WEBHOOK" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK not set; skipping Discord notification."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          webhook = os.environ["DISCORD_RELEASE_WEBHOOK"].strip()
+          if webhook.endswith("/github"):
+              webhook = webhook[:-len("/github")]
+          tag = os.environ["RELEASE_TAG"].strip()
+          repo = os.environ["GITHUB_REPOSITORY"].strip()
+          is_pre = "-" in tag
+          release_url = f"https://github.com/{repo}/releases/tag/{tag}"
+          apk_url = f"https://github.com/{repo}/releases/download/{tag}/swonal-kiosk-{tag}.apk"
+
+          notes = ""
+          if os.path.exists("release-notes.md"):
+              notes = open("release-notes.md", encoding="utf-8").read().strip()
+          if not notes:
+              notes = (
+                  "New pre-release build available for testing."
+                  if is_pre
+                  else "New stable release available."
+              )
+          if len(notes) > 1800:
+              notes = notes[:1797] + "..."
+
+          payload = {
+              "username": "Swonal Releases",
+              "embeds": [
+                  {
+                      "title": f"Swonal {tag} {'(Pre-release)' if is_pre else 'Released'}",
+                      "url": release_url,
+                      "description": notes,
+                      "color": 0xF59E0B if is_pre else 0x10B981,
+                      "fields": [
+                          {
+                              "name": "Android Kiosk APK",
+                              "value": f"[swonal-kiosk-{tag}.apk]({apk_url})",
+                              "inline": True,
+                          },
+                          {
+                              "name": "Release Page",
+                              "value": f"[View on GitHub]({release_url})",
+                              "inline": True,
+                          },
+                      ],
+                  }
+              ],
+          }
+
+          req = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "Swonal-Release-Bot/1.0",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  print(f"Discord notification sent (HTTP {resp.status}).")
+          except urllib.error.HTTPError as exc:
+              print(f"::warning::Discord webhook returned HTTP {exc.code}: {exc.reason}")
+          except Exception as exc:
+              print(f"::warning::Failed to post Discord notification: {exc}")
+          PY
