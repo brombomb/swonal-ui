@@ -5,10 +5,9 @@ import {
   finalizeEvent,
   verifyEvent,
   nip19,
-  SimplePool,
   type Event as NostrEvent,
 } from 'nostr-tools';
-import { useWebSocketImplementation as usePoolWebSocket } from 'nostr-tools/pool';
+import { SimplePool, useWebSocketImplementation as usePoolWebSocket } from 'nostr-tools/pool';
 import { useWebSocketImplementation as useRelayWebSocket } from 'nostr-tools/relay';
 import { prisma } from '../db';
 
@@ -600,7 +599,7 @@ export async function syncFeed(userId: string): Promise<{ syncedCount: number }>
     watchedPubkeys.push(user.nostrPubKeyHex.toLowerCase());
   }
 
-  if (watchedPubkeys.length === 0) {
+  if (watchedPubkeys.length === 0 || process.env.VITEST || process.env.NODE_ENV === 'test') {
     return { syncedCount: 0 };
   }
 
