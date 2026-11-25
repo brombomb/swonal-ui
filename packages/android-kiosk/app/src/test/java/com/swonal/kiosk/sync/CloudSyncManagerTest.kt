@@ -268,4 +268,80 @@ class CloudSyncManagerTest {
         val fallbackSession = engine.createSession("u-1", "template-not-yet-synced")
         assertNull(fallbackSession.templateId)
     }
+
+    @Test
+    fun `initial server import replaces seeded demo users even when server timestamps are older and prunes ghost demo profiles`() = runBlocking {
+        val db = SwonalDatabase(":memory:", PlaintextTestCipher)
+        db.seedIfEmpty(
+            """
+            {
+              "users": [
+                { "id": "11111111-1111-4111-8111-111111111111", "name": "Alex", "weightUnit": "LB" },
+                { "id": "22222222-2222-4222-8222-222222222222", "name": "Taylor", "weightUnit": "LB" },
+                { "id": "33333333-3333-4333-8333-333333333333", "name": "GhostDemo", "weightUnit": "LB" }
+              ],
+              "exercises": [
+                { "id": "ex-1", "name": "Bench Press", "muscleGroup": "Chest", "accessory": "HANDLES", "recommendedHeight": 2, "recommendedRotation": 0, "recommendedAngle": 0, "unilateral": false }
+              ],
+              "personalRecords": [
+                { "id": "pr-demo", "userId": "11111111-1111-4111-8111-111111111111", "exerciseId": "ex-1", "oneRepMaxEst": 999.0, "maxWeightLb": 999.0 }
+              ]
+            }
+            """.trimIndent(),
+            includeDemoUsersAndRoutines = true
+        )
+
+        // Simulate older real server profiles sharing the canonical v1 UUIDs
+        val olderServerTs = 1_700_000_000_000L
+        db.applyPulledSync(
+            SyncPullResponse(
+                serverTimeMs = olderServerTs + 1000L,
+                users = listOf(
+                    StoredUserSyncRecord(
+                        id = "11111111-1111-4111-8111-111111111111",
+                        name = "Rob",
+                        avatarColor = "#FF007A",
+                        preferredMusicProvider = "spotify",
+                        themeMode = "dark",
+                        accentColor = "#FF007A",
+                        weightUnit = "LB",
+                        createdAt = "2025-01-01T00:00:00Z",
+                        updatedAt = "2025-01-02T00:00:00Z",
+                        updatedAtMs = olderServerTs
+                    ),
+                    StoredUserSyncRecord(
+                        id = "22222222-2222-4222-8222-222222222222",
+                        name = "Jeri",
+                        avatarColor = "#00F0FF",
+                        preferredMusicProvider = "spotify",
+                        themeMode = "dark",
+                        accentColor = "#00F0FF",
+                        weightUnit = "LB",
+                        createdAt = "2025-01-01T00:00:00Z",
+                        updatedAt = "2025-01-02T00:00:00Z",
+                        updatedAtMs = olderServerTs
+                    )
+                ),
+                personalRecords = listOf(
+                    StoredPrSyncRecord(
+                        id = "pr-real",
+                        userId = "11111111-1111-4111-8111-111111111111",
+                        exerciseId = "ex-1",
+                        oneRepMaxEst = 145.0,
+                        maxWeightLb = 120.0,
+                        updatedAt = "2025-01-02T00:00:00Z",
+                        updatedAtMs = olderServerTs
+                    )
+                )
+            ),
+            preferRemoteOnInitialImport = true
+        )
+
+        val users = db.listUsers()
+        assertEquals(listOf("Rob", "Jeri"), users.map { it.name })
+        assertEquals(0, db.countDirtySyncRows())
+        val prs = db.listPrs("11111111-1111-4111-8111-111111111111")
+        assertEquals(1, prs.size)
+        assertEquals(120.0, prs.first().maxWeightLb)
+    }
 }

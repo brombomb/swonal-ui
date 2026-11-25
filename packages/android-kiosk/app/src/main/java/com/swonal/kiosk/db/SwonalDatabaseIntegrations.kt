@@ -615,7 +615,23 @@ private fun SwonalDatabase.remapExerciseIdUnlocked(c: SQLiteConnection, oldId: S
     }
 }
 
-suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c ->
+suspend fun SwonalDatabase.applyPulledSync(
+    pull: SyncPullResponse,
+    preferRemoteOnInitialImport: Boolean = false
+) = withTx { c ->
+    val exWins = if (preferRemoteOnInitialImport) "(exercises.dirty_sync = 0 OR excluded.updated_at_ms >= exercises.updated_at_ms)" else "excluded.updated_at_ms >= exercises.updated_at_ms"
+    val userWins = if (preferRemoteOnInitialImport) "(users.dirty_sync = 0 OR excluded.updated_at_ms >= users.updated_at_ms)" else "excluded.updated_at_ms >= users.updated_at_ms"
+    val tplWins = if (preferRemoteOnInitialImport) "(workout_templates.dirty_sync = 0 OR excluded.updated_at_ms >= workout_templates.updated_at_ms)" else "excluded.updated_at_ms >= workout_templates.updated_at_ms"
+
+    // On initial server import, clear untouched demo PRs and templates (dirty_sync = 0) so placeholder
+    // seed data never inflates real PRs or leaves ghost demo templates alongside real server data.
+    if (preferRemoteOnInitialImport && pull.users.isNotEmpty()) {
+        c.prepare("DELETE FROM personal_records WHERE dirty_sync = 0").useStmt { it.step() }
+        c.prepare(
+            "DELETE FROM workout_templates WHERE dirty_sync = 0 AND id NOT IN (SELECT DISTINCT template_id FROM workout_sessions WHERE template_id IS NOT NULL)"
+        ).useStmt { it.step() }
+    }
+
     // 1. Exercises (match by name first so server canonical UUIDs win cleanly)
     for (ex in pull.exercises) {
         val existingIdByName = c.prepare("SELECT id FROM exercises WHERE name = ?").useStmt { s ->
@@ -632,18 +648,18 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
                 unilateral, notes, media_url, updated_at_ms, deleted_at_ms, dirty_sync
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
-                name = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.name ELSE exercises.name END,
-                muscle_group = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.muscle_group ELSE exercises.muscle_group END,
-                accessory = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.accessory ELSE exercises.accessory END,
-                recommended_height = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.recommended_height ELSE exercises.recommended_height END,
-                recommended_rotation = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.recommended_rotation ELSE exercises.recommended_rotation END,
-                recommended_angle = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.recommended_angle ELSE exercises.recommended_angle END,
-                unilateral = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.unilateral ELSE exercises.unilateral END,
-                notes = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.notes ELSE exercises.notes END,
-                media_url = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.media_url ELSE exercises.media_url END,
-                deleted_at_ms = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN excluded.deleted_at_ms ELSE exercises.deleted_at_ms END,
-                updated_at_ms = MAX(exercises.updated_at_ms, excluded.updated_at_ms),
-                dirty_sync = CASE WHEN excluded.updated_at_ms >= exercises.updated_at_ms THEN 0 ELSE exercises.dirty_sync END
+                name = CASE WHEN $exWins THEN excluded.name ELSE exercises.name END,
+                muscle_group = CASE WHEN $exWins THEN excluded.muscle_group ELSE exercises.muscle_group END,
+                accessory = CASE WHEN $exWins THEN excluded.accessory ELSE exercises.accessory END,
+                recommended_height = CASE WHEN $exWins THEN excluded.recommended_height ELSE exercises.recommended_height END,
+                recommended_rotation = CASE WHEN $exWins THEN excluded.recommended_rotation ELSE exercises.recommended_rotation END,
+                recommended_angle = CASE WHEN $exWins THEN excluded.recommended_angle ELSE exercises.recommended_angle END,
+                unilateral = CASE WHEN $exWins THEN excluded.unilateral ELSE exercises.unilateral END,
+                notes = CASE WHEN $exWins THEN excluded.notes ELSE exercises.notes END,
+                media_url = CASE WHEN $exWins THEN excluded.media_url ELSE exercises.media_url END,
+                deleted_at_ms = CASE WHEN $exWins THEN excluded.deleted_at_ms ELSE exercises.deleted_at_ms END,
+                updated_at_ms = CASE WHEN $exWins THEN excluded.updated_at_ms ELSE exercises.updated_at_ms END,
+                dirty_sync = CASE WHEN $exWins THEN 0 ELSE exercises.dirty_sync END
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, ex.id)
@@ -662,7 +678,7 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
         }
     }
 
-    // 2. Users (LWW by updatedAtMs)
+    // 2. Users (LWW by updatedAtMs; untouched local seeds yield to server on initial import)
     for (u in pull.users) {
         c.prepare(
             """
@@ -672,21 +688,21 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
                 created_at, updated_at, updated_at_ms, deleted_at_ms, dirty_sync
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
-                name = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.name ELSE users.name END,
-                avatar_color = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.avatar_color ELSE users.avatar_color END,
-                preferred_music_provider = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.preferred_music_provider ELSE users.preferred_music_provider END,
-                theme_mode = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.theme_mode ELSE users.theme_mode END,
-                accent_color = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.accent_color ELSE users.accent_color END,
-                weight_unit = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.weight_unit ELSE users.weight_unit END,
-                nostr_pub_key_hex = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms AND excluded.nostr_pub_key_hex IS NOT NULL THEN excluded.nostr_pub_key_hex ELSE users.nostr_pub_key_hex END,
-                nostr_npub = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms AND excluded.nostr_npub IS NOT NULL THEN excluded.nostr_npub ELSE users.nostr_npub END,
-                nostr_relays_json = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms AND excluded.nostr_relays_json IS NOT NULL THEN excluded.nostr_relays_json ELSE users.nostr_relays_json END,
-                share_workouts = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.share_workouts ELSE users.share_workouts END,
-                demo_pip_enabled = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.demo_pip_enabled ELSE users.demo_pip_enabled END,
-                updated_at = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.updated_at ELSE users.updated_at END,
-                deleted_at_ms = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN excluded.deleted_at_ms ELSE users.deleted_at_ms END,
-                updated_at_ms = MAX(users.updated_at_ms, excluded.updated_at_ms),
-                dirty_sync = CASE WHEN excluded.updated_at_ms >= users.updated_at_ms THEN 0 ELSE users.dirty_sync END
+                name = CASE WHEN $userWins THEN excluded.name ELSE users.name END,
+                avatar_color = CASE WHEN $userWins THEN excluded.avatar_color ELSE users.avatar_color END,
+                preferred_music_provider = CASE WHEN $userWins THEN excluded.preferred_music_provider ELSE users.preferred_music_provider END,
+                theme_mode = CASE WHEN $userWins THEN excluded.theme_mode ELSE users.theme_mode END,
+                accent_color = CASE WHEN $userWins THEN excluded.accent_color ELSE users.accent_color END,
+                weight_unit = CASE WHEN $userWins THEN excluded.weight_unit ELSE users.weight_unit END,
+                nostr_pub_key_hex = CASE WHEN $userWins AND excluded.nostr_pub_key_hex IS NOT NULL THEN excluded.nostr_pub_key_hex ELSE users.nostr_pub_key_hex END,
+                nostr_npub = CASE WHEN $userWins AND excluded.nostr_npub IS NOT NULL THEN excluded.nostr_npub ELSE users.nostr_npub END,
+                nostr_relays_json = CASE WHEN $userWins AND excluded.nostr_relays_json IS NOT NULL THEN excluded.nostr_relays_json ELSE users.nostr_relays_json END,
+                share_workouts = CASE WHEN $userWins THEN excluded.share_workouts ELSE users.share_workouts END,
+                demo_pip_enabled = CASE WHEN $userWins THEN excluded.demo_pip_enabled ELSE users.demo_pip_enabled END,
+                updated_at = CASE WHEN $userWins THEN excluded.updated_at ELSE users.updated_at END,
+                deleted_at_ms = CASE WHEN $userWins THEN excluded.deleted_at_ms ELSE users.deleted_at_ms END,
+                updated_at_ms = CASE WHEN $userWins THEN excluded.updated_at_ms ELSE users.updated_at_ms END,
+                dirty_sync = CASE WHEN $userWins THEN 0 ELSE users.dirty_sync END
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, u.id); s.bindText(2, u.name); s.bindText(3, u.avatarColor)
@@ -701,6 +717,32 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
         }
     }
 
+    // Prune untouched ghost demo users (dirty_sync = 0, no local sessions/templates/friends)
+    // that are not present on the server during initial import.
+    if (preferRemoteOnInitialImport && pull.users.isNotEmpty()) {
+        val remoteIds = pull.users.map { it.id }.toSet()
+        val localCleanIds = mutableListOf<String>()
+        c.prepare(
+            """
+            SELECT u.id FROM users u
+            WHERE u.dirty_sync = 0
+              AND NOT EXISTS (SELECT 1 FROM workout_sessions ws WHERE ws.user_id = u.id)
+              AND NOT EXISTS (SELECT 1 FROM workout_templates wt WHERE wt.user_id = u.id)
+              AND NOT EXISTS (SELECT 1 FROM friends f WHERE f.user_id = u.id)
+            """.trimIndent()
+        ).useStmt { s ->
+            while (s.step()) localCleanIds += s.getText(0)
+        }
+        for (id in localCleanIds) {
+            if (id !in remoteIds) {
+                c.prepare("DELETE FROM users WHERE id = ? AND dirty_sync = 0").useStmt { s ->
+                    s.bindText(1, id)
+                    s.step()
+                }
+            }
+        }
+    }
+
     // 3. Templates (LWW by updatedAtMs)
     for (t in pull.templates) {
         val daysJson = SwonalJson.encodeToString(t.scheduleDays.filter { it in 0..6 }.distinct().sorted())
@@ -710,14 +752,14 @@ suspend fun SwonalDatabase.applyPulledSync(pull: SyncPullResponse) = withTx { c 
                 id, user_id, name, description, blocks_json, schedule_days_json, created_at, updated_at, updated_at_ms, deleted_at_ms, dirty_sync
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
-                name = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN excluded.name ELSE workout_templates.name END,
-                description = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN excluded.description ELSE workout_templates.description END,
-                blocks_json = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN excluded.blocks_json ELSE workout_templates.blocks_json END,
-                schedule_days_json = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN excluded.schedule_days_json ELSE workout_templates.schedule_days_json END,
-                updated_at = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN excluded.updated_at ELSE workout_templates.updated_at END,
-                deleted_at_ms = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN excluded.deleted_at_ms ELSE workout_templates.deleted_at_ms END,
-                updated_at_ms = MAX(workout_templates.updated_at_ms, excluded.updated_at_ms),
-                dirty_sync = CASE WHEN excluded.updated_at_ms >= workout_templates.updated_at_ms THEN 0 ELSE workout_templates.dirty_sync END
+                name = CASE WHEN $tplWins THEN excluded.name ELSE workout_templates.name END,
+                description = CASE WHEN $tplWins THEN excluded.description ELSE workout_templates.description END,
+                blocks_json = CASE WHEN $tplWins THEN excluded.blocks_json ELSE workout_templates.blocks_json END,
+                schedule_days_json = CASE WHEN $tplWins THEN excluded.schedule_days_json ELSE workout_templates.schedule_days_json END,
+                updated_at = CASE WHEN $tplWins THEN excluded.updated_at ELSE workout_templates.updated_at END,
+                deleted_at_ms = CASE WHEN $tplWins THEN excluded.deleted_at_ms ELSE workout_templates.deleted_at_ms END,
+                updated_at_ms = CASE WHEN $tplWins THEN excluded.updated_at_ms ELSE workout_templates.updated_at_ms END,
+                dirty_sync = CASE WHEN $tplWins THEN 0 ELSE workout_templates.dirty_sync END
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, t.id); s.bindText(2, t.userId); s.bindText(3, t.name)

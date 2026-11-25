@@ -262,13 +262,15 @@ class SwonalDatabase(
     suspend fun seedIfEmpty(seedJson: String, includeDemoUsersAndRoutines: Boolean = true) {
         val seed = SwonalJson.decodeFromString<SeedCatalogDto>(seedJson)
         withTx { c ->
-            val nowMs = System.currentTimeMillis()
-            val nowIso = IsoTime.formatUtc(nowMs)
+            // Seed placeholder records with epoch+1ms (NOT wall-clock now) so any real server-app
+            // profile, routine, exercise, or PR always has a newer updated_at_ms and wins LWW sync.
+            val seedMs = 1L
+            val seedIso = IsoTime.formatUtc(seedMs)
 
             val exCount = queryLongUnlocked(c, "SELECT COUNT(*) FROM exercises WHERE deleted_at_ms IS NULL")
             if (exCount == 0L) {
                 for (ex in seed.exercises) {
-                    insertOrIgnoreExerciseUnlocked(c, ex, nowMs)
+                    insertOrIgnoreExerciseUnlocked(c, ex, seedMs)
                 }
             }
 
@@ -291,9 +293,9 @@ class SwonalDatabase(
                             s.bindText(5, u.themeMode)
                             s.bindText(6, u.accentColor)
                             s.bindText(7, u.weightUnit)
-                            s.bindText(8, nowIso)
-                            s.bindText(9, nowIso)
-                            s.bindLong(10, nowMs)
+                            s.bindText(8, seedIso)
+                            s.bindText(9, seedIso)
+                            s.bindLong(10, seedMs)
                             s.step()
                         }
                     }
@@ -315,9 +317,9 @@ class SwonalDatabase(
                                 bindNullableText(s, 4, t.description)
                                 s.bindText(5, SwonalJson.encodeToString(t.blocks))
                                 s.bindText(6, SwonalJson.encodeToString(t.scheduleDays))
-                                s.bindText(7, nowIso)
-                                s.bindText(8, nowIso)
-                                s.bindLong(9, nowMs)
+                                s.bindText(7, seedIso)
+                                s.bindText(8, seedIso)
+                                s.bindLong(9, seedMs)
                                 s.step()
                             }
                         }
@@ -336,8 +338,8 @@ class SwonalDatabase(
                             s.bindText(3, pr.exerciseId)
                             s.bindDouble(4, pr.oneRepMaxEst)
                             s.bindDouble(5, pr.maxWeightLb)
-                            s.bindText(6, nowIso)
-                            s.bindLong(7, nowMs)
+                            s.bindText(6, seedIso)
+                            s.bindLong(7, seedMs)
                             s.step()
                         }
                     }
@@ -352,9 +354,8 @@ class SwonalDatabase(
         withTx { c ->
             val count = queryLongUnlocked(c, "SELECT COUNT(*) FROM exercises WHERE deleted_at_ms IS NULL")
             if (count == 0L) {
-                val nowMs = System.currentTimeMillis()
                 for (ex in seed.exercises) {
-                    insertOrIgnoreExerciseUnlocked(c, ex, nowMs)
+                    insertOrIgnoreExerciseUnlocked(c, ex, 1L)
                 }
             }
         }

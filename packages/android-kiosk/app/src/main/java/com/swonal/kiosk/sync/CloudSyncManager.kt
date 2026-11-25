@@ -156,7 +156,7 @@ class CloudSyncManager(
             // Legacy upgrade import: pull server state before pushing initial seed records
             if (db.getSetting(LocalWorkoutEngine.SETTING_INITIAL_SERVER_IMPORT_DONE).isNullOrBlank()) {
                 val initialPull = fetchPullBundle(base, sinceMs = 0L)
-                db.applyPulledSync(initialPull)
+                db.applyPulledSync(initialPull, preferRemoteOnInitialImport = true)
                 db.setSetting(LocalWorkoutEngine.SETTING_SYNC_CURSOR_MS, initialPull.serverTimeMs.toString())
                 db.setSetting(LocalWorkoutEngine.SETTING_INITIAL_SERVER_IMPORT_DONE, "true")
                 if (initialPull.pendingQueuedWorkout != null) {
