@@ -125,8 +125,11 @@ When running the optional `server-app` sync server, the built-in MCP server expo
   - `update_weight`: Set precise target digital weight and training mode.
   - `log_set`: Automatically record completed sets with RPE and volume tracking.
 
-### Real-Time Voice Coach & Hands-Free AirPods Control (Local & BYOK)
-- **Hands-Free AirPods / Bluetooth Voice Mode**: Tap the prominent **AirPods Voice** button in the Kiosk header or Companion Remote to issue continuous hands-free commands while lifting:
+### Real-Time Voice Coach, Offline Vosk STT & On-Device HTTPS (`:53443`)
+> 📖 **Full Setup Guide:** See [`docs/HTTPS_AND_VOICE.md`](docs/HTTPS_AND_VOICE.md) for step-by-step instructions on **Offline Kiosk Voice (Vosk)**, enabling **On-Device HTTPS (`:53443`)**, and trusting the local Root CA (`/api/tls/ca.crt`) on iOS/Android for Phone Companion mic support.
+
+- **On-Device Offline Voice (Vosk over `AudioRecord`)**: Tap the **Voice** pill beside the **Device Volume** bar on the Tonal screen. Works 100% natively on stock AOSP 6.0 Tonal V1 tablets with zero Google Play Services and no HTTPS required (downloads the ~40 MB English model once, then runs offline).
+- **Phone Companion Voice over On-Device HTTPS (`:53443`)**: Enable opt-in on-device HTTPS in Kiosk **Settings → Application Settings**, download and trust `http://<TONAL_IP>:53013/api/tls/ca.crt` on your phone, and open `https://<TONAL_IP>:53443/companion` to use AirPods/phone mic voice commands without a reverse proxy:
   - **Weight Deltas & Targets**: *"Add 5 pounds"*, *"Increase weight by ten"*, *"Drop 5 pounds"*, *"Set weight to 50 pounds"* (supports both digits and spoken number words).
   - **Weight Engage / Disengage**: *"Weight on"*, *"Engage weight"*, *"Weight off"*, *"Rack weight"*.
   - **Dynamic Training Modes**: *"Switch to chains mode"*, *"Eccentric mode"*, *"Spotter mode"*, *"Burnout mode"*, *"Standard mode"*.
