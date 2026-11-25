@@ -53,7 +53,8 @@ class EmbeddedSwonalServer(
     val mediaDir: File,
     private val webAssetOpener: (String) -> InputStream?,
     private val mediaAssetOpener: (String) -> InputStream?,
-    private val allowTestRemoteIpHeader: Boolean = false
+    private val allowTestRemoteIpHeader: Boolean = false,
+    val caCertPemProvider: (() -> String)? = null
 ) : NanoWSD("0.0.0.0", port) {
 
     data class RequestAuthContext(
@@ -165,7 +166,8 @@ class EmbeddedSwonalServer(
             path == "/api/auth/status" ||
             path == "/api/auth/login" ||
             path == "/api/auth/logout" ||
-            path == "/api/spotify/callback"
+            path == "/api/spotify/callback" ||
+            path == "/api/tls/ca.crt"
 
         val auth = runBlocking { checkRequestAuth(session) }
         if (!publicApiPath && !auth.authenticated) {

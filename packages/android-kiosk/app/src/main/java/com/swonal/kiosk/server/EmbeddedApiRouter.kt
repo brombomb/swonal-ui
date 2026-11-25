@@ -82,6 +82,7 @@ class EmbeddedApiRouter(
             "friends" -> handleFriends(session, m, segs)
             "spotify" -> handleSpotify(session, m, segs, auth)
             "music" -> handleMusic(session, m, segs)
+            "tls" -> handleTls(m, segs)
             else -> server.jsonError(Status.NOT_FOUND, "Unknown API route: $path")
         }
     }
@@ -97,6 +98,22 @@ class EmbeddedApiRouter(
         session.parameters[key]?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun jsonOk(json: String, status: Status = Status.OK): Response = server.jsonResponse(status, json)
+
+    private fun handleTls(m: Method, segs: List<String>): Response {
+        if (m == Method.GET && segs.size == 3 && segs[2] == "ca.crt") {
+            val pem = runCatching { server.caCertPemProvider?.invoke() }.getOrNull()
+                ?: return server.jsonError(Status.NOT_FOUND, "Local Root CA is not initialized")
+            return fi.iki.elonen.NanoHTTPD.newFixedLengthResponse(
+                Status.OK,
+                "application/x-x509-ca-cert",
+                pem
+            ).apply {
+                addHeader("Content-Disposition", "attachment; filename=\"swonal-local-ca.crt\"")
+                addHeader("Cache-Control", "no-store")
+            }
+        }
+        return server.jsonError(Status.NOT_FOUND, "Not found")
+    }
 
     // --- Health, State & Network Info ---
 

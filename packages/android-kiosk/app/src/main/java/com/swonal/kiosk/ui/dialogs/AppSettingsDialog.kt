@@ -316,8 +316,11 @@ class AppSettingsDialog : BaseSwonalDialog() {
         val port = repo.embeddedServerPort.takeIf { it > 0 } ?: 53013
 
         bodyContainer.addView(makeSectionLabel("On-Device Companion & Sync"))
+        val httpsPort = com.swonal.kiosk.net.SwonalPreferences.DEFAULT_EMBEDDED_HTTPS_PORT
         bodyContainer.addView(TextView(requireContext()).apply {
-            text = "Companion URL:  ${lanIp?.let { "http://$it:$port/companion" } ?: ui.localWebServerUrl}\n" +
+            text = "Companion HTTP: ${lanIp?.let { "http://$it:$port/companion" } ?: ui.localWebServerUrl}\n" +
+                "Companion TLS:  ${if (app.prefs.localHttpsEnabled) (lanIp?.let { "https://$it:$httpsPort/companion" } ?: "Enabled (:$httpsPort)") else "Off (opt-in)"}\n" +
+                (if (app.prefs.localHttpsEnabled && lanIp != null) "Root CA Cert:   http://$lanIp:$port/api/tls/ca.crt\n" else "") +
                 "Sync Mode:      ${ui.syncMode.label}\n" +
                 "App Version:    v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})\n" +
                 "Passcode Lock:  ${if (app.prefs.lastKnownAuthEnabled) "Enabled" else "Off"}"
@@ -330,6 +333,23 @@ class AppSettingsDialog : BaseSwonalDialog() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(10) }
+        })
+
+        bodyContainer.addView(makePillButton(
+            if (app.prefs.localHttpsEnabled) "Disable On-Device HTTPS (:$httpsPort)" else "Enable On-Device HTTPS (:$httpsPort)"
+        ) {
+            val next = !app.prefs.localHttpsEnabled
+            app.reconfigureLocalHttps(next)
+            Toast.makeText(
+                requireContext(),
+                if (next) "Starting local HTTPS on :$httpsPort..." else "Local HTTPS disabled",
+                Toast.LENGTH_SHORT
+            ).show()
+            renderBody()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
+                bottomMargin = dp(8)
+            }
         })
 
         bodyContainer.addView(makePillButton("Standalone & Home Server Sync Settings →") {
