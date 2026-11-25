@@ -34,7 +34,7 @@ class ProfileStyleDialog : BaseSwonalDialog() {
         var localTelemetry = ui.telemetryDisplayMode
 
         val root = createCardRoot(20)
-        root.addView(createDialogHeader("Accent Color & Profiles"))
+        root.addView(createDialogHeader("User Prefs"))
 
         val body = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
         body.addView(makeSectionLabel("Active Profile: ${activeUser?.name ?: "Lifter"}"))

@@ -359,7 +359,36 @@ class MainActivity : AppCompatActivity() {
                 palette = currentPalette,
                 onOpenProfiles = { showDialogOnce("profiles") { ProfileStyleDialog() } },
                 onOpenMenu = { showDialogOnce("app_drawer") { AppDrawerDialog() } },
-                onOpenWebPath = { path, title -> openServerWebPath(path, title) }
+                onOpenWebPath = { path, title -> openServerWebPath(path, title) },
+                onCheckUpdates = {
+                    Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                    lifecycleScope.launch {
+                        when (val res = com.swonal.kiosk.net.AppUpdateManager.checkForUpdate()) {
+                            is com.swonal.kiosk.net.UpdateCheckResult.UpdateAvailable -> {
+                                showDialogOnce("app_update") {
+                                    com.swonal.kiosk.ui.dialogs.UpdateDialog.newInstance(res.info)
+                                }
+                            }
+                            is com.swonal.kiosk.net.UpdateCheckResult.UpToDate -> {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Swonal v${res.currentVersion} is up to date ✓",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            is com.swonal.kiosk.net.UpdateCheckResult.Error -> {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Update check failed: ${res.message}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                },
+                onOpenBugReport = {
+                    showDialogOnce("bug_report") { com.swonal.kiosk.ui.dialogs.BugReportDialog() }
+                }
             )
         }
         binding.btnHardwareStatus.setOnClickListener {

@@ -28,7 +28,9 @@ object KioskPopups {
         palette: SwonalPalette,
         onOpenProfiles: () -> Unit,
         onOpenMenu: () -> Unit,
-        onOpenWebPath: (path: String, title: String) -> Unit
+        onOpenWebPath: (path: String, title: String) -> Unit,
+        onCheckUpdates: () -> Unit,
+        onOpenBugReport: () -> Unit
     ) {
         val d = context.resources.displayMetrics.density
         fun dp(v: Int) = (v * d).toInt()
@@ -66,61 +68,54 @@ object KioskPopups {
         }
         root.addView(header)
 
-        root.addView(makePopupButton(context, "Accent Color & Profiles", palette, d) {
-            popup.dismiss()
-            onOpenProfiles()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(38)
-            ).apply { bottomMargin = dp(6) }
-        })
-
-        // Menu & Stock Tonal with leading apps icon
-        val menuRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = palette.elevatedPillDrawable(d, 10f)
-            setPadding(dp(12), 0, dp(12), 0)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(38)
-            ).apply { bottomMargin = dp(8) }
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                popup.dismiss()
-                onOpenMenu()
-            }
-            addView(android.widget.ImageView(context).apply {
-                setImageResource(com.swonal.kiosk.R.drawable.ic_apps)
-                setColorFilter(palette.accentInk)
-                layoutParams = LinearLayout.LayoutParams(dp(15), dp(15)).apply {
-                    marginEnd = dp(8)
+        fun addIconRow(label: String, iconRes: Int, bottomMarginDp: Int = 6, onClick: () -> Unit) {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = palette.elevatedPillDrawable(d, 10f)
+                setPadding(dp(14), 0, dp(14), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(38)
+                ).apply { bottomMargin = dp(bottomMarginDp) }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    popup.dismiss()
+                    onClick()
                 }
-            })
-            addView(TextView(context).apply {
-                text = "Menu & Stock Tonal"
-                textSize = 12f
-                typeface = SwonalFonts.interBold(context)
-                setTextColor(palette.textPrimary)
-            })
-        }.also { PressFeedback.attachSingle(it) }
-        root.addView(menuRow)
+                addView(android.widget.ImageView(context).apply {
+                    setImageResource(iconRes)
+                    setColorFilter(palette.accentInk)
+                    layoutParams = LinearLayout.LayoutParams(dp(15), dp(15)).apply {
+                        marginEnd = dp(10)
+                    }
+                })
+                addView(TextView(context).apply {
+                    text = label
+                    textSize = 12f
+                    typeface = SwonalFonts.interBold(context)
+                    setTextColor(palette.textPrimary)
+                })
+            }.also { PressFeedback.attachSingle(it) }
+            root.addView(row)
+        }
 
-        root.addView(TextView(context).apply {
-            text = "Application Settings →"
-            textSize = 12.5f
-            gravity = Gravity.CENTER
-            typeface = SwonalFonts.interExtraBold(context)
-            setTextColor(palette.accentTextColor)
-            background = palette.accentPillDrawable(d, 10f)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40))
-            setOnClickListener {
-                popup.dismiss()
-                onOpenWebPath("/settings", "Application Settings")
-            }
-        }.also { PressFeedback.attachSingle(it) })
+        addIconRow("User Prefs", com.swonal.kiosk.R.drawable.ic_users) {
+            onOpenProfiles()
+        }
+        addIconRow("Menu & Stock Tonal", com.swonal.kiosk.R.drawable.ic_apps) {
+            onOpenMenu()
+        }
+        addIconRow("Application Settings", com.swonal.kiosk.R.drawable.ic_settings) {
+            onOpenWebPath("/settings", "Application Settings")
+        }
+        addIconRow("Check for Updates", com.swonal.kiosk.R.drawable.ic_sparkles) {
+            onCheckUpdates()
+        }
+        addIconRow("Send Bug Report", com.swonal.kiosk.R.drawable.ic_alert_triangle, bottomMarginDp = 0) {
+            onOpenBugReport()
+        }
 
         popup = PopupWindow(root, dp(264), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
