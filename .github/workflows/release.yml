@@ -64,9 +64,38 @@ jobs:
           SWONAL_KEYSTORE_BASE64: ${{ secrets.SWONAL_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$SWONAL_KEYSTORE_BASE64" ]; then
-            echo "$SWONAL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/swonal-release.jks"
-            echo "SWONAL_KEYSTORE_PATH=$RUNNER_TEMP/swonal-release.jks" >> "$GITHUB_ENV"
-            echo "Release keystore configured."
+            python3 - <<'PY'
+          import base64, binascii, os, sys
+
+          raw = os.environ.get("SWONAL_KEYSTORE_BASE64", "")
+          # Strip whitespace/newlines and accidental surrounding quotes from copy-paste.
+          cleaned = "".join(raw.split()).strip("'\"")
+          # Support URL-safe base64 and restore missing '=' padding if truncated.
+          cleaned = cleaned.replace("-", "+").replace("_", "/")
+          if len(cleaned) % 4:
+              cleaned += "=" * (4 - (len(cleaned) % 4))
+
+          try:
+              data = base64.b64decode(cleaned, validate=True)
+          except binascii.Error as exc:
+              print(
+                  f"::error::SWONAL_KEYSTORE_BASE64 is not valid base64 ({exc}; cleaned length={len(cleaned)}). "
+                  "Re-encode your keystore with `base64 -w 0 <keystore.jks>` and update the GitHub Actions secret.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if not data:
+              print("::error::SWONAL_KEYSTORE_BASE64 decoded to 0 bytes.", file=sys.stderr)
+              sys.exit(1)
+
+          out_path = os.path.join(os.environ["RUNNER_TEMP"], "swonal-release.jks")
+          with open(out_path, "wb") as f:
+              f.write(data)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"SWONAL_KEYSTORE_PATH={out_path}\n")
+          print(f"Release keystore configured ({len(data)} bytes).")
+          PY
           else
             echo "SWONAL_KEYSTORE_BASE64 not set; falling back to default signing config."
           fi
