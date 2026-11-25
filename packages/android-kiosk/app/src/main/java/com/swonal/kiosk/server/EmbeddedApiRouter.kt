@@ -392,6 +392,13 @@ class EmbeddedApiRouter(
             val b = runCatching { parseJsonBody(session) }.getOrNull()
             val queued = engine.queueTemplate(tplId, b?.get("userId")?.jsonPrimitive?.contentOrNull)
                 ?: return server.jsonError(Status.NOT_FOUND, "Template not found")
+            repo.refreshAppState()
+            // If Tonal is idle (weight off and no active routine in progress), load immediately;
+            // otherwise keep it safely queued in the Kiosk banner so an active set is never interrupted.
+            val curUi = repo.uiStateFlow.value
+            if (!repo.telemetryFlow.value.weightEnabled && curUi.routineSteps.isEmpty()) {
+                repo.startQueuedWorkout()
+            }
             repo.emitLocalBroadcast("workout_queued") {
                 put(
                     "workout",
