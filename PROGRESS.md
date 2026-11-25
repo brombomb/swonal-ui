@@ -123,6 +123,6 @@
 
 ### Follow-Up TODOs (Post-Standalone PR #3)
 - [ ] **Native Android Screens for Everything Except `/companion`:** Migrate `/settings` (Users, Swocial, AI Coach/MCP, Network, Security), `/history` (History & PRs), and `/admin` (Exercise Catalog & Calibration) from the embedded GeckoView Web SPA to native Android screens inside `packages/android-kiosk`, keeping the embedded Web SPA strictly for `/companion` on phones/laptops (eliminates GeckoView startup overhead and memory footprint on Android 6.0).
-- [ ] **MCP Streamable HTTP (`2025-03-26`) Transport:** Add `POST /mcp` Streamable HTTP transport alongside legacy `/mcp/sse` (`2024-11-05`) in `packages/server-app` so modern MCP clients can connect directly without `mcp-remote`.
+- [x] **MCP Streamable HTTP (`2025-03-26`) Transport:** Added stateful `POST`/`GET`/`DELETE /mcp` Streamable HTTP transport (`StreamableHTTPServerTransport`) alongside legacy `/mcp/sse` (`2024-11-05`) in `packages/server-app` so modern MCP clients connect directly without `mcp-remote`.
 - [ ] **Optional On-Device HTTPS for Companion (`:53443`):** Add an opt-in on-device HTTPS listener (with downloadable local CA profile for iOS/Android mic support without a reverse proxy).
 - [ ] **Bundled Offline Voice STT (Vosk over `AudioRecord`):** Bundle a lightweight offline speech-to-text engine (`vosk-android` small English model on ARM64 / API 23) so the Kiosk's inline **Voice** toggle works 100% natively on stock AOSP Tonal V1 ROMs without Google Speech Services.
