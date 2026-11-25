@@ -42,11 +42,39 @@ export async function createRotatingSqliteBackup(
   backupDir = getDefaultBackupDir()
 ): Promise<string> {
   fs.mkdirSync(backupDir, { recursive: true });
-  const targetPath = path.join(backupDir, `${BACKUP_PREFIX}${formatUtcStamp()}.db`);
-  if (fs.existsSync(targetPath)) {
-    fs.unlinkSync(targetPath);
+  const stamp = formatUtcStamp();
+  const targetPath = path.join(backupDir, `${BACKUP_PREFIX}${stamp}.db`);
+  const tmpPath = path.join(
+    backupDir,
+    `${BACKUP_PREFIX}${stamp}.tmp.${process.pid}.${Date.now()}`
+  );
+
+  // Clean up any orphaned temporary files left by prior interrupted backups.
+  for (const name of fs.readdirSync(backupDir)) {
+    if (name.startsWith(BACKUP_PREFIX) && name.includes('.tmp.')) {
+      try {
+        fs.unlinkSync(path.join(backupDir, name));
+      } catch {
+        // ignore cleanup error
+      }
+    }
   }
-  await prisma.$executeRaw`VACUUM INTO ${targetPath}`;
+
+  try {
+    await prisma.$executeRaw`VACUUM INTO ${tmpPath}`;
+    const stat = fs.statSync(tmpPath);
+    if (stat.size <= 0) {
+      throw new Error('SQLite backup produced an empty file');
+    }
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {
+      // ignore cleanup error
+    }
+    throw err;
+  }
 
   const entries = fs
     .readdirSync(backupDir)
@@ -54,7 +82,17 @@ export async function createRotatingSqliteBackup(
     .map((name) => {
       const fullPath = path.join(backupDir, name);
       const stat = fs.statSync(fullPath);
-      return { fullPath, mtimeMs: stat.mtimeMs };
+      return { fullPath, mtimeMs: stat.mtimeMs, size: stat.size };
+    })
+    .filter((entry) => {
+      if (entry.size > 0) return true;
+      // Remove corrupted/0-byte snapshots without letting them count toward retention.
+      try {
+        fs.unlinkSync(entry.fullPath);
+      } catch {
+        // ignore cleanup error
+      }
+      return false;
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 

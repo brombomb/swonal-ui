@@ -37,7 +37,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
         var sets: Int = 3,
         var targetReps: Int = 10,
         var targetWeightDisplay: Double = 45.0,
-        var mode: String = "standard"
+        var mode: String = "standard",
+        var modifierPct: Int = 0
     )
 
     private data class DraftBlock(
@@ -82,7 +83,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                             sets = item.sets,
                             targetReps = item.targetReps,
                             targetWeightDisplay = Units.formatDisplayWeight(item.targetWeightLb, unit),
-                            mode = item.mode
+                            mode = item.mode,
+                            modifierPct = item.modifierPct
                         )
                     }.toMutableList()
                 )
@@ -376,13 +378,32 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     layoutParams = LinearLayout.LayoutParams(0, dp(32), 1.2f).apply { marginEnd = dp(4) }
                 })
                 val modes = listOf("standard", "chains", "eccentric", "spotter", "burnout")
+                val modeLower = item.mode.lowercase(Locale.US)
+                val supportsModifierPct = modeLower == "chains" || modeLower == "eccentric"
                 paramsRow.addView(makeStepperButton(item.mode.uppercase(Locale.US)) {
-                    val nextIdx = (modes.indexOf(item.mode.lowercase(Locale.US)) + 1) % modes.size
-                    item.mode = modes[nextIdx]
+                    val nextIdx = (modes.indexOf(modeLower) + 1) % modes.size
+                    val nextMode = modes[nextIdx]
+                    item.mode = nextMode
+                    if (nextMode == "chains" || nextMode == "eccentric") {
+                        if (item.modifierPct <= 0) item.modifierPct = 20
+                    } else {
+                        item.modifierPct = 0
+                    }
                     renderBlocks()
                 }.apply {
-                    layoutParams = LinearLayout.LayoutParams(0, dp(32), 1.2f)
+                    layoutParams = LinearLayout.LayoutParams(0, dp(32), 1.2f).apply {
+                        if (supportsModifierPct) marginEnd = dp(4)
+                    }
                 })
+                if (supportsModifierPct) {
+                    paramsRow.addView(makeStepperButton("+${item.modifierPct}%") {
+                        val pctSteps = listOf(10, 15, 20, 25, 30, 35, 40, 50)
+                        item.modifierPct = pctSteps.firstOrNull { it > item.modifierPct } ?: pctSteps.first()
+                        renderBlocks()
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, dp(32), 0.9f)
+                    })
+                }
                 itemRow.addView(paramsRow)
                 card.addView(itemRow)
             }
@@ -436,12 +457,18 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
         val uid = repo.uiStateFlow.value.activeUser?.id ?: return
         val blocks = draftBlocks.mapNotNull { blk ->
             val validItems = blk.items.filter { it.exerciseId.isNotBlank() }.map { item ->
+                val cleanMode = item.mode.lowercase(Locale.US)
+                val preservedModifier = if (cleanMode == "chains" || cleanMode == "eccentric") {
+                    item.modifierPct.coerceIn(0, 100)
+                } else {
+                    0
+                }
                 WorkoutBlockItem(
                     exerciseId = item.exerciseId,
                     sets = item.sets.coerceIn(1, 20),
                     targetReps = item.targetReps.coerceIn(1, 200),
                     mode = item.mode,
-                    modifierPct = 0,
+                    modifierPct = preservedModifier,
                     targetWeightLb = item.targetWeightDisplay
                 )
             }
