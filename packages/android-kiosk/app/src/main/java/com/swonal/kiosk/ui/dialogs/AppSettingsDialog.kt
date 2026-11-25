@@ -1118,6 +1118,33 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         syncFieldsBox.addView(serverUrlInput)
         syncFieldsBox.addView(tokenInput)
 
+        fun normalizeSyncUrl(raw: String): String {
+            val trimmed = raw.trim().trimEnd('/')
+            if (trimmed.isEmpty()) return ""
+            return if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                trimmed
+            } else {
+                "http://$trimmed"
+            }
+        }
+
+        fun ensureSyncModeSavedBeforeAction(): Boolean {
+            val syncUrl = normalizeSyncUrl(serverUrlInput.text.toString())
+            if (syncUrl.isEmpty()) {
+                Toast.makeText(requireContext(), "Enter a Home/Cloud Server URL first (e.g. http://192.168.0.21:3000)", Toast.LENGTH_SHORT).show()
+                return false
+            }
+            serverUrlInput.setText(syncUrl)
+            selectedMode = SyncMode.SERVER_SYNC
+            repo.updateSyncConfiguration(
+                newSyncMode = SyncMode.SERVER_SYNC,
+                newSyncServerUrl = syncUrl,
+                newLocalDaemonUrl = SwonalPreferences.normalizeLoopbackDaemonUrl(ui.localDaemonUrl),
+                newApiToken = tokenInput.text.toString().trim().ifEmpty { null }
+            )
+            return true
+        }
+
         val syncActionRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -1126,12 +1153,14 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             ).apply { bottomMargin = dp(12) }
         }
         syncActionRow.addView(makePillButton("Sync Now") {
+            if (!ensureSyncModeSavedBeforeAction()) return@makePillButton
             viewLifecycleOwner.lifecycleScope.launch {
                 val res = repo.triggerSyncNow()
+                if (!isAdded) return@launch
                 res.onSuccess {
                     Toast.makeText(requireContext(), "Synced cleanly with Home Server", Toast.LENGTH_SHORT).show()
                 }.onFailure { err ->
-                    Toast.makeText(requireContext(), err.message ?: "Sync failed (saved offline)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), err.message ?: "Sync failed (saved offline)", Toast.LENGTH_LONG).show()
                 }
             }
         }.apply {
@@ -1139,12 +1168,14 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(10) }
         })
         syncActionRow.addView(makePillButton("Pull / Restore from Server") {
+            if (!ensureSyncModeSavedBeforeAction()) return@makePillButton
             viewLifecycleOwner.lifecycleScope.launch {
                 val res = repo.restoreFromSyncServer()
+                if (!isAdded) return@launch
                 res.onSuccess {
                     Toast.makeText(requireContext(), "Restored routines & history from server", Toast.LENGTH_SHORT).show()
                 }.onFailure { err ->
-                    Toast.makeText(requireContext(), err.message ?: "Restore failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), err.message ?: "Restore failed", Toast.LENGTH_LONG).show()
                 }
             }
         }.apply {
@@ -1160,11 +1191,12 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         }
         saveRow.addView(makeAccentButton("Save Mode & Reconnect") {
             val normalizedDaemon = SwonalPreferences.normalizeLoopbackDaemonUrl(ui.localDaemonUrl)
-            val syncUrl = serverUrlInput.text.toString().trim()
+            val syncUrl = normalizeSyncUrl(serverUrlInput.text.toString())
             if (selectedMode == SyncMode.SERVER_SYNC && syncUrl.isEmpty()) {
                 Toast.makeText(requireContext(), "Enter a Home/Cloud Server URL or choose Standalone", Toast.LENGTH_SHORT).show()
                 return@makeAccentButton
             }
+            if (syncUrl.isNotEmpty()) serverUrlInput.setText(syncUrl)
             repo.updateSyncConfiguration(
                 newSyncMode = selectedMode,
                 newSyncServerUrl = if (selectedMode == SyncMode.SERVER_SYNC) syncUrl else "",
