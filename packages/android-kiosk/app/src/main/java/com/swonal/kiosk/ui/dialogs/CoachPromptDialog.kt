@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -232,38 +233,55 @@ class CoachPromptDialog : BaseSwonalDialog() {
     }
 
     private fun startVoiceListening(targetInput: EditText) {
-        val sr = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(requireContext()).also {
-            speechRecognizer = it
-        }
-        sr.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                listening = true
-                targetInput.hint = "Listening..."
+        val ctx = context ?: return
+        try {
+            val sr = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(ctx).also {
+                speechRecognizer = it
             }
-            override fun onBeginningOfSpeech() = Unit
-            override fun onRmsChanged(rmsdB: Float) = Unit
-            override fun onBufferReceived(buffer: ByteArray?) = Unit
-            override fun onEndOfSpeech() { listening = false }
-            override fun onError(error: Int) {
-                listening = false
-                targetInput.hint = "Ask Coach..."
-            }
-            override fun onResults(results: Bundle?) {
-                listening = false
-                val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                if (!spoken.isNullOrBlank()) {
-                    targetInput.setText(spoken)
-                    repo.askCoach(spoken)
+            sr.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    listening = true
+                    targetInput.hint = "Listening..."
                 }
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() { listening = false }
+                override fun onError(error: Int) {
+                    listening = false
+                    targetInput.hint = "Ask Coach..."
+                }
+                override fun onResults(results: Bundle?) {
+                    listening = false
+                    val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (!spoken.isNullOrBlank()) {
+                        targetInput.setText(spoken)
+                        repo.askCoach(spoken)
+                    }
+                }
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US)
             }
-            override fun onPartialResults(partialResults: Bundle?) = Unit
-            override fun onEvent(eventType: Int, params: Bundle?) = Unit
-        })
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US)
+            sr.startListening(intent)
+        } catch (se: SecurityException) {
+            listening = false
+            Toast.makeText(
+                ctx,
+                "Voice recognition service on this Tonal ROM cannot be bound (${se.javaClass.simpleName}). Type a command or use Phone Companion.",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (ex: Exception) {
+            listening = false
+            Toast.makeText(
+                ctx,
+                "Voice recognition unavailable: ${ex.message ?: ex.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
         }
-        sr.startListening(intent)
     }
 
     private fun speakOnTonalSpeaker(text: String) {

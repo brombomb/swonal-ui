@@ -83,6 +83,17 @@ class MainActivity : AppCompatActivity() {
     private var seekingDeviceVolume: Boolean = false
     private lateinit var audioManager: AudioManager
     private var statusDotAnimator: ObjectAnimator? = null
+    private var inlineVoiceActive: Boolean = false
+    private var inlineSpeechRecognizer: android.speech.SpeechRecognizer? = null
+    private val inlineMicPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startInlineVoiceControl()
+        } else {
+            Toast.makeText(this, "Microphone permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // 30Hz hot-path state caches (eliminates per-frame Drawable allocations & requestLayout() storms!)
     private var lastRepCount: Int = Int.MIN_VALUE
@@ -219,7 +230,118 @@ class MainActivity : AppCompatActivity() {
         if (hasFocus) applyImmersiveFullscreen()
     }
 
+    private fun toggleInlineVoiceControl() {
+        if (inlineVoiceActive) {
+            stopInlineVoiceControl()
+            return
+        }
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            inlineMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startInlineVoiceControl()
+    }
+
+    private fun startInlineVoiceControl() {
+        val services = packageManager.queryIntentServices(
+            android.content.Intent(android.speech.RecognitionService.SERVICE_INTERFACE),
+            0
+        ).orEmpty()
+        val hasBindableService = services.any { ri ->
+            val pkg = ri.serviceInfo?.packageName.orEmpty()
+            pkg.isNotEmpty() && pkg != "com.mediatek.voicecommand" && (ri.serviceInfo?.exported != false)
+        }
+        if (!hasBindableService) {
+            stopInlineVoiceControl()
+            Toast.makeText(
+                this,
+                "No Speech Recognition engine installed on this Tonal ROM (MediaTek system service is restricted).",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        try {
+            val sr = inlineSpeechRecognizer ?: android.speech.SpeechRecognizer.createSpeechRecognizer(this).also {
+                inlineSpeechRecognizer = it
+            }
+            sr.setRecognitionListener(object : android.speech.RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+                override fun onError(error: Int) {
+                    if (inlineVoiceActive) {
+                        // Restart continuous listening unless permission/client error
+                        if (error == android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                            error == android.speech.SpeechRecognizer.ERROR_CLIENT
+                        ) {
+                            stopInlineVoiceControl()
+                        } else {
+                            binding.root.postDelayed({
+                                if (inlineVoiceActive) startInlineVoiceControl()
+                            }, 600L)
+                        }
+                    }
+                }
+                override fun onResults(results: Bundle?) {
+                    val spoken = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (!spoken.isNullOrBlank()) {
+                        app.repository.askCoach(spoken)
+                    }
+                    if (inlineVoiceActive) {
+                        binding.root.postDelayed({
+                            if (inlineVoiceActive) startInlineVoiceControl()
+                        }, 400L)
+                    }
+                }
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, Locale.US)
+            }
+            inlineVoiceActive = true
+            updateVoiceButtonStyle()
+            sr.startListening(intent)
+        } catch (ex: Exception) {
+            stopInlineVoiceControl()
+            Toast.makeText(
+                this,
+                "Voice control unavailable on this device: ${ex.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun stopInlineVoiceControl() {
+        inlineVoiceActive = false
+        runCatching { inlineSpeechRecognizer?.stopListening() }
+        runCatching { inlineSpeechRecognizer?.destroy() }
+        inlineSpeechRecognizer = null
+        updateVoiceButtonStyle()
+    }
+
+    private fun updateVoiceButtonStyle() {
+        val p = currentPalette
+        val d = resources.displayMetrics.density
+        binding.btnVoiceControl.background = if (inlineVoiceActive) {
+            p.criticalBannerDrawable(d, 10f, interactive = true)
+        } else {
+            p.elevatedPillDrawable(d, 10f)
+        }
+        binding.ivVoiceControl.setColorFilter(if (inlineVoiceActive) p.criticalText else p.accentInk)
+        binding.tvVoiceControl.setTextColor(if (inlineVoiceActive) p.criticalText else p.textPrimary)
+        binding.tvVoiceControl.text = if (inlineVoiceActive) "Voice On" else "Voice"
+    }
+
     override fun onDestroy() {
+        stopInlineVoiceControl()
         super.onDestroy()
         statusDotAnimator?.cancel()
         releaseFormDemoVideo()
@@ -499,7 +621,7 @@ class MainActivity : AppCompatActivity() {
             showDialogOnce("coach") { CoachPromptDialog() }
         }
         binding.btnVoiceControl.setOnClickListener {
-            showDialogOnce("coach") { CoachPromptDialog() }
+            toggleInlineVoiceControl()
         }
         binding.btnCoachSuggestedAction.setOnClickListener {
             val act = repo.uiStateFlow.value.coachAction ?: return@setOnClickListener
@@ -1610,9 +1732,14 @@ class MainActivity : AppCompatActivity() {
         binding.tvDeviceVolLabel.setTextColor(p.textMuted)
         binding.tvDeviceVolumePct.setTextColor(p.textPrimary)
 
-        binding.btnVoiceControl.background = p.elevatedPillDrawable(d, 10f)
-        binding.ivVoiceControl.setColorFilter(p.accentInk)
-        binding.tvVoiceControl.setTextColor(p.textPrimary)
+        binding.btnVoiceControl.background = if (inlineVoiceActive) {
+            p.criticalBannerDrawable(d, 10f, interactive = true)
+        } else {
+            p.elevatedPillDrawable(d, 10f)
+        }
+        binding.ivVoiceControl.setColorFilter(if (inlineVoiceActive) p.criticalText else p.accentInk)
+        binding.tvVoiceControl.setTextColor(if (inlineVoiceActive) p.criticalText else p.textPrimary)
+        binding.tvVoiceControl.text = if (inlineVoiceActive) "Voice On" else "Voice"
 
         binding.volumePill.background = p.elevatedPillDrawable(d, 10f, interactive = false)
         binding.ivVolume.setColorFilter(p.accentInk)
