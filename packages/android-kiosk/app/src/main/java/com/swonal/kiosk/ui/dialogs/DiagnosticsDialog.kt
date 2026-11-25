@@ -240,6 +240,19 @@ class DiagnosticsDialog : BaseSwonalDialog() {
         }
         content.addView(checkUpdateBtn)
 
+        content.addView(makePillButton("Send Bug Report (Discord)") {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("bug_report") == null) {
+                BugReportDialog().show(fm, "bug_report")
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            ).apply { bottomMargin = dp(8) }
+        })
+
         // Link to Application Settings & Standalone/Server Sync Settings
         content.addView(makePillButton("Application & AI Coach Settings →") {
             dismiss()

@@ -134,6 +134,10 @@ class SwonalPreferences(context: Context) {
         get() = readSecret(KEY_SESSION_COOKIE)
         set(value) = writeSecret(KEY_SESSION_COOKIE, value)
 
+    var bugReportWebhookUrl: String?
+        get() = readSecret(KEY_BUG_REPORT_WEBHOOK_URL)
+        set(value) = writeSecret(KEY_BUG_REPORT_WEBHOOK_URL, value)
+
     var lastKnownAuthEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTH_ENABLED, false)
         set(value) {
@@ -259,6 +263,7 @@ class SwonalPreferences(context: Context) {
         private const val KEY_DEV_MODE = "developer_mode"
         private const val KEY_CACHED_USERS = "cached_users_json"
         private const val KEY_CACHED_EXERCISES = "cached_exercises_json"
+        private const val KEY_BUG_REPORT_WEBHOOK_URL = "bug_report_webhook_url"
 
         fun normalizeBaseUrl(raw: String, fallback: String = DEFAULT_SERVER_URL): String {
             val trimmed = raw.trim().removeSuffix("/")

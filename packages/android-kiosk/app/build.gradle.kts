@@ -16,6 +16,11 @@ android {
         val propVersionName = (project.findProperty("swonalVersionName") as String?)?.trim()?.takeIf { it.isNotEmpty() }
         versionCode = propVersionCode ?: 10101
         versionName = propVersionName ?: "1.1.1"
+        val bugWebhook = (project.findProperty("swonalBugReportWebhook") as String?)?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: System.getenv("SWONAL_BUG_REPORT_WEBHOOK")?.trim().orEmpty()
+        val escapedBugWebhook = bugWebhook.replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "BUG_REPORT_WEBHOOK_URL", "\"$escapedBugWebhook\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

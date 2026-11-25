@@ -77,6 +77,18 @@ class AppDrawerDialog : BaseSwonalDialog() {
             }
         })
 
+        root.addView(makeMenuCard(
+            "Send Bug Report",
+            "Share PII-scrubbed diagnostic logs & app version to Discord",
+            d
+        ) {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("bug_report") == null) {
+                BugReportDialog().show(fm, "bug_report")
+            }
+        })
+
         root.addView(makeDivider())
 
         // Stock Tonal UI handoff
@@ -139,6 +151,19 @@ class AppDrawerDialog : BaseSwonalDialog() {
             })
             root.addView(devRow)
         }
+
+        // App Version Footer
+        root.addView(TextView(requireContext()).apply {
+            text = "Swonal Kiosk v${com.swonal.kiosk.BuildConfig.VERSION_NAME} (code ${com.swonal.kiosk.BuildConfig.VERSION_CODE})"
+            textSize = 11f
+            typeface = SwonalFonts.monoBold(requireContext())
+            setTextColor(p.textMuted)
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        })
 
         return root
     }

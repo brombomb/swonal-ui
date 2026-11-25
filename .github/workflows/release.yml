@@ -140,6 +140,7 @@ jobs:
           SWONAL_KEYSTORE_PASSWORD: ${{ secrets.SWONAL_KEYSTORE_PASSWORD }}
           SWONAL_KEY_ALIAS: ${{ secrets.SWONAL_KEY_ALIAS }}
           SWONAL_KEY_PASSWORD: ${{ secrets.SWONAL_KEY_PASSWORD }}
+          SWONAL_BUG_REPORT_WEBHOOK: ${{ secrets.SWONAL_BUG_REPORT_WEBHOOK }}
         run: |
           VER="${RELEASE_TAG#v}"
           IFS='.' read -r MAJ MIN PAT <<< "${VER%%-*}"
