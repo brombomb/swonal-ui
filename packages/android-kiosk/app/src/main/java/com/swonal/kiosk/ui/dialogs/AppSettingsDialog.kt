@@ -1161,22 +1161,25 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         syncFieldsBox.addView(syncActionRow)
         card.addView(syncFieldsBox)
 
-        card.addView(makeSectionLabel("Local Motor Daemon (Loopback Only)"))
-        val daemonInput = makeInput("http://127.0.0.1:8765", ui.localDaemonUrl).apply {
-            textSize = 15f
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
+        card.addView(makeSectionLabel("Local Motor Daemon (Loopback Only — Fixed)"))
+        card.addView(TextView(requireContext()).apply {
+            text = ui.localDaemonUrl
+            textSize = 14f
+            typeface = SwonalFonts.monoBold(requireContext())
+            setTextColor(p.textMuted)
+            background = p.elevatedPillDrawable(d, 12f, interactive = false)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(12)
             }
-        }
-        card.addView(daemonInput)
+        })
 
         val saveRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         saveRow.addView(makeAccentButton("Save Mode & Reconnect") {
-            val rawDaemon = daemonInput.text.toString().trim()
-            val normalizedDaemon = SwonalPreferences.normalizeLoopbackDaemonUrl(rawDaemon)
+            val normalizedDaemon = SwonalPreferences.normalizeLoopbackDaemonUrl(ui.localDaemonUrl)
             val syncUrl = serverUrlInput.text.toString().trim()
             if (selectedMode == SyncMode.SERVER_SYNC && syncUrl.isEmpty()) {
                 Toast.makeText(requireContext(), "Enter a Home/Cloud Server URL or choose Standalone", Toast.LENGTH_SHORT).show()
@@ -1198,7 +1201,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                 repo.updateSyncConfiguration(
                     newSyncMode = selectedMode,
                     newSyncServerUrl = serverUrlInput.text.toString().trim(),
-                    newLocalDaemonUrl = daemonInput.text.toString().trim(),
+                    newLocalDaemonUrl = SwonalPreferences.normalizeLoopbackDaemonUrl(ui.localDaemonUrl),
                     clearToken = true
                 )
                 Toast.makeText(requireContext(), "Cleared saved token", Toast.LENGTH_SHORT).show()

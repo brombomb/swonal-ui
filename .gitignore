@@ -41,5 +41,6 @@ packages/android-kiosk/app/build/
 packages/android-kiosk/local.properties
 packages/android-kiosk/.idea/
 packages/android-kiosk/app/src/main/assets/web/
+packages/android-kiosk/app/src/main/assets/vosk-model-small-en-us-0.15/
 *.iml
 .kotlin/

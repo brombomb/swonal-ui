@@ -1,3 +1,6 @@
+import java.net.URI
+import java.util.zip.ZipInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -160,6 +163,47 @@ val syncWebAssets by tasks.registering {
     }
 }
 
+val syncVoskModel by tasks.registering {
+    val modelName = "vosk-model-small-en-us-0.15"
+    val modelUrl = "https://alphacephei.com/vosk/models/$modelName.zip"
+    val modelAssetsDir = file("src/main/assets/$modelName")
+    val manifestFile = file("${modelAssetsDir.path}/asset-manifest.txt")
+    outputs.dir(modelAssetsDir)
+    onlyIf { !file("${modelAssetsDir.path}/am/final.mdl").exists() || !manifestFile.exists() }
+    doLast {
+        val tmpZip = file("${layout.buildDirectory.get().asFile}/tmp/$modelName.zip")
+        tmpZip.parentFile.mkdirs()
+        if (!tmpZip.exists() || tmpZip.length() < 10_000_000L) {
+            logger.lifecycle("syncVoskModel: Downloading $modelUrl ...")
+            URI(modelUrl).toURL().openStream().use { input ->
+                tmpZip.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+        modelAssetsDir.deleteRecursively()
+        modelAssetsDir.mkdirs()
+        val relPaths = mutableListOf<String>()
+        ZipInputStream(tmpZip.inputStream().buffered()).use { zis ->
+            while (true) {
+                val entry = zis.nextEntry ?: break
+                val stripped = entry.name.removePrefix("$modelName/").trimStart('/')
+                if (stripped.isNotEmpty() && !stripped.contains("..")) {
+                    val outFile = File(modelAssetsDir, stripped)
+                    if (entry.isDirectory) {
+                        outFile.mkdirs()
+                    } else {
+                        outFile.parentFile?.mkdirs()
+                        outFile.outputStream().use { fos -> zis.copyTo(fos) }
+                        relPaths += stripped
+                    }
+                }
+                zis.closeEntry()
+            }
+        }
+        manifestFile.writeText(relPaths.sorted().joinToString("\n") + "\n")
+        logger.lifecycle("syncVoskModel: Bundled ${relPaths.size} files into ${modelAssetsDir.path}")
+    }
+}
+
 tasks.matching { it.name == "preBuild" }.configureEach {
-    dependsOn(syncWebAssets)
+    dependsOn(syncWebAssets, syncVoskModel)
 }

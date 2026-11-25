@@ -11,8 +11,8 @@ Because stock Tonal V1 tablets run AOSP Android 6.0 without Google Play Services
 ### How to Use It
 1. On the Tonal screen, tap the **Voice** pill next to the **Device Volume** bar at the bottom of the screen.
 2. Grant the **Microphone** permission when prompted (one-time).
-3. On your **first tap only**, Swonal automatically downloads and unpacks the compact English acoustic model (`vosk-model-small-en-us-0.15`, ~40 MB) into private app storage. The button shows `Loading...` while downloading.
-4. Once ready, the button turns red (`Voice On`) and continuously listens **100% offline** — no internet, no Google services, and no HTTPS needed.
+3. On your **first tap only**, Swonal copies the **bundled** English acoustic model (`vosk-model-small-en-us-0.15`, packaged inside the APK) into private app storage in ~1–2 seconds. The button briefly shows `Loading...`.
+4. Once ready, the button turns red (`Voice On`) and continuously listens **100% offline** — zero internet, zero Google services, and no HTTPS needed.
 5. Speak any command (for example, *"add 5 pounds"*, *"weight off"*, *"next exercise"*). Recognized phrases are shown briefly in a toast and executed immediately by the local AI Coach engine.
 6. Tap **Voice On** again to stop listening.
 

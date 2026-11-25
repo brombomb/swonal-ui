@@ -46,6 +46,30 @@ class OfflineVoiceRecognizer(
         val root = modelRootDir()
         findModelDir(root)?.let { return@withContext it }
 
+        // 1. Fast path: copy Vosk acoustic model bundled directly inside the APK assets
+        val bundledManifest = runCatching {
+            context.assets.open("$MODEL_DIR_NAME/asset-manifest.txt").bufferedReader().use { it.readLines() }
+        }.getOrNull()?.map { it.trim() }?.filter { it.isNotEmpty() && !it.contains("..") && !it.startsWith("/") }
+
+        if (!bundledManifest.isNullOrEmpty()) {
+            onProgress("Preparing bundled offline voice model...")
+            if (root.exists()) root.deleteRecursively()
+            root.mkdirs()
+            val canonicalRoot = root.canonicalPath + File.separator
+            for (rel in bundledManifest) {
+                val outFile = File(root, rel)
+                if (!outFile.canonicalPath.startsWith(canonicalRoot)) {
+                    throw SecurityException("Blocked invalid bundled voice asset path: $rel")
+                }
+                outFile.parentFile?.mkdirs()
+                context.assets.open("$MODEL_DIR_NAME/$rel").use { input ->
+                    FileOutputStream(outFile).use { output -> input.copyTo(output) }
+                }
+            }
+            findModelDir(root)?.let { return@withContext it }
+        }
+
+        // 2. Fallback: download once over HTTPS if APK was built without bundled assets
         onProgress("Downloading offline voice model (~40 MB, one-time)...")
         val tmpZip = File(context.cacheDir, "$MODEL_DIR_NAME.zip.tmp")
         val client = OkHttpClient.Builder().apply {
@@ -158,9 +182,9 @@ class OfflineVoiceRecognizer(
 
     private fun findModelDir(root: File): File? {
         if (!root.exists() || !root.isDirectory) return null
-        if (File(root, "conf").isDirectory || File(root, "am").isDirectory) return root
+        if (File(root, "am/final.mdl").isFile && File(root, "conf").isDirectory) return root
         return root.listFiles()?.firstOrNull { child ->
-            child.isDirectory && (File(child, "conf").isDirectory || File(child, "am").isDirectory)
+            child.isDirectory && File(child, "am/final.mdl").isFile && File(child, "conf").isDirectory
         }
     }
 
