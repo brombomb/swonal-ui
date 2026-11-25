@@ -53,10 +53,10 @@ type CompanionTab = 'remote' | 'builder' | 'history' | 'friends';
 const BLOCK_TYPES: BlockType[] = ['WARMUP', 'STRAIGHT_SET', 'SUPERSET', 'CIRCUIT'];
 const DYNAMIC_MODES: Array<{ id: DynamicMode; label: string; defaultPct: number }> = [
   { id: 'standard', label: 'Standard', defaultPct: 0 },
-  { id: 'eccentric', label: 'Eccentric', defaultPct: 25 },
-  { id: 'chains', label: 'Chains', defaultPct: 25 },
   { id: 'spotter', label: 'Spotter', defaultPct: 0 },
   { id: 'burnout', label: 'Burnout', defaultPct: 0 },
+  { id: 'eccentric', label: 'Eccentric', defaultPct: 25 },
+  { id: 'chains', label: 'Chains', defaultPct: 25 },
   { id: 'smart_flex', label: 'Smart Flex', defaultPct: 25 },
 ];
 

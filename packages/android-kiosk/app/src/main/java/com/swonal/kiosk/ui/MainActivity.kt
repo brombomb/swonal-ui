@@ -1490,15 +1490,15 @@ class MainActivity : AppCompatActivity() {
         val d = resources.displayMetrics.density
         val modes = listOf(
             Triple("standard", "Standard", binding.btnModeStandard),
-            Triple("eccentric", "Eccentric", binding.btnModeEccentric),
-            Triple("chains", "Chains", binding.btnModeChains),
             Triple("spotter", "Spotter", binding.btnModeSpotter),
             Triple("burnout", "Burnout", binding.btnModeBurnout),
+            Triple("eccentric", "Eccentric", binding.btnModeEccentric),
+            Triple("chains", "Chains", binding.btnModeChains),
             Triple("smart_flex", "Smart Flex", binding.btnModeSmartFlex)
         )
         modes.forEach { (id, label, view) ->
             val selected = norm == id
-            view.text = if (selected && modifierPct > 0) "$label (+$modifierPct%)" else label
+            view.text = label
             view.background = if (selected) p.accentPillDrawable(d, 12f) else p.elevatedPillDrawable(d, 12f)
             view.setTextColor(if (selected) p.accentTextColor else p.textPrimary)
         }
@@ -1508,7 +1508,7 @@ class MainActivity : AppCompatActivity() {
             "spotter" -> "Spotter — Automatically reduces weight if you slow down or stall mid-rep"
             "burnout" -> "Burnout — Gradually drops weight as you fatigue so you can push further"
             "smart_flex" -> "Smart Flex — Dynamically adds up to +${modifierPct.coerceAtLeast(25)}% at your strongest point"
-            else -> "Standard — Constant digital resistance through the full range of motion"
+            else -> "Standard — Constant resistance through the full range of motion"
         }
     }
 
@@ -1582,7 +1582,8 @@ class MainActivity : AppCompatActivity() {
         binding.velocityGaugeView.applyPalette(p)
 
         // Surface Cards + Material Elevations (gives Light Mode crisp diffused depth)
-        val cardElev = (if (p.isDark) 8f else 5f) * d
+        // Zero elevation on translucent cards prevents Android 6.0 (API 23) Mali-T860 sharp rectangular
+        // shadow bleed behind rounded corners (especially visible in Light mode).
         val floatElev = 14f * d
         binding.topStatusBar.background = p.surfaceCardDrawable(d, 18f)
         binding.exerciseHeaderCard.background = p.surfaceCardDrawable(d, 18f)
@@ -1598,7 +1599,7 @@ class MainActivity : AppCompatActivity() {
             binding.formDemoCard,
             binding.setControlDeck,
             binding.musicDock
-        ).forEach { ViewCompat.setElevation(it, cardElev) }
+        ).forEach { ViewCompat.setElevation(it, 0f) }
         ViewCompat.setElevation(binding.restTimerOverlay, floatElev)
 
         // Banners
