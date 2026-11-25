@@ -76,6 +76,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     currentStep,
     restSecondsRemaining,
     vbtMetrics,
+    symmetryMetrics,
     soundMuted,
     musicConfigured,
     musicState,
@@ -383,11 +384,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Hands-Free AirPods Voice Control on Companion Remote
+  // Hands-Free Voice Control on Companion Remote
   const [isVoiceListening, setIsVoiceListening] = useState(false);
-  const [voiceInputDraft, setVoiceInputDraft] = useState('');
   const [voiceCoachReply, setVoiceCoachReply] = useState<string>(
-    'Say "Add 5 pounds", "Chains mode", "Weight on", or "Next exercise".'
+    'Tap the mic icon to toggle hands-free voice control.'
   );
   const [lastVoiceHeard, setLastVoiceHeard] = useState<string | null>(null);
   const voiceMicActiveRef = useRef(false);
@@ -523,7 +523,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       (window as unknown as Record<string, unknown>).SpeechRecognition ||
       (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     if (!SpeechRec || typeof SpeechRec !== 'function') {
-      setVoiceCoachReply('Voice recognition unavailable in this browser — type a command below.');
+      setVoiceCoachReply('Voice recognition is not supported in this browser.');
       return;
     }
 
@@ -560,7 +560,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
         const trimmed = segment.trim();
         if (trimmed) {
           voicePendingRef.current = trimmed;
-          setVoiceInputDraft(trimmed);
+          setLastVoiceHeard(trimmed);
         }
         if (voicePauseTimerRef.current) clearTimeout(voicePauseTimerRef.current);
         voicePauseTimerRef.current = setTimeout(() => {
@@ -568,7 +568,6 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           if (query) {
             voiceLastSubmittedIdxRef.current = event.results.length;
             voicePendingRef.current = '';
-            setVoiceInputDraft('');
             void askCompanionCoach(query);
           }
         }, 1200);
@@ -978,28 +977,65 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       <Dumbbell size={13} style={{ color: 'var(--accent-ink)' }} />
                       <span>Saved Workouts</span>
                     </button>
-                    {activeExercise && (
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          onClick={() => setShowArmInfo((v) => !v)}
-                          className="h-8 px-2.5 rounded-lg elevated-pill inline-flex items-center gap-1.5 text-[11px] font-mono font-bold opacity-85 hover:opacity-100 whitespace-nowrap"
-                        >
-                          <span>
-                            {activeExercise.accessory} • H{activeExercise.recommendedHeight} R
-                            {activeExercise.recommendedRotation} A{activeExercise.recommendedAngle}
-                          </span>
-                          <Info size={12} />
-                        </button>
-                        {showArmInfo && (
-                          <div className="absolute left-0 top-9 w-64 surface-card rounded-xl p-3 shadow-xl border text-[11px] space-y-1 z-30">
-                            <p><strong>H:</strong> Arm Height (1 low – 6 high)</p>
-                            <p><strong>R:</strong> Arm Rotation (swing 1 – 3)</p>
-                            <p><strong>A:</strong> Arm Angle (tilt 1 – 2)</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {activeExercise && (() => {
+                      const arms = telemetry.arm_positions;
+                      const tH = activeExercise.recommendedHeight;
+                      const tR = activeExercise.recommendedRotation;
+                      const tA = activeExercise.recommendedAngle;
+                      const lH = Math.round(arms?.height?.left ?? 0);
+                      const rH = Math.round(arms?.height?.right ?? 0);
+                      const lR = Math.round(arms?.rotation?.left ?? 0);
+                      const rR = Math.round(arms?.rotation?.right ?? 0);
+                      const lA = Math.round(arms?.angle?.left ?? 0);
+                      const rA = Math.round(arms?.angle?.right ?? 0);
+                      const armsSynced =
+                        daemonConnected &&
+                        lH === tH && rH === tH &&
+                        lR === tR && rR === tR &&
+                        lA === tA && rA === tA;
+                      return (
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            onClick={() => setShowArmInfo((v) => !v)}
+                            className={`h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[11px] font-mono font-bold whitespace-nowrap border ${
+                              armsSynced
+                                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                                : daemonConnected
+                                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                  : 'elevated-pill opacity-85'
+                            }`}
+                          >
+                            <span>
+                              {activeExercise.accessory} • H{tH} R{tR} A{tA}
+                            </span>
+                            <Info size={12} />
+                          </button>
+                          {showArmInfo && (
+                            <div className="absolute left-0 top-9 w-64 surface-card rounded-xl p-3 shadow-xl border text-[11px] font-mono space-y-1.5 z-30">
+                              <div className="flex items-center justify-between font-sans">
+                                <span className="font-bold">Live Arm Sync</span>
+                                <span className={armsSynced ? 'text-emerald-400 font-bold' : 'text-amber-300 font-bold'}>
+                                  {armsSynced ? 'SYNCED' : daemonConnected ? 'ADJUST ARMS' : 'OFFLINE'}
+                                </span>
+                              </div>
+                              <div className="space-y-0.5 text-[11px]">
+                                <p className="opacity-75">Target  H{tH}  R{tR}  A{tA}</p>
+                                <p>
+                                  Left    <span className={lH === tH ? 'text-emerald-400' : 'text-rose-400'}>H{lH}</span>  <span className={lR === tR ? 'text-emerald-400' : 'text-rose-400'}>R{lR}</span>  <span className={lA === tA ? 'text-emerald-400' : 'text-rose-400'}>A{lA}</span>
+                                </p>
+                                <p>
+                                  Right   <span className={rH === tH ? 'text-emerald-400' : 'text-rose-400'}>H{rH}</span>  <span className={rR === tR ? 'text-emerald-400' : 'text-rose-400'}>R{rR}</span>  <span className={rA === tA ? 'text-emerald-400' : 'text-rose-400'}>A{rA}</span>
+                                </p>
+                              </div>
+                              <p className="font-sans text-[10px] opacity-65 pt-1 border-t border-[var(--border-subtle)]">
+                                H: Height (1–6) • R: Rotation (1–3) • A: Angle (1–2)
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1255,80 +1291,102 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
               </div>
             </section>
 
-            {/* Hands-Free AirPods Voice Control Card */}
-            <section className="surface-card rounded-3xl p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                      isVoiceListening ? 'bg-red-500 text-white animate-pulse' : 'elevated-pill'
+            {/* Live VBT & Symmetry Strip */}
+            <section className="surface-card rounded-3xl p-4 grid grid-cols-2 gap-3">
+              <div className="elevated-pill rounded-2xl p-3 space-y-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-mono font-extrabold uppercase tracking-wider opacity-70">
+                    VBT Velocity
+                  </span>
+                  <span
+                    className={`text-[10px] font-mono font-black ${
+                      vbtMetrics.fatigueAlert ? 'text-amber-400' : 'text-emerald-400'
                     }`}
                   >
-                    {isVoiceListening ? (
-                      <Mic size={18} />
-                    ) : (
-                      <MicOff size={18} style={{ color: 'var(--accent-ink)' }} />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-black">AirPods Voice Control</h3>
-                      {isVoiceListening && (
-                        <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-mono font-black uppercase">
-                          Voice Active
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs opacity-75 truncate">
-                      {lastVoiceHeard ? `"${lastVoiceHeard}" → ${voiceCoachReply}` : voiceCoachReply}
-                    </p>
-                  </div>
+                    -{Math.round(vbtMetrics.velocityDropPct)}% Drop
+                  </span>
                 </div>
+                <p className="text-lg font-mono font-black tabular-nums">
+                  {activeUnit === 'LB'
+                    ? (vbtMetrics.currentVelocity / 2.54).toFixed(1)
+                    : vbtMetrics.currentVelocity.toFixed(1)}{' '}
+                  <span className="text-[11px] opacity-70">
+                    {activeUnit === 'LB' ? 'in/s' : 'cm/s'}
+                  </span>
+                </p>
+                <p className="text-[10px] font-mono opacity-65">
+                  Peak{' '}
+                  {activeUnit === 'LB'
+                    ? (vbtMetrics.peakSetVelocity / 2.54).toFixed(1)
+                    : vbtMetrics.peakSetVelocity.toFixed(1)}{' '}
+                  {activeUnit === 'LB' ? 'in/s' : 'cm/s'}
+                </p>
+              </div>
+
+              <div className="elevated-pill rounded-2xl p-3 space-y-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-mono font-extrabold uppercase tracking-wider opacity-70">
+                    Symmetry
+                  </span>
+                  <span
+                    className={`text-[10px] font-mono font-black uppercase ${
+                      symmetryMetrics.status === 'critical'
+                        ? 'text-rose-400'
+                        : symmetryMetrics.status === 'drift'
+                          ? 'text-amber-400'
+                          : 'text-emerald-400'
+                    }`}
+                  >
+                    {symmetryMetrics.status}
+                  </span>
+                </div>
+                <p className="text-lg font-mono font-black tabular-nums">
+                  L {Math.round(symmetryMetrics.leftLoadPct)}%{' '}
+                  <span className="opacity-40">/</span> R {Math.round(symmetryMetrics.rightLoadPct)}%
+                </p>
+                <p className="text-[10px] font-mono opacity-65">
+                  Δ {symmetryMetrics.positionDelta.toFixed(1)} ROM
+                </p>
+              </div>
+            </section>
+
+            {/* Hands-Free Voice Control Card (Toggle-Only) */}
+            <section className="surface-card rounded-3xl p-4">
+              <div className="flex items-center gap-3 min-w-0">
                 <button
                   type="button"
                   onClick={toggleCompanionVoice}
                   aria-pressed={isVoiceListening}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 shrink-0 transition ${
-                    isVoiceListening ? 'bg-red-500 text-white shadow-md' : ''
+                  aria-label={isVoiceListening ? 'Turn Voice Control Off' : 'Turn Voice Control On'}
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition ${
+                    isVoiceListening
+                      ? 'bg-red-500 text-white animate-pulse shadow-md'
+                      : 'elevated-pill hover:opacity-90'
                   }`}
-                  style={
-                    !isVoiceListening
-                      ? { backgroundColor: 'var(--accent-primary)', color: accentTextColor }
-                      : undefined
-                  }
                 >
-                  <Mic size={14} />
-                  <span>{isVoiceListening ? 'Stop Mic' : 'Voice Mode'}</span>
+                  {isVoiceListening ? (
+                    <Mic size={20} />
+                  ) : (
+                    <MicOff size={20} style={{ color: 'var(--accent-ink)' }} />
+                  )}
                 </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={voiceInputDraft}
-                  onChange={(e) => setVoiceInputDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && voiceInputDraft.trim()) {
-                      const q = voiceInputDraft;
-                      setVoiceInputDraft('');
-                      void askCompanionCoach(q);
-                    }
-                  }}
-                  placeholder='Say or type "Add 5 pounds", "Chains mode", "Weight on"...'
-                  className="flex-1 min-w-0 px-3 py-2 rounded-xl elevated-pill text-xs outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!voiceInputDraft.trim()) return;
-                    const q = voiceInputDraft;
-                    setVoiceInputDraft('');
-                    void askCompanionCoach(q);
-                  }}
-                  aria-label="Send Voice Command"
-                  className="elevated-pill px-3 py-2 rounded-xl text-xs font-bold"
-                >
-                  <Send size={14} />
-                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-black">Voice Control</h3>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black uppercase ${
+                        isVoiceListening
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'elevated-pill opacity-70'
+                      }`}
+                    >
+                      {isVoiceListening ? 'On' : 'Off'}
+                    </span>
+                  </div>
+                  <p className="text-xs opacity-75 truncate">
+                    {lastVoiceHeard ? `"${lastVoiceHeard}" → ${voiceCoachReply}` : voiceCoachReply}
+                  </p>
+                </div>
               </div>
             </section>
 
