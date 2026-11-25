@@ -48,18 +48,28 @@ class AppDrawerDialog : BaseSwonalDialog() {
             return root
         }
 
-        // Primary Swonal Views (open seamlessly in-app from embedded :3000 server)
-        val sections = listOf(
-            Triple("History & PRs", "Workout log, volume trends, and personal records", "$localWebUrl/history"),
-            Triple("Application Settings", "Preferences, AI Coach configuration, Spotify & security", "$localWebUrl/settings"),
-            Triple("Admin & Exercises", "Exercise catalog, media loops, and hardware calibration", "$localWebUrl/admin")
-        )
-        sections.forEach { (title, subtitle, url) ->
-            root.addView(makeMenuCard(title, subtitle, d) {
-                dismiss()
-                openSafeHttpUrl(url, title)
-            })
-        }
+        // Primary Swonal Views (100% native Android dialogs on-device — zero GeckoView overhead)
+        root.addView(makeMenuCard("History & PRs", "Workout log, volume trends, and personal records", d) {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("history") == null) {
+                HistoryDialog().show(fm, "history")
+            }
+        })
+        root.addView(makeMenuCard("Application Settings", "Household lifters, AI Coach, Sync & system settings", d) {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("app_settings") == null) {
+                AppSettingsDialog().show(fm, "app_settings")
+            }
+        })
+        root.addView(makeMenuCard("Admin & Exercises", "Exercise catalog and hardware calibration", d) {
+            val fm = parentFragmentManager
+            dismiss()
+            if (!fm.isStateSaved && fm.findFragmentByTag("admin") == null) {
+                AdminDialog().show(fm, "admin")
+            }
+        })
 
         root.addView(makeMenuCard(
             "Standalone & Home Server Sync",

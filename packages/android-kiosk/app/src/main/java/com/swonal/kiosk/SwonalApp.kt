@@ -54,7 +54,6 @@ class SwonalApp : Application(), ImageLoaderFactory {
             seedCatalogJson = seedCatalogJson
         )
         startEmbeddedCompanionServer()
-        com.swonal.kiosk.ui.SwonalWebActivity.warmup(this)
 
         // Synchronize STREAM_SYSTEM to media volume so system UI doesn't blast deafening clicks
         runCatching {
