@@ -86,7 +86,7 @@ class ProfileStyleDialog : BaseSwonalDialog() {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
+            ).apply { bottomMargin = dp(10) }
         }
         val hexInput = makeInput("#00F0FF", currentHex).apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) }
@@ -102,37 +102,35 @@ class ProfileStyleDialog : BaseSwonalDialog() {
         })
         body.addView(hexRow)
 
-        // Display & Units Preferences (moved from Quick Preferences popup)
+        // Theme toggle directly under Apply Hex
+        val (themeRow, themeValueTv) = makeToggleRow(
+            "Theme",
+            if (localDark) "Dark" else "Light",
+            d
+        )
+        themeRow.setOnClickListener {
+            localDark = !localDark
+            themeValueTv.text = if (localDark) "Dark" else "Light"
+            repo.toggleTheme()
+            dismiss()
+        }
+        body.addView(themeRow)
+
+        // Display & Units Preferences
         body.addView(makeDivider())
         body.addView(makeSectionLabel("Display & Units"))
 
-        val unitThemeRow = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
-        }
-        lateinit var unitBtn: TextView
-        unitBtn = makePillButton("Units: $localUnit", mono = true) {
+        val (unitRow, unitValueTv) = makeToggleRow(
+            "Units",
+            localUnit,
+            d
+        )
+        unitRow.setOnClickListener {
             localUnit = if (localUnit.equals("KG", ignoreCase = true)) "LB" else "KG"
-            unitBtn.text = "Units: $localUnit"
+            unitValueTv.text = localUnit
             repo.toggleUnit()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(8) }
         }
-        lateinit var themeBtn: TextView
-        themeBtn = makePillButton("Theme: ${if (localDark) "Dark" else "Light"}") {
-            localDark = !localDark
-            themeBtn.text = "Theme: ${if (localDark) "Dark" else "Light"}"
-            repo.toggleTheme()
-            dismiss()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
-        }
-        unitThemeRow.addView(unitBtn)
-        unitThemeRow.addView(themeBtn)
-        body.addView(unitThemeRow)
+        body.addView(unitRow)
 
         val (demoRow, demoValueTv) = makeToggleRow(
             "Form Demo Video",
@@ -157,39 +155,6 @@ class ProfileStyleDialog : BaseSwonalDialog() {
             repo.cycleTelemetryDisplayMode()
         }
         body.addView(vbtRow)
-
-        body.addView(makeDivider())
-        body.addView(makeSectionLabel("Add Household Lifter"))
-
-        val nameInput = makeInput("Lifter name").apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(42)
-            ).apply { bottomMargin = dp(8) }
-        }
-        body.addView(nameInput)
-
-        val newColorRow = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val newColorInput = makeInput("#CCFF00", "#CCFF00").apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) }
-        }
-        newColorRow.addView(newColorInput)
-        newColorRow.addView(makeAccentButton("+ Add Profile") {
-            val name = nameInput.text.toString().trim()
-            val hex = newColorInput.text.toString().trim().let {
-                if (it.matches(Regex("^#[0-9A-Fa-f]{6}$"))) it.uppercase() else "#CCFF00"
-            }
-            if (name.isNotEmpty()) {
-                repo.createHouseholdUser(name, hex)
-                dismiss()
-            }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42))
-        })
-        body.addView(newColorRow)
 
         root.addView(ScrollView(requireContext()).apply {
             layoutParams = LinearLayout.LayoutParams(
