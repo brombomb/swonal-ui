@@ -78,3 +78,14 @@
 -dontwarn org.mozilla.gecko.**
 -dontwarn org.mozilla.geckoview.**
 -dontwarn java.beans.**
+
+# Keep Vosk offline STT & JNA native bindings
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.** { *; }
+-keep class org.vosk.** { *; }
+-dontwarn com.sun.jna.**
+-dontwarn org.vosk.**
+-dontwarn java.awt.**
+
+# Keep BouncyCastle local TLS certificate generator
+-dontwarn org.bouncycastle.**

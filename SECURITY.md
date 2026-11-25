@@ -21,8 +21,9 @@ Please include:
 
 ## Standalone On-Device & Sync Security Architecture
 - **Encrypted Credentials at Rest:** BYOK AI keys, Spotify Keymaster OAuth tokens, Home Assistant tokens, and Nostr `nsec` private keys stored on the Tonal tablet in `swonal_local.db` are encrypted using **Android Keystore AES-256-GCM** (`SecretCipher`, hardware/OS-backed key storage on API 23+).
-- **Embedded `:3000` LAN Server Hardening:**
-  - Loopback (`127.0.0.1` / `::1`) is trusted for the on-device GeckoView Kiosk web panels; non-loopback LAN clients enforce PBKDF2-HMAC-SHA256 passcode verification with `HttpOnly; SameSite=Lax` session cookies and constant-time Bearer token comparison.
+- **Embedded `:53013` HTTP & Optional `:53443` HTTPS LAN Server Hardening:**
+  - Loopback (`127.0.0.1` / `::1`) is trusted for on-device clients; non-loopback LAN clients enforce PBKDF2-HMAC-SHA256 passcode verification with `HttpOnly; SameSite=Lax` session cookies and constant-time Bearer token comparison.
+  - Optional on-device HTTPS (`:53443`, toggled in Kiosk **Settings → Application Settings**) generates a device-local RSA-2048 Root CA and LAN-SAN leaf certificate (`LocalTlsCertManager`) stored in app-private storage, with the public Root CA downloadable at `GET /api/tls/ca.crt` so mobile browsers can trust HTTPS Companion sessions without a reverse proxy.
   - Strict canonical path-traversal guards protect `/media/*` and bundled static web assets (blocking `..`, backslashes, null bytes, and out-of-root symlinks).
   - Request body caps (`2 MB` JSON routes, `25 MB` JSON backup restore) and strict LAN/loopback CORS origin whitelisting protect embedded memory on Android 6.0.
   - Intent extra overrides (`MainActivity.handleLaunchIntent`) are disabled in Release builds (`!BuildConfig.DEBUG`) and strictly validate `http://`/`https://` URLs.

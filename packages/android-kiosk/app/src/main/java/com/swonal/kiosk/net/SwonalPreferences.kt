@@ -138,6 +138,12 @@ class SwonalPreferences(context: Context) {
         get() = readSecret(KEY_BUG_REPORT_WEBHOOK_URL)
         set(value) = writeSecret(KEY_BUG_REPORT_WEBHOOK_URL, value)
 
+    var localHttpsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LOCAL_HTTPS_ENABLED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_LOCAL_HTTPS_ENABLED, value).apply()
+        }
+
     var lastKnownAuthEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTH_ENABLED, false)
         set(value) {
@@ -246,6 +252,7 @@ class SwonalPreferences(context: Context) {
         const val DEFAULT_SERVER_URL = "http://127.0.0.1:3000"
         const val DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
         const val DEFAULT_EMBEDDED_PORT = 53013
+        const val DEFAULT_EMBEDDED_HTTPS_PORT = 53443
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "swonal_kiosk_secret_key_v1"
@@ -264,6 +271,7 @@ class SwonalPreferences(context: Context) {
         private const val KEY_CACHED_USERS = "cached_users_json"
         private const val KEY_CACHED_EXERCISES = "cached_exercises_json"
         private const val KEY_BUG_REPORT_WEBHOOK_URL = "bug_report_webhook_url"
+        private const val KEY_LOCAL_HTTPS_ENABLED = "local_https_enabled"
 
         fun normalizeBaseUrl(raw: String, fallback: String = DEFAULT_SERVER_URL): String {
             val trimmed = raw.trim().removeSuffix("/")

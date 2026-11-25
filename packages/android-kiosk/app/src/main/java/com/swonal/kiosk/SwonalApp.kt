@@ -26,6 +26,10 @@ class SwonalApp : Application(), ImageLoaderFactory {
         private set
     var embeddedServer: com.swonal.kiosk.server.EmbeddedSwonalServer? = null
         private set
+    var embeddedHttpsServer: com.swonal.kiosk.server.EmbeddedSwonalServer? = null
+        private set
+    lateinit var localTlsCertManager: com.swonal.kiosk.server.LocalTlsCertManager
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -103,12 +107,19 @@ class SwonalApp : Application(), ImageLoaderFactory {
 
     private fun startEmbeddedCompanionServer() {
         val mediaDir = java.io.File(filesDir, "media").apply { mkdirs() }
+        localTlsCertManager = com.swonal.kiosk.server.LocalTlsCertManager(java.io.File(filesDir, "tls"))
+        val caProvider: () -> String = {
+            localTlsCertManager.getCaCertificatePem(
+                com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+            )
+        }
         fun createServer(port: Int) = com.swonal.kiosk.server.EmbeddedSwonalServer(
             repo = repository,
             port = port,
             mediaDir = mediaDir,
             webAssetOpener = { relPath -> runCatching { assets.open("web/$relPath") }.getOrNull() },
-            mediaAssetOpener = { name -> runCatching { assets.open("media/$name") }.getOrNull() }
+            mediaAssetOpener = { name -> runCatching { assets.open("media/$name") }.getOrNull() },
+            caCertPemProvider = caProvider
         )
 
         val preferredPort = SwonalPreferences.DEFAULT_EMBEDDED_PORT
@@ -125,5 +136,46 @@ class SwonalApp : Application(), ImageLoaderFactory {
                 com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
             )
         }
+        if (prefs.localHttpsEnabled) {
+            reconfigureLocalHttps(true)
+        }
+    }
+
+    @Synchronized
+    fun reconfigureLocalHttps(enabled: Boolean) {
+        prefs.localHttpsEnabled = enabled
+        runCatching { embeddedHttpsServer?.stopServer() }
+        embeddedHttpsServer = null
+        if (!enabled) return
+
+        val mediaDir = java.io.File(filesDir, "media").apply { mkdirs() }
+        val caProvider: () -> String = {
+            localTlsCertManager.getCaCertificatePem(
+                com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+            )
+        }
+        Thread({
+            runCatching {
+                val lanIps = com.swonal.kiosk.server.EmbeddedSwonalServer.discoverLanIpv4s()
+                val sslFactory = localTlsCertManager.createServerSocketFactory(lanIps)
+                val httpsSrv = com.swonal.kiosk.server.EmbeddedSwonalServer(
+                    repo = repository,
+                    port = SwonalPreferences.DEFAULT_EMBEDDED_HTTPS_PORT,
+                    mediaDir = mediaDir,
+                    webAssetOpener = { relPath -> runCatching { assets.open("web/$relPath") }.getOrNull() },
+                    mediaAssetOpener = { name -> runCatching { assets.open("media/$name") }.getOrNull() },
+                    caCertPemProvider = caProvider
+                )
+                httpsSrv.makeSecure(sslFactory, null)
+                httpsSrv.startServer()
+                synchronized(this@SwonalApp) {
+                    if (prefs.localHttpsEnabled) {
+                        embeddedHttpsServer = httpsSrv
+                    } else {
+                        httpsSrv.stopServer()
+                    }
+                }
+            }
+        }, "swonal-local-https-init").start()
     }
 }

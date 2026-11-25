@@ -80,6 +80,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }
 }
@@ -119,6 +120,13 @@ dependencies {
     // Embedded lightweight HTTP & WebSocket server for serverless LAN Companion & local web views
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+
+    // Offline on-device Speech-to-Text (Vosk over AudioRecord — zero Google Services required)
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    implementation("com.alphacephei:vosk-android:0.3.47")
+
+    // Pure-Java X.509 certificate generator for optional on-device HTTPS (:53443)
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 
     // Unit Tests (JUnit 5 + MockWebServer + Host JVM Bundled SQLite)
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
