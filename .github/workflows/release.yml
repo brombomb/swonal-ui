@@ -63,7 +63,9 @@ jobs:
   build-apk:
     name: Build Android Kiosk APK
     needs: [release-please]
-    if: ${{ !cancelled() && ((startsWith(github.ref, 'refs/tags/v') && needs.release-please.result == 'skipped') || (needs.release-please.result == 'success' && needs.release-please.outputs.release_created == 'true')) }}
+    # Run builds & Discord notification only on tag pushes (refs/tags/v*) to avoid duplicate
+    # runs when RELEASE_PLEASE_TOKEN (PAT) pushes a tag after release-please on main.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.release-please.result == 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -158,7 +160,7 @@ jobs:
   build-server:
     name: Build Server App Bundle
     needs: [release-please]
-    if: ${{ !cancelled() && ((startsWith(github.ref, 'refs/tags/v') && needs.release-please.result == 'skipped') || (needs.release-please.result == 'success' && needs.release-please.outputs.release_created == 'true')) }}
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.release-please.result == 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code

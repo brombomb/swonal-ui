@@ -15,6 +15,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -291,6 +292,74 @@ class SwonalWebActivity : AppCompatActivity() {
                     runOnUiThread {
                         loadingOverlay.visibility = View.GONE
                     }
+                }
+            }
+            promptDelegate = object : GeckoSession.PromptDelegate {
+                override fun onAlertPrompt(
+                    session: GeckoSession,
+                    prompt: GeckoSession.PromptDelegate.AlertPrompt
+                ): org.mozilla.geckoview.GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+                    if (isFinishing || isDestroyed) {
+                        return org.mozilla.geckoview.GeckoResult.fromValue(prompt.dismiss())
+                    }
+                    val result = org.mozilla.geckoview.GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                    val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) {
+                            if (completed.compareAndSet(false, true)) result.complete(prompt.dismiss())
+                            return@runOnUiThread
+                        }
+                        AlertDialog.Builder(this@SwonalWebActivity)
+                            .setTitle(prompt.title?.takeIf { it.isNotBlank() } ?: "Swonal")
+                            .setMessage(prompt.message.orEmpty())
+                            .setPositiveButton("OK") { _, _ ->
+                                if (completed.compareAndSet(false, true)) result.complete(prompt.dismiss())
+                            }
+                            .setOnCancelListener {
+                                if (completed.compareAndSet(false, true)) result.complete(prompt.dismiss())
+                            }
+                            .show()
+                    }
+                    return result
+                }
+
+                override fun onButtonPrompt(
+                    session: GeckoSession,
+                    prompt: GeckoSession.PromptDelegate.ButtonPrompt
+                ): org.mozilla.geckoview.GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+                    if (isFinishing || isDestroyed) {
+                        return org.mozilla.geckoview.GeckoResult.fromValue(prompt.dismiss())
+                    }
+                    val result = org.mozilla.geckoview.GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                    val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) {
+                            if (completed.compareAndSet(false, true)) result.complete(prompt.dismiss())
+                            return@runOnUiThread
+                        }
+                        AlertDialog.Builder(this@SwonalWebActivity)
+                            .setTitle(prompt.title?.takeIf { it.isNotBlank() } ?: "Confirm")
+                            .setMessage(prompt.message.orEmpty())
+                            .setPositiveButton("OK") { _, _ ->
+                                if (completed.compareAndSet(false, true)) {
+                                    result.complete(
+                                        prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.POSITIVE)
+                                    )
+                                }
+                            }
+                            .setNegativeButton("Cancel") { _, _ ->
+                                if (completed.compareAndSet(false, true)) {
+                                    result.complete(
+                                        prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.NEGATIVE)
+                                    )
+                                }
+                            }
+                            .setOnCancelListener {
+                                if (completed.compareAndSet(false, true)) result.complete(prompt.dismiss())
+                            }
+                            .show()
+                    }
+                    return result
                 }
             }
         }
