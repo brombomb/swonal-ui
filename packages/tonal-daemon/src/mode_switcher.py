@@ -27,8 +27,18 @@ class ModeSwitcher:
         """Zero load, release serial/BLE locks, and launch Stock Tonal app."""
         logger.info("Executing Mode Transition: CUSTOM -> STOCK TONAL APP")
         try:
-            # 1. Safely zero load and disable power stage
-            await self.motor_bridge.disable_resistance()
+            # 1. Safely zero load and disable power stage.
+            #    If the serial FD is already stale/disconnected (Errno 5 I/O error) and weight is
+            #    not engaged, log and proceed to release_port() so Stock handoff isn't bricked.
+            try:
+                await self.motor_bridge.disable_resistance()
+            except Exception as disable_exc:
+                if getattr(self.motor_bridge, "weight_enabled", False):
+                    raise
+                logger.warning(
+                    "Ignoring disable_resistance error while weight is already off: %s",
+                    disable_exc,
+                )
 
             # 2. Shut down BLE observers
             await self.ble_manager.disconnect_all()
@@ -50,6 +60,7 @@ class ModeSwitcher:
                 f"pm enable {STOCK_APP_PACKAGE} && "
                 "pm enable com.riptlabs.mcb.service && "
                 "chmod 0666 /dev/ttyACM0 2>/dev/null || true; "
+                "appops set com.swonal.kiosk SYSTEM_ALERT_WINDOW allow 2>/dev/null || true; "
                 "am startservice com.swonal.kiosk/.service.StockOverlayService && "
                 f"monkey -p {STOCK_APP_PACKAGE} -c android.intent.category.LAUNCHER 1"
                 "'"
