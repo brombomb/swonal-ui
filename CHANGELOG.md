@@ -2,6 +2,31 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.1.0](https://github.com/brombomb/swonal-ui/compare/v2.0.2...v2.1.0) (2026-11-26)
+
+
+### New Features
+
+* add Smart Flex resistance mode across daemon, Kiosk, Companion, and MCP ([d9ca6d1](https://github.com/brombomb/swonal-ui/commit/d9ca6d1cb5d93db835b7faf4ef1c2510550bc856))
+* **android:** add native History, Application Settings, and Admin screens (zero GeckoView warmup) ([ca636ab](https://github.com/brombomb/swonal-ui/commit/ca636ab6d9151323373e72dac96e83410043cf77))
+* **kiosk:** add offline Vosk STT and opt-in on-device HTTPS (:53443) ([c471faf](https://github.com/brombomb/swonal-ui/commit/c471faffa2715374a60225c8b41914b1c8f01327))
+* **kiosk:** bundle offline Vosk voice model in APK and make local motor daemon read-only ([50ae603](https://github.com/brombomb/swonal-ui/commit/50ae603be711a358fde1026aec76935ad80c3fd5))
+* **kiosk:** convert History, App Settings, and Admin into full-screen native pages ([7e919b6](https://github.com/brombomb/swonal-ui/commit/7e919b62f6da74f67e4fb94f554db33f94e88bac))
+* **kiosk:** embed profile prefs, diagnostics, sync, catalog, bug report & release check in full-page settings ([8c798f4](https://github.com/brombomb/swonal-ui/commit/8c798f42ef7f971866c9d68bfe870560b0131e49))
+* **mcp:** add Streamable HTTP (2025-03-26) transport at /mcp alongside /mcp/sse ([7e76913](https://github.com/brombomb/swonal-ui/commit/7e76913c9e8870fd299ce6596992a94d065e36eb))
+
+
+### Bug Fixes
+
+* **ci,kiosk:** deduplicate release Discord webhooks and add GeckoView PromptDelegate for alert/confirm ([6f828d3](https://github.com/brombomb/swonal-ui/commit/6f828d3c811dc9f0cf12f13958792a0b014c01a1))
+* **daemon:** allow safe Stock Tonal handoff when weight is off on stale serial FD and ensure overlay permission ([9564993](https://github.com/brombomb/swonal-ui/commit/95649930f78a20b3fa400ab9dbba37fb15ab0e46))
+* **kiosk:** auto-normalize sync URL scheme and save SERVER_SYNC before Sync Now / Pull ([568b5ef](https://github.com/brombomb/swonal-ui/commit/568b5ef021397566598b61b189a262421afb2cab))
+* **kiosk:** eliminate Light/Dark bottom-corner border artifacts, add fixed-height mode helper text, and keep Voice label static ([f67b5d5](https://github.com/brombomb/swonal-ui/commit/f67b5d54fe4e7bc417b0914252cc912b797a09df))
+* **kiosk:** fix Swocial detach crash & immersive nav bar; add MCP info, HA/URL override, passcode lock, catalog search, and History streak/weekly volume ([bddf8e0](https://github.com/brombomb/swonal-ui/commit/bddf8e08736584fb115f6b2c55fad0b367240f1e))
+* **kiosk:** green Voice On / muted mic icon when off, and launch Return-to-Swonal overlay on Stock Tonal switch ([1de6d1d](https://github.com/brombomb/swonal-ui/commit/1de6d1d8bc5ee0bc5e3e3f8959a2ee0d2d405416))
+* **kiosk:** live-refresh Light/Dark theme canvas in AppSettingsDialog and restore Exercise Media URL editor ([4d160da](https://github.com/brombomb/swonal-ui/commit/4d160da8a5df8b5319a4944390074cf2acc08178))
+* **kiosk:** remove API-23 translucent card elevation shadows, reorder mode pills, drop (+25%) badge & 'digital' ([3e06a98](https://github.com/brombomb/swonal-ui/commit/3e06a98c126565ae929dc0ba3dc1b6f8d984bf98))
+
 ## [2.0.2](https://github.com/brombomb/swonal-ui/compare/v2.0.1...v2.0.2) (2026-11-26)
 
 
