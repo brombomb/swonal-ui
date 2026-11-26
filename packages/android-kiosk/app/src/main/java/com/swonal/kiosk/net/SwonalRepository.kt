@@ -470,7 +470,12 @@ class SwonalRepository(
         synchronized(managedJobs) {
             managedJobs += scope.launch {
                 localDaemon.connected.collect { connected ->
-                    _uiStateFlow.update { it.copy(localFailSafeConnected = connected) }
+                    _uiStateFlow.update {
+                        it.copy(
+                            localFailSafeConnected = connected,
+                            daemonConnected = if (it.syncMode == SyncMode.STANDALONE) connected else it.daemonConnected
+                        )
+                    }
                     if (connected) {
                         val health = localDaemon.fetchDirectHealth()
                         if (health != null) {
