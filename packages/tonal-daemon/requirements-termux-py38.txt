@@ -1,0 +1,9 @@
+# Pure-Python dependencies for Tonal V1 (Android 6.0 / Termux legacy Python 3.8.0).
+# Avoids Rust-compiled pydantic-core and PEP 517 setuptools>=61 build isolation.
+# Verified on Tonal V1 ARM64 running Termux v0.119.0-beta.3 (Python 3.8.0).
+fastapi==0.99.1
+uvicorn==0.22.0
+pydantic==1.10.27
+websockets==10.4
+pyserial==3.5
+pyserial-asyncio==0.6

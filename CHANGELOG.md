@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.0.1](https://github.com/brombomb/swonal-ui/compare/v2.0.0...v2.0.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **daemon,installer:** support Termux Android 6 Python 3.8 and vendor patched swolectl ([#5](https://github.com/brombomb/swonal-ui/issues/5)) ([fb4c999](https://github.com/brombomb/swonal-ui/commit/fb4c999380903adb87fcf9d56456d584ec0a0414))
+
 ## [1.2.0](https://github.com/brombomb/swonal-ui/compare/v1.1.1...v1.2.0) (2026-11-23)
 
 

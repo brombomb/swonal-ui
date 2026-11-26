@@ -383,7 +383,8 @@ class DiagnosticsDialog : BaseSwonalDialog() {
                         append("Mode:         ").append(if (st.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) "STANDALONE (OFFLINE-FIRST)" else "HOME / CLOUD SYNC").append('\n')
                         append("Local Web:    ").append(localWebDisplay).append('\n')
                         append("Server Sync:  ").append(if (st.syncMode == com.swonal.kiosk.net.SyncMode.STANDALONE) "OFF (LOCAL ONLY)" else if (st.syncConnected || st.wsConnected) "CONNECTED (${st.pendingSyncCount} pending)" else "OFFLINE (${st.pendingSyncCount} pending)").append('\n')
-                        append("Daemon Link:  ").append(if (st.daemonConnected) (if (st.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz") else "OFFLINE").append('\n')
+                        val daemonOnline = st.localFailSafeConnected || st.daemonConnected
+                        append("Daemon Link:  ").append(if (daemonOnline) (if (st.isMockMode) "MOCK 30Hz" else "TONAL CDC 30Hz") else "OFFLINE").append('\n')
                         append("Fail-Safe:    ").append(if (st.localFailSafeConnected) "LOCAL 127.0.0.1 READY (<5ms)" else "STANDBY").append('\n')
                         if (lastSession != null) {
                             val vol = Units.formatCompactWeight(lastSession.totalVolume, unit, exact = true)

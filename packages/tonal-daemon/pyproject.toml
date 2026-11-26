@@ -4,18 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tonal-daemon"
-version = "1.2.0"
+version = "2.0.1"
 description = "Hardware daemon and serial bridge for Tonal V1 motor controller"
-requires-python = ">=3.11"
+requires-python = ">=3.8"
 dependencies = [
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.28.0",
-    "websockets>=12.0",
-    "bleak>=0.21.1",
-    "pydantic>=2.6.0",
-    "pyyaml>=6.0.1",
+    "fastapi>=0.99.0,<0.100.0; python_version < '3.10'",
+    "fastapi>=0.110.0; python_version >= '3.10'",
+    "uvicorn>=0.22.0,<0.23.0; python_version < '3.10'",
+    "uvicorn[standard]>=0.28.0; python_version >= '3.10'",
+    "websockets>=10.4,<11.0; python_version < '3.10'",
+    "websockets>=12.0; python_version >= '3.10'",
+    "pydantic>=1.10.13,<2.0; python_version < '3.10'",
+    "pydantic>=2.6.0; python_version >= '3.10'",
+    "pyserial>=3.5",
     "pyserial-asyncio>=0.6",
-    "swolectl @ git+https://github.com/d4l3k/swolectl.git",
+    "bleak>=0.21.1; python_version >= '3.10'",
+    "pyyaml>=6.0.1; python_version >= '3.10'",
 ]
 
 [project.optional-dependencies]
@@ -30,7 +34,7 @@ tonal-daemon = "src.main:entry_point"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "swolectl*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

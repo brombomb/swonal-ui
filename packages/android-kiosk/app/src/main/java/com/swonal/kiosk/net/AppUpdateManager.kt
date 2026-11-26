@@ -307,6 +307,13 @@ object AppUpdateManager {
             }
 
             Log.w(TAG, "Root staging unavailable (${stageRes.exitCode}); trying FileProvider system installer")
+            // Android 6.0 (API 23) PackageInstaller does not support content:// FileProvider URIs —
+            // launching ACTION_VIEW gets hijacked by apps like Termux's file saver instead of installing.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                return@withContext UpdateInstallResult.Failed(
+                    "Root access denied — grant Superuser permission to Swonal Kiosk in Magisk Manager, then retry"
+                )
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
                 val settingsIntent = Intent(
                     Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,

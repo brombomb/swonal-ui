@@ -286,9 +286,10 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
   # Pre-grant permanent Magisk superuser rights (policy 2 = ALLOW, notification 0 = SILENT)
   echo "  [magisk] Pre-granting permanent root permissions to Swonal Kiosk in Magisk..."
   "${ADB[@]}" shell "su -c '
-    KIOSK_UID=\$(dumpsys package com.swonal.kiosk 2>/dev/null | grep userId= | head -n1 | cut -d= -f2 | tr -d \" \r\n\")
-    if [ -n \"\$KIOSK_UID\" ]; then
-      magisk --sqlite \"INSERT OR REPLACE INTO policies (uid, policy, until, logging, notification) VALUES (\$KIOSK_UID, 2, 0, 1, 0);\" 2>/dev/null || true
+    KIOSK_UID=\$(dumpsys package com.swonal.kiosk 2>/dev/null | grep -m1 \"userId=\" | sed -E \"s/.*userId=([0-9]+).*/\1/\" | tr -d \" \r\n\")
+    MAGISK_BIN=\$(command -v magisk 2>/dev/null || echo /data/adb/magisk/magisk)
+    if [ -n \"\$KIOSK_UID\" ] && [ -x \"\$MAGISK_BIN\" ]; then
+      \"\$MAGISK_BIN\" --sqlite \"INSERT OR REPLACE INTO policies (uid, policy, until, logging, notification) VALUES (\$KIOSK_UID, 2, 0, 1, 0);\" 2>/dev/null || true
     fi
   '"
 fi
@@ -487,16 +488,20 @@ EOF
   '"
 
   echo "  [sync] Incrementally syncing tonal-daemon (only modified files)..."
-  "${ADB[@]}" shell "mkdir -p /data/local/tmp/daemon-sync/src"
+  "${ADB[@]}" shell "mkdir -p /data/local/tmp/daemon-sync/src /data/local/tmp/daemon-sync/swolectl"
   "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/src/"* /data/local/tmp/daemon-sync/src/
+  "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/swolectl/"* /data/local/tmp/daemon-sync/swolectl/
   "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/pyproject.toml" /data/local/tmp/daemon-sync/pyproject.toml
+  "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/requirements-termux-py38.txt" /data/local/tmp/daemon-sync/requirements-termux-py38.txt
   "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/daemon-sync/start-daemon.sh
 
   "${ADB[@]}" shell "su -c '
-    mkdir -p /data/swonal/packages/tonal-daemon/src /data/adb/service.d
+    mkdir -p /data/swonal/packages/tonal-daemon/src /data/swonal/packages/tonal-daemon/swolectl /data/adb/service.d
     cp -u /data/local/tmp/daemon-sync/pyproject.toml /data/swonal/packages/tonal-daemon/ 2>/dev/null || cp /data/local/tmp/daemon-sync/pyproject.toml /data/swonal/packages/tonal-daemon/
+    cp -u /data/local/tmp/daemon-sync/requirements-termux-py38.txt /data/swonal/packages/tonal-daemon/ 2>/dev/null || cp /data/local/tmp/daemon-sync/requirements-termux-py38.txt /data/swonal/packages/tonal-daemon/
     cp -u /data/local/tmp/daemon-sync/start-daemon.sh /data/swonal/packages/tonal-daemon/ 2>/dev/null || cp /data/local/tmp/daemon-sync/start-daemon.sh /data/swonal/packages/tonal-daemon/
     cp -u -R /data/local/tmp/daemon-sync/src/* /data/swonal/packages/tonal-daemon/src/ 2>/dev/null || cp -R /data/local/tmp/daemon-sync/src/* /data/swonal/packages/tonal-daemon/src/
+    cp -u -R /data/local/tmp/daemon-sync/swolectl/* /data/swonal/packages/tonal-daemon/swolectl/ 2>/dev/null || cp -R /data/local/tmp/daemon-sync/swolectl/* /data/swonal/packages/tonal-daemon/swolectl/
     cp /data/local/tmp/daemon-sync/start-daemon.sh /data/adb/service.d/98-swonal-daemon.sh
     chown -R 0:0 /data/swonal/packages/tonal-daemon /data/adb/service.d/98-swonal-daemon.sh
     chmod 0700 /data/adb/service.d/98-swonal-daemon.sh
@@ -504,20 +509,25 @@ EOF
     rm -rf /data/local/tmp/daemon-sync
   '"
 
-  LOCAL_PYPROJECT_HASH="$(sha256sum "${ROOT_DIR}/packages/tonal-daemon/pyproject.toml" | awk '{print $1}')"
-  REMOTE_PYPROJECT_HASH="$("${ADB[@]}" shell "cat /data/swonal/.pyproject.sha256 2>/dev/null" | tr -d '\r\n')"
+  LOCAL_REQ_HASH="$(sha256sum "${ROOT_DIR}/packages/tonal-daemon/requirements-termux-py38.txt" | awk '{print $1}')"
+  REMOTE_REQ_HASH="$("${ADB[@]}" shell "cat /data/swonal/.requirements-py38.sha256 2>/dev/null" | tr -d '\r\n')"
 
-  if [[ "${LOCAL_PYPROJECT_HASH}" != "${REMOTE_PYPROJECT_HASH}" ]]; then
-    echo "  [termux] pyproject.toml modified. Installing dependencies in Termux..."
-    run_in_termux "pkg install -y python git && pip install --no-cache-dir -e /data/swonal/packages/tonal-daemon && apt-get clean 2>/dev/null || true && rm -rf /data/data/com.termux/files/home/.cache /data/data/com.termux/files/usr/var/cache/apt/archives/*.deb /data/data/com.termux/files/usr/tmp/* 2>/dev/null || true" || \
-      echo "  [warn] Failed to install python dependencies in Termux."
-    "${ADB[@]}" shell "su -c 'echo \"${LOCAL_PYPROJECT_HASH}\" > /data/swonal/.pyproject.sha256'"
+  if [[ "${LOCAL_REQ_HASH}" != "${REMOTE_REQ_HASH}" ]]; then
+    echo "  [termux] Installing Python 3.8-compatible tonal-daemon dependencies in Termux..."
+    if ! run_in_termux "pkg install -y python && pip install --no-cache-dir -r /data/swonal/packages/tonal-daemon/requirements-termux-py38.txt && cd /data/swonal/packages/tonal-daemon && python3 -c \"import fastapi, uvicorn, pydantic, websockets, serial, serial_asyncio, swolectl\""; then
+      echo "  [error] Failed to install or verify Python dependencies in Termux." >&2
+      echo "          Make sure Termux has been opened once on the Tonal screen to finish bootstrapping," >&2
+      echo "          then re-run this installer." >&2
+      exit 1
+    fi
+    run_in_termux "apt-get clean 2>/dev/null || true; rm -rf /data/data/com.termux/files/home/.cache /data/data/com.termux/files/usr/var/cache/apt/archives/*.deb /data/data/com.termux/files/usr/tmp/* 2>/dev/null || true" || true
+    "${ADB[@]}" shell "su -c 'echo \"${LOCAL_REQ_HASH}\" > /data/swonal/.requirements-py38.sha256'"
   else
-    echo "  [termux] Dependencies unchanged. Skipping pip install."
+    echo "  [termux] Python dependencies unchanged. Skipping pip install."
   fi
 
   echo "  [daemon] Restarting tonal-daemon..."
-  "${ADB[@]}" shell "su -c 'pkill -f \"src.main\" || true; sh /data/adb/service.d/98-swonal-daemon.sh'" || true
+  "${ADB[@]}" shell "su -c 'sh /data/adb/service.d/98-swonal-daemon.sh'" || true
 fi
 
 # Final cleanup of any staging debris
