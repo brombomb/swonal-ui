@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.1.2](https://github.com/brombomb/swonal-ui/compare/v2.1.1...v2.1.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **installer:** replace /system/etc bind-mount with systemless Magisk DNS module to prevent SELinux Wi-Fi firmware denial ([#13](https://github.com/brombomb/swonal-ui/issues/13)) ([3df0c88](https://github.com/brombomb/swonal-ui/commit/3df0c885db13ac3bfdd13c46998078c5a45a6d10))
+
 ## [2.1.1](https://github.com/brombomb/swonal-ui/compare/v2.1.0...v2.1.1) (2026-11-26)
 
 
