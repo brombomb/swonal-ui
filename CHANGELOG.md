@@ -2,6 +2,14 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.0.2](https://github.com/brombomb/swonal-ui/compare/v2.0.1...v2.0.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **kiosk,scripts:** avoid Android 6 FileProvider fallback in updater, harden Magisk grant, and fix scrcpy auto-detect ([84f55b7](https://github.com/brombomb/swonal-ui/commit/84f55b7b9328a0bbb738ee88efd1706b685f6a97))
+* **kiosk:** sync daemonConnected when local daemon connects to eliminate startup OFFLINE race ([45b2c8b](https://github.com/brombomb/swonal-ui/commit/45b2c8b24ec704c8c8e4ade74bcbcdbfc75dff15))
+
 ## [2.0.1](https://github.com/brombomb/swonal-ui/compare/v2.0.0...v2.0.1) (2026-11-26)
 
 
