@@ -336,13 +336,47 @@ if [[ "${SKIP_LIBRESPOT}" -eq 0 ]]; then
     LIBRESPOT_BIN="/data/data/com.termux/files/usr/bin/librespot"
   fi
 
-  echo "  [boot] Installing Magisk boot service /data/adb/service.d/99-swonal-librespot.sh"
+  echo "  [boot] Installing systemless Magisk DNS module (/data/adb/modules/swonal-dns) and /data/adb/service.d/99-swonal-librespot.sh"
+  "${ADB[@]}" shell "su -c '
+    # Undo legacy /data/local/etc -> /system/etc bind-mount if present (re-labels /system/etc/firmware as system_data_file and breaks MTK Wi-Fi under SELinux)
+    if grep -q \" /system/etc \" /proc/mounts && [ -d /data/local/etc ]; then
+      umount /system/etc 2>/dev/null || umount -l /system/etc 2>/dev/null || true
+      rm -rf /data/local/etc
+    fi
+    # Use Magisk Magic Mount to expose ONLY /system/etc/resolv.conf without touching /system/etc/firmware SELinux labels
+    mkdir -p /data/adb/modules/swonal-dns/system/etc
+    cat > /data/adb/modules/swonal-dns/module.prop << \"MODEOF\"
+id=swonal-dns
+name=Swonal Systemless resolv.conf
+version=1.0
+versionCode=1
+author=swonal-ui
+description=Provides /system/etc/resolv.conf for standalone musl binaries without overlaying /system/etc/firmware
+MODEOF
+    DNS1=\$(getprop net.dns1)
+    DNS2=\$(getprop net.dns2)
+    {
+      echo \"nameserver \${DNS1:-1.1.1.1}\"
+      [ -n \"\${DNS2}\" ] && echo \"nameserver \${DNS2}\"
+      echo \"nameserver 8.8.8.8\"
+    } > /data/adb/modules/swonal-dns/system/etc/resolv.conf
+    chown -R 0:0 /data/adb/modules/swonal-dns
+    chmod 0644 /data/adb/modules/swonal-dns/module.prop /data/adb/modules/swonal-dns/system/etc/resolv.conf
+    chcon u:object_r:system_file:s0 /data/adb/modules/swonal-dns/system/etc/resolv.conf 2>/dev/null || true
+  '"
+
   BOOT_LIBRESPOT="$(mktemp)"
   cat > "${BOOT_LIBRESPOT}" <<EOF
 #!/system/bin/sh
-until [ "\$(getprop sys.boot_completed)" -eq 1 ]; do
+until [ "\$(getprop sys.boot_completed)" = "1" ]; do
   sleep 2
 done
+
+# Undo legacy /data/local/etc bind-mount over /system/etc if still present (prevents SELinux WMT Wi-Fi firmware denial)
+if grep -q " /system/etc " /proc/mounts && [ -d /data/local/etc ]; then
+  umount /system/etc 2>/dev/null || umount -l /system/etc 2>/dev/null || true
+  rm -rf /data/local/etc
+fi
 
 # Multicast route and policy rule required for libmdns Zeroconf discovery on Android wlan0
 WLAN_IP=\$(ip -4 addr show wlan0 | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
@@ -354,19 +388,18 @@ fi
 ip rule del to 224.0.0.0/4 lookup main pref 9000 2>/dev/null || true
 ip rule add to 224.0.0.0/4 lookup main pref 9000 2>/dev/null || true
 
-# Ensure DNS resolution works for standalone musl binaries
-if [ ! -f "/system/etc/resolv.conf" ]; then
-  mkdir -p /data/local/etc
-  cp -a /system/etc/* /data/local/etc/ 2>/dev/null || true
+# Refresh DNS entries in the systemless Magisk module (mounted at /system/etc/resolv.conf by Magisk)
+RESOLV_TARGET="/data/adb/modules/swonal-dns/system/etc/resolv.conf"
+if [ -d "/data/adb/modules/swonal-dns/system/etc" ]; then
   DNS1=\$(getprop net.dns1)
   DNS2=\$(getprop net.dns2)
-  echo "nameserver \${DNS1:-1.1.1.1}" > /data/local/etc/resolv.conf
-  [ -n "\${DNS2}" ] && echo "nameserver \${DNS2}" >> /data/local/etc/resolv.conf
-  echo "nameserver 8.8.8.8" >> /data/local/etc/resolv.conf
-  echo "127.0.0.1 localhost" > /data/local/etc/hosts
-  echo "::1 localhost" >> /data/local/etc/hosts
-  chmod 0644 /data/local/etc/resolv.conf /data/local/etc/hosts
-  mount -o bind /data/local/etc /system/etc
+  {
+    echo "nameserver \${DNS1:-1.1.1.1}"
+    [ -n "\${DNS2}" ] && echo "nameserver \${DNS2}"
+    echo "nameserver 8.8.8.8"
+  } > "\${RESOLV_TARGET}"
+  chmod 0644 "\${RESOLV_TARGET}"
+  chcon u:object_r:system_file:s0 "\${RESOLV_TARGET}" 2>/dev/null || true
 fi
 
 mkdir -p /data/local/librespot-cache
