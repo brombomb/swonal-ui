@@ -44,7 +44,13 @@ fi
 
 # Auto-detect existing Wi-Fi ADB target (:5555) if TONAL_IP is not set via env or --target
 if [[ -z "${TONAL_IP:-}" ]]; then
-  TONAL_IP="$(adb devices | awk 'NR>1 && $1 ~ /:5555$/ {print $1; exit}')"
+  TONAL_IP="$(adb devices 2>/dev/null | awk 'NR>1 && $1 ~ /:5555$/ {print $1; exit}')"
+fi
+if [[ -z "${TONAL_IP:-}" && "${ANDROID_ADB_SERVER_PORT}" != "5037" ]]; then
+  TONAL_IP="$(ANDROID_ADB_SERVER_PORT=5037 adb devices 2>/dev/null | awk 'NR>1 && $1 ~ /:5555$/ {print $1; exit}')"
+fi
+if [[ -n "${TONAL_IP:-}" && "${TONAL_IP}" != *:* ]]; then
+  TONAL_IP="${TONAL_IP}:5555"
 fi
 if [[ -z "${TONAL_IP:-}" && "${MODE}" == "tonal" ]]; then
   echo "Error: No Tonal Wi-Fi ADB target specified. Set TONAL_IP=<IP>:5555 or pass --target <IP>:5555." >&2

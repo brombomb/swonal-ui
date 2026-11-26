@@ -286,9 +286,10 @@ if [[ "${SKIP_APKS}" -eq 0 ]]; then
   # Pre-grant permanent Magisk superuser rights (policy 2 = ALLOW, notification 0 = SILENT)
   echo "  [magisk] Pre-granting permanent root permissions to Swonal Kiosk in Magisk..."
   "${ADB[@]}" shell "su -c '
-    KIOSK_UID=\$(dumpsys package com.swonal.kiosk 2>/dev/null | grep userId= | head -n1 | cut -d= -f2 | tr -d \" \r\n\")
-    if [ -n \"\$KIOSK_UID\" ]; then
-      magisk --sqlite \"INSERT OR REPLACE INTO policies (uid, policy, until, logging, notification) VALUES (\$KIOSK_UID, 2, 0, 1, 0);\" 2>/dev/null || true
+    KIOSK_UID=\$(dumpsys package com.swonal.kiosk 2>/dev/null | grep -m1 \"userId=\" | sed -E \"s/.*userId=([0-9]+).*/\1/\" | tr -d \" \r\n\")
+    MAGISK_BIN=\$(command -v magisk 2>/dev/null || echo /data/adb/magisk/magisk)
+    if [ -n \"\$KIOSK_UID\" ] && [ -x \"\$MAGISK_BIN\" ]; then
+      \"\$MAGISK_BIN\" --sqlite \"INSERT OR REPLACE INTO policies (uid, policy, until, logging, notification) VALUES (\$KIOSK_UID, 2, 0, 1, 0);\" 2>/dev/null || true
     fi
   '"
 fi
