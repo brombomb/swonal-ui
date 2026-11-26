@@ -1,6 +1,6 @@
 {
   "name": "@swonal-ui/server-app",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "Swonal UI application server, database layer, pluggable music hub, MCP server, and portrait kiosk UI",
   "scripts": {
