@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.1.1](https://github.com/brombomb/swonal-ui/compare/v2.1.0...v2.1.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **server-app:** skip outbound Nostr relay sync in tests and bind ws to SimplePool module ([920188a](https://github.com/brombomb/swonal-ui/commit/920188a96330945ab92b906666cac6bc37679333))
+
 ## [2.1.0](https://github.com/brombomb/swonal-ui/compare/v2.0.2...v2.1.0) (2026-11-26)
 
 
