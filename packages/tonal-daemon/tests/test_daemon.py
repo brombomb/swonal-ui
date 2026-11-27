@@ -556,3 +556,12 @@ async def test_maintenance_lock_disengages_and_blocks_enable():
 
 
 
+
+
+def test_target_weight_starts_at_configured_minimum():
+    # A fixed 45 lb start target meant a handle press right after a daemon start engaged 45 lb
+    # nobody chose (seen on a Tonal V1 once the cap was above 45).
+    cfg = make_test_config(mock_mode=True)
+    cfg["safety"]["minimum_resistance_lb"] = 7.0
+    cfg["safety"]["maximum_resistance_lb"] = 60.0
+    assert MotorBridge(cfg).target_weight_lb == 7.0
