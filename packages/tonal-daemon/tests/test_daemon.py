@@ -466,15 +466,20 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
     send_button("ed232000c800030002210000a0150100a0150100")
     assert btn_events == []
 
-    # Handle far-end button: press toggles, release does not
+    # Handle button 1 (one end): press toggles, release does not
     send_button("aabbcc002c01030001010000ffffffff65010000")
     send_button("aabbcc002c010300030000001101000065010000")
     assert len(btn_events) == 1
     assert btn_events[0]["action"] == "toggle_weight"
 
+    # Handle button 2 (other end, [8] = 0x11 press / 0x13 release): also toggles, like the stock app
+    send_button("aabbcc002c01030011010000ffffffff65010000")
+    send_button("aabbcc002c010300130000001101000065010000")
+    assert len(btn_events) == 2
+
     # Bar button press toggles
     send_button("ddeeff004c040200010100002505000025050000")
-    assert len(btn_events) == 2
+    assert len(btn_events) == 3
 
     # Simulate physical user unlocking right arm telescope/rotation pin (raw_flags bit 20/21 set)
     ctrl.arm_positions["right"].is_rotation_locked = True

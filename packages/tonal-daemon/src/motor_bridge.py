@@ -105,13 +105,15 @@ def decode_arm_position(payload: bytes) -> dict[str, Any]:
 def _is_accessory_button_press(payload: bytes) -> bool:
     """True only for a handle/bar button press in a 0x2003 frame (see _on_swolectl_frame).
 
-    Seen on a Tonal V1 (firmware 5.2.18.0): handle far-end button 0x01/0x01, bar button
-    0x01/0x01, arm rotation-release button 0x01/0x21 (rejected). The handle cable-end
-    button (0x11/0x01) is left out on purpose: the motor board may act on it itself.
+    Seen on a Tonal V1 (firmware 5.2.18.0): byte 8 = (button << 4) | event, byte 9 = 0x01 on
+    press for handles and the bar button, 0x21 for the arm rotation-release button (rejected:
+    it only unlocks the arm). Each handle has two buttons, one at each end, which both toggle
+    weight on the stock app: button 1 = 0x01, button 2 = 0x11. The motor board also engages
+    by itself on a button-2 press, so ignoring it leaves resistance the daemon doesn't track.
     """
     if len(payload) < 10:
         return False
-    return payload[8] == 0x01 and payload[9] == 0x01
+    return payload[8] in (0x01, 0x11) and payload[9] == 0x01
 
 
 async def _to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
