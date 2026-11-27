@@ -284,7 +284,12 @@ export function useSwonalState() {
 
   const activeExercise = useMemo(() => {
     const targetId = currentStep?.exerciseId || selectedExerciseId;
-    return exercises.find((e) => e.id === targetId) ?? exercises[0] ?? null;
+    if (targetId) {
+      // Never substitute another exercise for a missing/deleted one: sets would be logged against
+      // the wrong movement. Returning null blocks logging until a valid exercise is chosen.
+      return exercises.find((e) => e.id === targetId) ?? null;
+    }
+    return exercises[0] ?? null;
   }, [exercises, currentStep, selectedExerciseId]);
 
   const activeExercisePr = useMemo(() => {

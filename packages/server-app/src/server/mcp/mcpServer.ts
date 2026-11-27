@@ -213,6 +213,32 @@ export async function getUserStrengthHistory(params: {
   };
 }
 
+/**
+ * Thrown when a workout template references exercise ids that don't exist (or were deleted).
+ * The REST error handler maps it to HTTP 400; MCP tools surface the message to the caller.
+ */
+export class UnknownExerciseError extends Error {
+  readonly exerciseIds: string[];
+
+  constructor(exerciseIds: string[]) {
+    super(`Unknown exercise id(s): ${exerciseIds.join(', ')}`);
+    this.name = 'UnknownExerciseError';
+    this.exerciseIds = exerciseIds;
+  }
+}
+
+async function assertExercisesExist(blocks: WorkoutBlockInput[]): Promise<void> {
+  const ids = Array.from(new Set(blocks.flatMap((b) => b.items.map((i) => i.exerciseId))));
+  if (ids.length === 0) return;
+  const found = await prisma.exercise.findMany({
+    where: { id: { in: ids }, deletedAt: null },
+    select: { id: true },
+  });
+  const foundIds = new Set(found.map((e) => e.id));
+  const missing = ids.filter((id) => !foundIds.has(id));
+  if (missing.length > 0) throw new UnknownExerciseError(missing);
+}
+
 function normalizeScheduleDays(days?: number[]): string | undefined {
   if (days === undefined) return undefined;
   const clean = Array.from(
@@ -231,6 +257,7 @@ export async function createCustomWorkoutTemplate(params: {
 }) {
   const user = await prisma.user.findUnique({ where: { id: params.userId } });
   if (!user) throw new Error(`User not found: ${params.userId}`);
+  await assertExercisesExist(params.blocks);
   const effectiveUnit: WeightUnit =
     params.unit ?? (user.weightUnit === 'KG' ? 'KG' : 'LB');
 
@@ -260,6 +287,7 @@ export async function updateCustomWorkoutTemplate(params: {
     include: { user: true },
   });
   if (!existing) throw new Error(`Workout template not found: ${params.templateId}`);
+  if (params.blocks) await assertExercisesExist(params.blocks);
 
   const effectiveUnit: WeightUnit =
     params.unit ?? (existing.user.weightUnit === 'KG' ? 'KG' : 'LB');

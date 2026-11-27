@@ -29,7 +29,12 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { prisma } from './db';
 import { seedDatabase } from '../../prisma/seed';
-import { createSwonalMcpServer, clearPendingQueuedWorkout, getPendingQueuedWorkout } from './mcp/mcpServer';
+import {
+  createSwonalMcpServer,
+  clearPendingQueuedWorkout,
+  getPendingQueuedWorkout,
+  UnknownExerciseError,
+} from './mcp/mcpServer';
 import { musicRegistry } from './music/Registry';
 import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
@@ -768,6 +773,10 @@ export async function createSwonalServer(
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ZodError) {
       res.status(400).json({ error: 'Validation error', details: err.flatten() });
+      return;
+    }
+    if (err instanceof UnknownExerciseError) {
+      res.status(400).json({ error: err.message, unknownExerciseIds: err.exerciseIds });
       return;
     }
     const message = err instanceof Error ? err.message : 'Internal server error';
