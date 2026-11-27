@@ -47,8 +47,13 @@ python3 mtk.py rl ~/tonal-backup
 
 * Plug the micro-USB cable from your laptop into the Tonal's MediaTek board (following the `tonal-freedom` BROM pin/button sequence if your board revision doesn't auto-enter BROM on USB plug).  
 * **If nothing happens on USB power alone** (common on Tonal V1): with `mtkclient` still waiting, **switch the Tonal on** (Safety Warning 3). `mtkclient` catches BROM within a few seconds (on Linux, `lsusb` shows `0e8d:2000 MediaTek MT65xx Preloader`) and the Tonal's screen stays dark. If no device appears, switch it off, wait about 10 seconds and switch it on again. `device not accepting address, error -71` in `dmesg` means a poor USB connection: reseat the cable or try another USB port. Switch the Tonal off when the command finishes: every `mtkclient` command needs its own *start command → switch on → switch off* cycle.  
-* Wait for the full partition dump to finish.  
-* **Verification:** Run `ls -lh ~/tonal-backup/boot.bin` and verify `boot.bin` exists, is non-zero (typically 16MB), and copy the entire `~/tonal-backup` folder to a second safe drive before continuing.
+* Wait for the full partition dump to finish. **It is slow:** about 30 GB, mostly `userdata` (~25 GiB), at roughly 3 MB/s, so plan for 2.5–3 hours. To get the small partitions safe first, you can dump everything except `userdata` (`python3 mtk.py rl ~/tonal-backup --skip userdata`, ~4 GB, ~25 min), then `userdata` on its own straight to an external drive (`python3 mtk.py r userdata /media/<drive>/userdata.bin`).  
+* **Verification:**  
+  1. Run `ls -lh ~/tonal-backup/boot.bin` and verify `boot.bin` exists and is 16MB. Better, save the partition table (`python3 mtk.py printgpt > ~/tonal-backup-gpt.txt`) and check that **every** file's size equals its partition's `Length` exactly.  
+  2. Record checksums (`cd ~/tonal-backup && sha256sum -- *.bin > SHA256SUMS`), copy the entire `~/tonal-backup` folder (plus `userdata.bin`) to a second safe drive, and run `sha256sum -c SHA256SUMS` on the copy before continuing.  
+  3. Prove reads are repeatable: read `boot` once more to a different path (`python3 mtk.py r boot ~/boot-check.bin`) and confirm its SHA-256 matches `boot.bin`.  
+* **`userdata` is encrypted** (Android full-disk encryption), so `userdata.bin` looks like random data with no filesystem signature. That is expected. Its key lives in the crypto footer in the `metadata` partition: keep `metadata.bin` with it, and only ever restore the two together, to the same Tonal.  
+* **Optional:** the eMMC boot areas (MediaTek preloader) are not part of `rl`. Read them with `python3 mtk.py rf ~/tonal-boot-areas/boot1.bin --parttype boot1` (and the same with `boot2`). Keep them, but **never write them back**.
 
 ## **4\. Patch `boot.bin` with Magisk v27.0**
 
