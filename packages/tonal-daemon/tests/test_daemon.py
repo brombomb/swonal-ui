@@ -555,4 +555,182 @@ async def test_maintenance_lock_disengages_and_blocks_enable():
     assert bridge.weight_enabled is True
 
 
+# --- Motor serial link loss (Tonal V1 fw 5.2.18.0: the board resets its USB link after ~3 s of
+# host silence and re-enumerates; the old serial handle then fails every write with EIO) --------
+
+import threading
+
+import src.motor_bridge as motor_bridge_mod
+
+
+class LinkFakeController:
+    """swolectl-like sync controller whose serial link can be 'reset'."""
+
+    def __init__(self, name: str, log: list):
+        self.name = name
+        self.log = log
+        self.broken = False
+        self.closed = False
+        self.configured_profile = object()
+        self.last_announcement = SimpleNamespace(firmware_version="5.2.18.0")
+        self.telemetry = SimpleNamespace(
+            left_cable_position=10.0,
+            right_cable_position=10.0,
+            left_cable_speed=0.0,
+            right_cable_speed=0.0,
+            applied_resistance_lb=0.0,
+            rep_count=0,
+            device_enabled=False,
+        )
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._stop.wait, daemon=True)
+        self._thread.start()
+
+    @property
+    def is_open(self) -> bool:
+        return not self.closed
+
+    def _write(self, what: str) -> None:
+        self.log.append((self.name, what))
+        if self.broken:
+            raise OSError(5, "write failed: [Errno 5] I/O error")
+
+    def break_link(self) -> None:
+        """Board reset its USB link: the reader thread exits, writes fail with EIO."""
+        self.broken = True
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+
+    def bring_up(self):
+        self.log.append((self.name, "bring_up"))
+
+    def enable_resistance(self):
+        self._write("enable_resistance")
+        self.telemetry.device_enabled = True
+        self.telemetry.applied_resistance_lb = 20.0
+
+    def disable_resistance(self):
+        self._write("disable_resistance")
+        self.telemetry.device_enabled = False
+        self.telemetry.applied_resistance_lb = 0.0
+
+    def close(self):
+        self.log.append((self.name, "close"))
+        self.closed = True
+        self._stop.set()
+
+
+async def _wait_for(pred, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        await asyncio.sleep(0.02)
+    return pred()
+
+
+async def test_motor_link_loss_reports_refuses_then_reconnects_disengaging_first(monkeypatch):
+    monkeypatch.setattr(motor_bridge_mod, "LINK_RECONNECT_INTERVAL_SEC", 0.05)
+    log: list = []
+    first = LinkFakeController("old", log)
+    second = LinkFakeController("new", log)
+    reconnect_allowed = {"ok": False}
+    factory_ports = []
+
+    def factory(port: str):
+        factory_ports.append(port)
+        if not reconnect_allowed["ok"]:
+            raise OSError(2, "No such file or directory: device still re-enumerating")
+        return second
+
+    cfg = make_test_config(mock_mode=False, watchdog_timeout_sec=60.0)
+    bridge = MotorBridge(cfg, controller=first, controller_factory=factory)
+    events: list = []
+    bridge.register_telemetry_callback(lambda ev: events.append(ev))
+    await bridge.initialize()
+    try:
+        await bridge.enable_resistance()
+        assert await _wait_for(
+            lambda: any(e.get("type") == "telemetry" and e.get("weight_enabled") for e in events)
+        )
+
+        first.break_link()
+        assert await _wait_for(
+            lambda: any(e.get("reason") == "MOTOR_LINK_LOST" for e in events)
+        ), "link loss was not detected"
+        lost_at = next(i for i, e in enumerate(events) if e.get("reason") == "MOTOR_LINK_LOST")
+        assert bridge.state == "FAULT"
+
+        # While down: commands are refused with a clear error, nothing is queued
+        with pytest.raises(RuntimeError, match="link lost"):
+            await bridge.enable_resistance()
+        with pytest.raises(RuntimeError, match="link lost"):
+            await bridge.toggle_resistance()
+        with pytest.raises(ValueError, match="link lost"):
+            await bridge.set_target_weight(10.0)
+        with pytest.raises(RuntimeError, match="link lost"):
+            await bridge.disable_resistance()
+
+        # Reconnect keeps retrying until the device is back; outage telemetry is never stale
+        assert await _wait_for(lambda: len(factory_ports) >= 2)
+        after = [e for e in events[lost_at:] if e.get("type") == "telemetry"]
+        assert after, "no telemetry during the outage"
+        assert all(e["weight_enabled"] is False and e["applied_resistance_lb"] == 0.0 for e in after)
+        assert all(e.get("link_lost") is True for e in after)
+
+        reconnect_allowed["ok"] = True
+        assert await _wait_for(
+            lambda: any(e.get("type") == "motor_link" and e.get("status") == "restored" for e in events)
+        ), "link was not restored"
+
+        assert first.closed is True
+        new_calls = [what for name, what in log if name == "new"]
+        assert new_calls[:2] == ["bring_up", "disable_resistance"]
+        assert "enable_resistance" not in new_calls
+        assert bridge.weight_enabled is False
+        assert bridge.state == "IDLE_WEIGHT_OFF"
+        assert sum(1 for e in events if e.get("reason") == "MOTOR_LINK_LOST") == 1
+
+        # Normal operation resumes on the new link
+        await bridge.enable_resistance()
+        assert ("new", "enable_resistance") in log
+    finally:
+        bridge._loop_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await bridge._loop_task
+
+
+async def test_single_io_error_is_not_link_loss_but_repeated_ones_are():
+    reads = {"fail": 1}
+
+    async def read_telemetry_frame():
+        if reads["fail"] != 0:
+            if reads["fail"] > 0:
+                reads["fail"] -= 1
+            raise OSError(5, "read failed: [Errno 5] I/O error")
+        return {}
+
+    ctrl = MagicMock()
+    ctrl.get_board_info = None
+    ctrl.bring_up = AsyncMock()
+    ctrl.close = AsyncMock()
+    ctrl.read_telemetry_frame = read_telemetry_frame
+    bridge = MotorBridge(make_test_config(mock_mode=False, watchdog_timeout_sec=60.0), controller=ctrl)
+    events: list = []
+    bridge.register_telemetry_callback(lambda ev: events.append(ev))
+    await bridge.initialize()
+    try:
+        await asyncio.sleep(0.4)  # one transient error, then normal frames
+        assert not any(e.get("reason") == "MOTOR_LINK_LOST" for e in events)
+        assert bridge.state == "IDLE_WEIGHT_OFF"
+
+        reads["fail"] = -1  # fail forever
+        assert await _wait_for(lambda: any(e.get("reason") == "MOTOR_LINK_LOST" for e in events))
+        assert bridge.state == "FAULT"
+    finally:
+        bridge._loop_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await bridge._loop_task
+
+
 

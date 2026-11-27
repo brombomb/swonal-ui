@@ -290,7 +290,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         json.dumps({"type": "error", "message": str(exc)})
                     )
             elif msg_type == "disable_weight":
-                await motor.disable_resistance()
+                try:
+                    await motor.disable_resistance()
+                except RuntimeError as exc:  # e.g. motor board link lost
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": str(exc)})
+                    )
             elif msg_type == "set_accessory":
                 try:
                     motor.set_accessory(str(data["accessory"]))
@@ -390,7 +395,10 @@ async def route_motor_disable():
     """Dedicated safety-critical disengage endpoint (works in both live hardware and mock mode)."""
     if motor is None:
         raise HTTPException(status_code=503, detail="Motor bridge unavailable")
-    await motor.disable_resistance()
+    try:
+        await motor.disable_resistance()
+    except RuntimeError as exc:  # e.g. motor board link lost (reconnect disengages first)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
         "status": "ok",
         "weight_enabled": motor.weight_enabled,

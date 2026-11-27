@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import glob
 import inspect
 import json
 import logging
@@ -9,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import struct
+import threading
 import time
 from typing import Any, Callable, Dict, Optional, Union
 
@@ -38,6 +40,13 @@ MSG_BLE_BATT_V2 = 0x2007
 # Physical Tonal V1 rotation degree thresholds (0x1025 rotation_position: ~37° -> R1, ~88° -> R2, ~138° -> R3)
 ROTATION_NOTCH_BOUNDARIES = (62, 112)
 ROTATION_HYSTERESIS_DEG = 8
+
+# Motor serial link loss. Seen on a Tonal V1 (fw 5.2.18.0): when the motor board hears nothing
+# from the host for ~3 s it resets its USB link and drops resistance by itself; /dev/ttyACM0
+# disappears and comes back ~0.25 s later (as /dev/ttyACM1). The old serial handle then fails
+# every read/write with EIO, so the daemon must reopen the port instead of retrying the dead one.
+LINK_LOST_IO_ERRORS = 3  # consecutive I/O failures in the telemetry loop before declaring loss
+LINK_RECONNECT_INTERVAL_SEC = 1.0
 
 
 def quantize_arm_rotation_notch(raw_value: int, prev_notch: int = 1) -> int:
@@ -163,16 +172,27 @@ class TelemetryFrame(BaseModel):
     left_cable: CableState = Field(default_factory=CableState)
     right_cable: CableState = Field(default_factory=CableState)
     arm_positions: ArmPositions = Field(default_factory=ArmPositions)
+    link_lost: bool = False  # True while the motor board link is down (values are not live)
 
 
 class MotorBridge:
     """Manages communication with Tonal V1 Luminary Micro controller or offline mock."""
 
-    def __init__(self, config: dict, controller: Any = None):
+    def __init__(
+        self,
+        config: dict,
+        controller: Any = None,
+        controller_factory: Optional[Callable[[str], Any]] = None,
+    ):
         self.config = config
         env_mock = os.getenv("MOCK_TONAL", "").strip().lower() in {"1", "true", "yes"}
         self.mock_mode = env_mock or bool(config.get("daemon", {}).get("mock_mode", False))
         self.port = config.get("serial", {}).get("port", "/dev/ttyACM0")
+        self._configured_port = self.port
+        self._controller_factory = controller_factory
+        self._link_lost = False
+        self._link_io_errors = 0
+        self._last_reconnect_attempt = 0.0
 
         safety_cfg = config.get("safety", {})
         self.max_weight = float(safety_cfg.get("maximum_resistance_lb", 200.0))
@@ -501,40 +521,51 @@ class MotorBridge:
                 self._loop_task = asyncio.create_task(self._mock_telemetry_loop())
             return
 
-        if not os.path.exists(self.port):
-            import glob
-            candidates = sorted(glob.glob("/dev/ttyACM*"))
-            if candidates:
-                logger.warning("Configured port %s missing; using %s", self.port, candidates[0])
-                self.port = candidates[0]
+        self.port = self._detect_port()
         logger.info("Connecting to physical Tonal motor on %s", self.port)
         try:
             if self._controller is None:
-                # Native swolectl integration boundary (guarded so mock/test runs without hardware pkg)
-                from swolectl import Controller, SafetyPolicy
-
-                expected_fw = self.config.get("serial", {}).get("expected_firmware", "5.2.18.0")
-                safety_kwargs: dict[str, Any] = {
-                    "allow_motor_commands": bool(
-                        self.config.get("safety", {}).get("allow_motor_commands", True)
-                    ),
-                    "minimum_resistance_lb": self.min_weight,
-                    "maximum_resistance_lb": self.max_weight,
-                }
-                sig_params = inspect.signature(SafetyPolicy).parameters
-                if "compatible_firmware_versions" in sig_params:
-                    safety_kwargs["compatible_firmware_versions"] = frozenset({expected_fw})
-                if "allow_unverified_firmware" in sig_params:
-                    safety_kwargs["allow_unverified_firmware"] = True
-                safety = SafetyPolicy(**safety_kwargs)
-                self._controller = Controller(port=self.port, safety=safety)
+                self._controller = self._make_controller(self.port)
             await self.bring_up()
         except Exception as exc:
             logger.error("Failed to bind motor controller hardware: %s", exc)
             self.state = "FAULT"
             raise
 
-    async def bring_up(self) -> None:
+    def _detect_port(self) -> str:
+        """Configured serial port, else the first /dev/ttyACM* (the board re-enumerates on reset)."""
+        if not os.path.exists(self._configured_port):
+            candidates = sorted(glob.glob("/dev/ttyACM*"))
+            if candidates:
+                logger.warning(
+                    "Configured port %s missing; using %s", self._configured_port, candidates[0]
+                )
+                return candidates[0]
+        return self._configured_port
+
+    def _make_controller(self, port: str) -> Any:
+        if self._controller_factory is not None:
+            return self._controller_factory(port)
+        # Native swolectl integration boundary (guarded so mock/test runs without hardware pkg)
+        from swolectl import Controller, SafetyPolicy
+
+        expected_fw = self.config.get("serial", {}).get("expected_firmware", "5.2.18.0")
+        safety_kwargs: dict[str, Any] = {
+            "allow_motor_commands": bool(
+                self.config.get("safety", {}).get("allow_motor_commands", True)
+            ),
+            "minimum_resistance_lb": self.min_weight,
+            "maximum_resistance_lb": self.max_weight,
+        }
+        sig_params = inspect.signature(SafetyPolicy).parameters
+        if "compatible_firmware_versions" in sig_params:
+            safety_kwargs["compatible_firmware_versions"] = frozenset({expected_fw})
+        if "allow_unverified_firmware" in sig_params:
+            safety_kwargs["allow_unverified_firmware"] = True
+        safety = SafetyPolicy(**safety_kwargs)
+        return Controller(port=port, safety=safety)
+
+    async def bring_up(self, disable_first: bool = False) -> None:
         """Verify board/firmware revision and start hardware telemetry polling."""
         if self.mock_mode:
             self.state = "IDLE_WEIGHT_OFF"
@@ -554,6 +585,10 @@ class MotorBridge:
                 )
 
         await _invoke_controller(self._controller.bring_up)
+        if disable_first:
+            # Reconnect after a link loss: the board should have dropped resistance when it reset
+            # its link, but never assume it. The first motor command on a new link is a disengage.
+            await self._send_disengage_after_reconnect()
         if hasattr(self._controller, "add_frame_callback") and callable(
             self._controller.add_frame_callback
         ):
@@ -616,6 +651,9 @@ class MotorBridge:
     async def _set_target_weight_unlocked(
         self, weight_lb: float, profile: str = "standard", modifier_pct: int = 0
     ) -> None:
+        if self._link_lost and not self.mock_mode:
+            # ValueError so the WebSocket/REST handlers report it instead of dropping the client.
+            raise ValueError("Cannot change resistance: motor board link lost (reconnecting)")
         if profile not in VALID_PROFILES:
             raise ValueError(f"Unsupported resistance profile: {profile}")
         if modifier_pct < 0 or modifier_pct > 100:
@@ -679,10 +717,14 @@ class MotorBridge:
         self, weight_lb: float, profile: str = "standard", modifier_pct: int = 0
     ) -> None:
         """Validate safety bounds and configure target resistance profile."""
+        if self._link_lost and not self.mock_mode:  # refuse now, don't queue behind a reconnect
+            raise ValueError("Cannot change resistance: motor board link lost (reconnecting)")
         async with self._cmd_lock:
             await self._set_target_weight_unlocked(weight_lb, profile, modifier_pct)
 
     async def _enable_resistance_unlocked(self) -> None:
+        if self._link_lost and not self.mock_mode:
+            raise RuntimeError("Cannot enable resistance: motor board link lost (reconnecting)")
         if self.maintenance_locked:
             raise RuntimeError("Cannot enable resistance: system update maintenance lock active")
         if self.state == "FAULT":
@@ -710,6 +752,8 @@ class MotorBridge:
 
     async def enable_resistance(self) -> None:
         """Engage motor resistance (serialized under command lock)."""
+        if self._link_lost and not self.mock_mode:  # refuse now, don't queue behind a reconnect
+            raise RuntimeError("Cannot enable resistance: motor board link lost (reconnecting)")
         async with self._cmd_lock:
             await self._enable_resistance_unlocked()
 
@@ -717,6 +761,13 @@ class MotorBridge:
         self._bar_tilt_start_time = None
         self._mock_sim.clear_bar_tilt()
         self.last_interaction = time.monotonic()
+        if self._link_lost and not self.mock_mode:
+            # Writes to the dead link only fail with EIO. The board drops resistance itself when
+            # it stops hearing the host, and the reconnect sends a disengage before anything else.
+            raise RuntimeError(
+                "Motor board link lost: cannot send disengage until it reconnects "
+                "(the reconnect disengages first; use the power switch if in doubt)"
+            )
         if self._controller and not self.mock_mode:
             try:
                 if hasattr(self._controller, "disable_resistance") and callable(
@@ -755,6 +806,8 @@ class MotorBridge:
 
     async def toggle_resistance(self) -> bool:
         """Toggle weight ON/OFF and return resulting enabled state."""
+        if self._link_lost and not self.mock_mode:  # refuse now, don't queue behind a reconnect
+            raise RuntimeError("Cannot toggle resistance: motor board link lost (reconnecting)")
         async with self._cmd_lock:
             if self.weight_enabled:
                 await self._disable_resistance_unlocked()
@@ -982,9 +1035,126 @@ class MotorBridge:
             return True
         return False
 
+    def _controller_link_dead(self) -> bool:
+        """True when swolectl's serial reader thread has died (it exits on a read error, e.g. the
+        board's USB link reset) while the port is still nominally open."""
+        ctrl = self._controller
+        if ctrl is None or self.mock_mode:
+            return False
+        thread = getattr(ctrl, "_thread", None)
+        return (
+            isinstance(thread, threading.Thread)
+            and not thread.is_alive()
+            and bool(getattr(ctrl, "is_open", False))
+        )
+
+    @staticmethod
+    def _is_link_error(exc: BaseException) -> bool:
+        # pyserial's SerialException subclasses OSError ("write failed: [Errno 5] I/O error").
+        return isinstance(exc, OSError) and not isinstance(exc, TimeoutError)
+
+    async def _on_link_lost(self, detail: str) -> None:
+        if self._link_lost:
+            return
+        self._link_lost = True
+        self._last_reconnect_attempt = 0.0
+        self.state = "FAULT"
+        logger.critical(
+            "Motor board serial link LOST (%s). Board telemetry is no longer live; reconnecting. "
+            "The board drops resistance when it stops hearing the host.",
+            detail,
+        )
+        self._emit_event(
+            {
+                "type": "safety_event",
+                "reason": "MOTOR_LINK_LOST",
+                "detail": detail,
+                "timestamp": time.time(),
+            }
+        )
+
+    def _link_lost_frame(self) -> TelemetryFrame:
+        """Telemetry while the link is down: never repeat the last (stale) weight-on/load values."""
+        return TelemetryFrame(
+            type="telemetry",
+            mode="CUSTOM",
+            weight_enabled=False,
+            target_weight_lb=self.target_weight_lb,
+            applied_resistance_lb=0.0,
+            profile_mode=self.profile_mode,
+            modifier_pct=self.modifier_pct,
+            rep_count=self.rep_count,
+            accessory=self.active_accessory,
+            arm_positions=self._hardware_arm_positions,
+            link_lost=True,
+        )
+
+    async def _send_disengage_after_reconnect(self) -> None:
+        ctrl = self._controller
+        try:
+            if hasattr(ctrl, "disable_resistance") and callable(ctrl.disable_resistance):
+                await _invoke_controller(ctrl.disable_resistance)
+            elif hasattr(ctrl, "disable_power") and callable(ctrl.disable_power):
+                await _invoke_controller(ctrl.disable_power)
+        except Exception as exc:
+            if bool(self.config.get("safety", {}).get("allow_motor_commands", True)):
+                raise
+            # Read-only daemon: swolectl's SafetyPolicy refuses disable too; nothing to send.
+            logger.warning("Read-only: no disengage sent after reconnect (%s)", exc)
+
+    async def _try_reconnect(self) -> bool:
+        """Close the dead controller, reopen the (re-enumerated) port, disengage first."""
+        async with self._cmd_lock:
+            old, self._controller = self._controller, None
+            if old is not None and hasattr(old, "close"):
+                try:
+                    await _invoke_controller(old.close)
+                except Exception as exc:
+                    logger.warning("Closing dead motor link failed (ignored): %s", exc)
+            port = self._detect_port()
+            try:
+                self._controller = self._make_controller(port)
+                self.port = port
+                await self.bring_up(disable_first=True)
+            except Exception as exc:
+                logger.warning("Motor link reconnect on %s failed: %s", port, exc)
+                failed, self._controller = self._controller, None
+                if failed is not None and hasattr(failed, "close"):
+                    try:
+                        await _invoke_controller(failed.close)
+                    except Exception:
+                        pass
+                self.state = "FAULT"
+                return False
+            self.weight_enabled = False
+            self._link_lost = False
+            self._link_io_errors = 0
+            self._bar_tilt_start_time = None
+            self._last_cable_activity_ts = time.monotonic()
+            self._last_activity_cable_pos = None
+            self._prev_cable_pos = None
+        logger.warning("Motor board link restored on %s; resistance disengaged.", port)
+        self._emit_event({"type": "motor_link", "status": "restored", "port": port, "timestamp": time.time()})
+        return True
+
+    async def _link_recovery_step(self) -> None:
+        self._emit_event(self._link_lost_frame().model_dump())
+        now = time.monotonic()
+        if now - self._last_reconnect_attempt >= LINK_RECONNECT_INTERVAL_SEC:
+            self._last_reconnect_attempt = now
+            await self._try_reconnect()
+
     async def _hardware_telemetry_loop(self) -> None:
         while True:
             try:
+                if self._link_lost:
+                    await self._link_recovery_step()
+                    await asyncio.sleep(0.2)
+                    continue
+                if self._controller_link_dead():
+                    await self._on_link_lost("serial reader stopped (device disconnected?)")
+                    continue
+
                 await self._check_watchdog()
 
                 if hasattr(self._controller, "read_telemetry_frame") and callable(
@@ -1005,11 +1175,16 @@ class MotorBridge:
                     frame.right_cable.velocity,
                 )
                 self._emit_event(frame.model_dump())
+                self._link_io_errors = 0
                 await asyncio.sleep(0.033)  # ~30Hz
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.error("Error in hardware telemetry loop: %s", exc)
+                if self._is_link_error(exc):
+                    self._link_io_errors += 1
+                    if self._link_io_errors >= LINK_LOST_IO_ERRORS:
+                        await self._on_link_lost(str(exc))
                 await asyncio.sleep(0.1)
 
     def _build_frame_from_swolectl(self) -> TelemetryFrame:
