@@ -395,6 +395,32 @@ const PUBLIC_USER_SELECT = {
         });
         return;
       }
+      // Routines reference exercises by id inside blocksJson; deleting one would
+      // silently drop that step from every routine that uses it.
+      const candidates = await prisma.workoutTemplate.findMany({
+        where: { deletedAt: null, blocksJson: { contains: req.params.id } },
+        select: { id: true, name: true, blocksJson: true },
+        orderBy: { name: 'asc' },
+      });
+      const usedBy = candidates
+        .filter((t) => {
+          try {
+            const blocks = JSON.parse(t.blocksJson) as { items?: { exerciseId?: string }[] }[];
+            return blocks.some((b) => b.items?.some((i) => i.exerciseId === req.params.id));
+          } catch {
+            return false;
+          }
+        })
+        .map((t) => ({ id: t.id, name: t.name }));
+      if (usedBy.length > 0) {
+        res.status(409).json({
+          error: `Cannot delete exercise: used by ${usedBy.length === 1 ? 'routine' : 'routines'} ${usedBy
+            .map((t) => `"${t.name}"`)
+            .join(', ')}. Remove it from ${usedBy.length === 1 ? 'that routine' : 'those routines'} first.`,
+          templates: usedBy,
+        });
+        return;
+      }
       await prisma.exercise.update({
         where: { id: req.params.id },
         data: { deletedAt: new Date() },
