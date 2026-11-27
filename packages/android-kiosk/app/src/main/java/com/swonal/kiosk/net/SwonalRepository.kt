@@ -125,7 +125,11 @@ data class KioskUiState(
         get() {
             val stepExId = currentStep?.exerciseId
             val targetId = stepExId ?: activeExerciseId
-            return exercises.firstOrNull { it.id == targetId } ?: exercises.firstOrNull()
+            // Never substitute another exercise for a missing/deleted one (e.g. a routine step whose
+            // exercise was deleted, or a shared routine from another install): sets would be logged
+            // against the wrong movement. Only fall back to the first exercise when nothing is selected.
+            if (targetId != null) return exercises.firstOrNull { it.id == targetId }
+            return exercises.firstOrNull()
         }
 
     val nextExercise: Exercise?

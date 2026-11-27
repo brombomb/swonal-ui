@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -195,5 +196,39 @@ class LocalWorkoutEngineTest {
         val nowMs = 1763980000123L
         val iso = IsoTime.formatUtc(nowMs)
         assertEquals(nowMs, IsoTime.parseUtcMs(iso))
+    }
+
+    private fun singleItemBlock(exerciseId: String) = listOf(
+        WorkoutBlock(
+            blockType = "STRAIGHT_SET",
+            restSeconds = 60,
+            items = listOf(WorkoutBlockItem(exerciseId = exerciseId, sets = 2, targetReps = 10, targetWeightLb = 30.0))
+        )
+    )
+
+    @Test
+    fun `rejects routines that reference unknown or deleted exercises`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val valid = engine.getAppState(daemonConnected = true).exercises.first()
+        val bogus = "00000000-0000-4000-8000-000000000000"
+
+        val createErr = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { engine.createTemplate(alex.id, "Typo", null, singleItemBlock(valid.id) + singleItemBlock(bogus)) }
+        }
+        assertTrue(createErr.message!!.contains(bogus))
+
+        val tpl = engine.createTemplate(alex.id, "Valid", null, singleItemBlock(valid.id))
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { engine.updateTemplate(tpl.id, blocks = singleItemBlock(bogus)) }
+        }
+        val unchanged = engine.listTemplates(alex.id).first { it.id == tpl.id }
+        assertEquals(valid.id, unchanged.blocks[0].items[0].exerciseId)
+
+        val doomed = engine.createExercise(name = "Soon deleted", muscleGroup = "Test", accessory = "HANDLES")
+        assertTrue(engine.deleteExercise(doomed.id).isSuccess)
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { engine.createTemplate(alex.id, "Uses deleted", null, singleItemBlock(doomed.id)) }
+        }
     }
 }
