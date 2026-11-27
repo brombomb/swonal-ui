@@ -721,6 +721,18 @@ class SwonalDatabase(
         if (usage > 0L) {
             return@withTx Result.failure(IllegalStateException("Cannot delete exercise with $usage logged sets."))
         }
+        // Routines reference exercises by id; deleting one would silently drop that step.
+        val usedBy = listTemplatesUnlocked(c)
+            .filter { t -> t.blocks.any { b -> b.items.any { it.exerciseId == exerciseId } } }
+            .map { it.name }
+            .sorted()
+        if (usedBy.isNotEmpty()) {
+            val names = usedBy.joinToString(", ") { "\"$it\"" }
+            val (noun, ref) = if (usedBy.size == 1) "routine" to "that routine" else "routines" to "those routines"
+            return@withTx Result.failure(
+                IllegalStateException("Cannot delete exercise: used by $noun $names. Remove it from $ref first.")
+            )
+        }
         val nowMs = System.currentTimeMillis()
         c.prepare("UPDATE exercises SET deleted_at_ms = ?, updated_at_ms = ?, dirty_sync = 1 WHERE id = ?").useStmt { s ->
             s.bindLong(1, nowMs)

@@ -125,6 +125,36 @@ class LocalWorkoutEngineTest {
     }
 
     @Test
+    fun `refuses to delete an exercise a live routine uses, naming the routine`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val ex = engine.createExercise(name = "Guard Test Curl", muscleGroup = "Arms", accessory = "HANDLES")
+        val tpl = engine.createTemplate(
+            userId = alex.id,
+            name = "Guard Test Arms Day",
+            description = "",
+            unit = "LB",
+            blocks = listOf(
+                WorkoutBlock(
+                    blockType = "STRAIGHT_SET",
+                    restSeconds = 60,
+                    items = listOf(WorkoutBlockItem(exerciseId = ex.id, sets = 3, targetReps = 10, targetWeightLb = 30.0))
+                )
+            )
+        )
+
+        val refused = engine.deleteExercise(ex.id)
+        assertTrue(refused.isFailure)
+        assertTrue(refused.exceptionOrNull()!!.message!!.contains("Guard Test Arms Day"))
+        assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
+
+        // Once the routine is deleted, the exercise can go
+        assertTrue(engine.deleteTemplate(tpl.id))
+        assertTrue(engine.deleteExercise(ex.id).isSuccess)
+        assertTrue(engine.listExercises().none { it.id == ex.id })
+    }
+
+    @Test
     fun `escapes CSV formulas, converts KG routine weights on create, and vacuums SQLite backup`() = runBlocking {
         engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
         val alex = engine.listUsers()[0]
