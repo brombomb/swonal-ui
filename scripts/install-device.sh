@@ -528,6 +528,18 @@ EOF
   "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/requirements-termux-py38.txt" /data/local/tmp/daemon-sync/requirements-termux-py38.txt
   "${ADB[@]}" push --sync "${ROOT_DIR}/packages/tonal-daemon/start-daemon.sh" /data/local/tmp/daemon-sync/start-daemon.sh
 
+  # Starter config.yaml, installed only if the device has none (an existing config is kept).
+  # Standalone installs only need the on-device kiosk to reach the daemon, so bind loopback.
+  CONFIG_SEED="$(mktemp)"
+  if [[ -z "${SERVER_URL}" ]]; then
+    sed 's/^  host: "0\.0\.0\.0"/  host: "127.0.0.1"/' "${ROOT_DIR}/packages/tonal-daemon/config.example.yaml" > "${CONFIG_SEED}"
+  else
+    cp "${ROOT_DIR}/packages/tonal-daemon/config.example.yaml" "${CONFIG_SEED}"
+    echo "  [warn] tonal-daemon listens on the LAN (0.0.0.0:8765) for the home server: set daemon.api_token in /data/swonal/packages/tonal-daemon/config.yaml"
+  fi
+  "${ADB[@]}" push "${CONFIG_SEED}" /data/local/tmp/daemon-sync/config.yaml.seed
+  rm -f "${CONFIG_SEED}"
+
   "${ADB[@]}" shell "su -c '
     mkdir -p /data/swonal/packages/tonal-daemon/src /data/swonal/packages/tonal-daemon/swolectl /data/adb/service.d
     cp -u /data/local/tmp/daemon-sync/pyproject.toml /data/swonal/packages/tonal-daemon/ 2>/dev/null || cp /data/local/tmp/daemon-sync/pyproject.toml /data/swonal/packages/tonal-daemon/
@@ -536,9 +548,11 @@ EOF
     cp -u -R /data/local/tmp/daemon-sync/src/* /data/swonal/packages/tonal-daemon/src/ 2>/dev/null || cp -R /data/local/tmp/daemon-sync/src/* /data/swonal/packages/tonal-daemon/src/
     cp -u -R /data/local/tmp/daemon-sync/swolectl/* /data/swonal/packages/tonal-daemon/swolectl/ 2>/dev/null || cp -R /data/local/tmp/daemon-sync/swolectl/* /data/swonal/packages/tonal-daemon/swolectl/
     cp /data/local/tmp/daemon-sync/start-daemon.sh /data/adb/service.d/98-swonal-daemon.sh
+    [ -f /data/swonal/packages/tonal-daemon/config.yaml ] || cp /data/local/tmp/daemon-sync/config.yaml.seed /data/swonal/packages/tonal-daemon/config.yaml
     chown -R 0:0 /data/swonal/packages/tonal-daemon /data/adb/service.d/98-swonal-daemon.sh
     chmod 0700 /data/adb/service.d/98-swonal-daemon.sh
     chmod -R go-w /data/swonal/packages/tonal-daemon
+    chmod 0600 /data/swonal/packages/tonal-daemon/config.yaml
     rm -rf /data/local/tmp/daemon-sync
   '"
 
@@ -547,7 +561,7 @@ EOF
 
   if [[ "${LOCAL_REQ_HASH}" != "${REMOTE_REQ_HASH}" ]]; then
     echo "  [termux] Installing Python 3.8-compatible tonal-daemon dependencies in Termux..."
-    if ! run_in_termux "pkg install -y python && pip install --no-cache-dir -r /data/swonal/packages/tonal-daemon/requirements-termux-py38.txt && cd /data/swonal/packages/tonal-daemon && python3 -c \"import fastapi, uvicorn, pydantic, websockets, serial, serial_asyncio, swolectl\""; then
+    if ! run_in_termux "pkg install -y python && pip install --upgrade \"pip<25\" wheel && pip install --no-cache-dir --no-build-isolation -r /data/swonal/packages/tonal-daemon/requirements-termux-py38.txt && cd /data/swonal/packages/tonal-daemon && python3 -c \"import fastapi, uvicorn, pydantic, websockets, serial, serial_asyncio, swolectl, yaml\""; then
       echo "  [error] Failed to install or verify Python dependencies in Termux." >&2
       echo "          Make sure Termux has been opened once on the Tonal screen to finish bootstrapping," >&2
       echo "          then re-run this installer." >&2

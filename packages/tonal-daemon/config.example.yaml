@@ -1,6 +1,10 @@
 daemon:
+  # 127.0.0.1: only the on-device kiosk can reach the daemon (standalone installs).
+  # 0.0.0.0: reachable from the LAN (e.g. a separate home server); then set api_token.
   host: "0.0.0.0"
   port: 8765
+  # Shared bearer token required from non-loopback clients (or env DAEMON_API_TOKEN).
+  # api_token: "change-me"
   mock_mode: false
   watchdog_timeout_sec: 5.0
   server_url: "http://192.168.1.100:3000"
