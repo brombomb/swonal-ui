@@ -27,7 +27,8 @@ function getWeekStart(date: Date): Date {
 }
 
 function estimate1RmLb(weightLb: number, reps: number): number {
-  if (reps <= 1) return weightLb;
+  if (reps < 1) return 0;
+  if (reps === 1) return weightLb;
   return Math.round(weightLb * (1 + reps / 30) * 10) / 10;
 }
 
@@ -177,6 +178,7 @@ export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = React.m
       >();
 
       for (const log of logs) {
+        if (log.repsCompleted < 1) continue; // no completed reps: not a strength data point
         const name = log.exercise?.name ?? 'Exercise';
         const muscleGroup = log.exercise?.muscleGroup ?? 'Full Body';
         const est = estimate1RmLb(log.weightLb, log.repsCompleted);
