@@ -65,6 +65,9 @@ python3 mtk.py rl ~/tonal-backup
 python3 mtk.py w boot ~/magisk_patched.img
 ```
 
+* **If the patched boot fails** (boot loop or black screen), restore your original the same way: enter BROM and run `python3 mtk.py w boot ~/tonal-backup/boot.bin`. `w` looks `boot` up in the partition table and writes only within that partition; BROM lives in the chip's ROM, so a failed or interrupted write can simply be repeated. Consider rehearsing this once **before** flashing the patch: write your original `boot.bin` back (identical bytes), read it back with `python3 mtk.py r boot ~/boot-check.bin`, and confirm the SHA-256 still matches. That proves the restore path works on your unit.  
+* **Do not run `python3 mtk.py wl ~/tonal-backup` on the backup folder as-is.** `wl` writes each file to the partition named after it, and the folder also holds `gpt.bin` / `gpt_backup.bin` (written at address 0, over the partition table) and other non-partition files. For a multi-partition restore, copy only the images you mean to restore into a new folder, and never include the boot areas.
+
 ## **5\. Boot Up, Unlock Kiosk Mode & Enable Persistent ADB**
 
 * Unplug your laptop's micro-USB cable from the Tonal board, plug the Tonal AC cord back in, and flip the power switch on. (If your board needed the Tonal switched on for BROM: switch it off after the flash, then back on with no `mtkclient` command waiting, and it boots normally.)  
