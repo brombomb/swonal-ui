@@ -733,4 +733,98 @@ async def test_single_io_error_is_not_link_loss_but_repeated_ones_are():
             await bridge._loop_task
 
 
+# --- Link loss vs. the WebSocket-cleanup and BLE-button paths (review on PR #21) ------------------
+
+import json
+
+
+def test_ws_cleanup_survives_disengage_refused_during_link_loss(monkeypatch, caplog):
+    """While the motor link is down, disable_resistance() raises. The WebSocket disconnect and
+    error cleanups must log that, not crash the handler, and must not mark the weight as off."""
+    monkeypatch.setenv("MOCK_TONAL", "true")
+    daemon_main._cli_mock_override = True
+
+    with TestClient(daemon_main.app) as client:
+        bridge = daemon_main.motor
+        try:
+            for trigger in ("disconnect", "bad_message"):
+                caplog.clear()
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({"type": "ping"})
+                    for _ in range(20):
+                        if ws.receive_json().get("type") == "pong":
+                            break
+                    # Live-hardware rules, link down, weight engaged
+                    bridge.mock_mode = False
+                    bridge._link_lost = True
+                    bridge.weight_enabled = True
+                    if trigger == "bad_message":
+                        ws.send_text("not json")  # -> the generic `except Exception` cleanup
+                # Leaving the block closes the client; the TestClient re-raises here any
+                # exception that escaped the server-side handler.
+                assert bridge.weight_enabled is True, trigger  # never claimed off while down
+                assert any(
+                    "Safety disengage after WebSocket client" in r.getMessage()
+                    for r in caplog.records
+                ), trigger
+        finally:
+            bridge._link_lost = False
+            bridge.weight_enabled = False
+            bridge.mock_mode = True
+
+
+async def test_ble_buttons_during_link_loss_are_broadcast_and_reconnect_disengages(monkeypatch):
+    monkeypatch.setattr(motor_bridge_mod, "LINK_RECONNECT_INTERVAL_SEC", 0.05)
+    log: list = []
+    first = LinkFakeController("old", log)
+    second = LinkFakeController("new", log)
+    reconnect_allowed = {"ok": False}
+
+    def factory(port: str):
+        if not reconnect_allowed["ok"]:
+            raise OSError(2, "No such file or directory: device still re-enumerating")
+        return second
+
+    bridge = MotorBridge(
+        make_test_config(mock_mode=False, watchdog_timeout_sec=60.0),
+        controller=first,
+        controller_factory=factory,
+    )
+    events: list = []
+    bridge.register_telemetry_callback(lambda ev: events.append(ev))
+    broadcasts: list = []
+
+    async def fake_broadcast(payload: str) -> None:
+        broadcasts.append(json.loads(payload))
+
+    monkeypatch.setattr(daemon_main, "motor", bridge)
+    monkeypatch.setattr(daemon_main, "_broadcast_payload", fake_broadcast)
+    await bridge.initialize()
+    try:
+        await bridge.enable_resistance()
+        first.break_link()
+        assert await _wait_for(lambda: any(e.get("reason") == "MOTOR_LINK_LOST" for e in events))
+        writes_before = len(log)
+
+        for action in ("emergency_stop", "toggle_weight"):
+            await daemon_main.handle_ble_event(
+                {"type": "handle_event", "action": action, "source": "ble"}
+            )
+        assert [b["action"] for b in broadcasts] == ["emergency_stop", "toggle_weight"]
+        assert bridge.weight_enabled is True  # refused, so not claimed off while the link is down
+        assert log[writes_before:] == []  # nothing was written to the dead link
+
+        reconnect_allowed["ok"] = True
+        assert await _wait_for(
+            lambda: any(e.get("type") == "motor_link" and e.get("status") == "restored" for e in events)
+        )
+        new_calls = [what for name, what in log if name == "new"]
+        assert new_calls[:2] == ["bring_up", "disable_resistance"]
+        assert "enable_resistance" not in new_calls  # the refused toggle is not replayed
+        assert bridge.weight_enabled is False
+        assert bridge.state == "IDLE_WEIGHT_OFF"
+    finally:
+        bridge._loop_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await bridge._loop_task
 

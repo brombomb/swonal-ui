@@ -113,21 +113,43 @@ async def _broadcast_payload(payload: str) -> None:
             active_websockets.remove(ws)
 
 
+async def handle_ble_event(event: dict) -> None:
+    """Smart Handle / Bar button (or MCB BLE relay) event: act on the motor, then broadcast it."""
+    if motor is not None:
+        action = event.get("action")
+        try:
+            if action == "toggle_weight":
+                await motor.toggle_resistance()
+            elif action == "emergency_stop":
+                await motor.disable_resistance()
+        except Exception as exc:  # e.g. motor board link lost: refused, weight_enabled unchanged
+            # Still broadcast below so the kiosk sees the button press. While the link is down the
+            # board drops resistance when it stops hearing the host, and the reconnect sends a
+            # disengage before anything else.
+            logger.critical("BLE %s could not be applied to the motor: %s", action, exc)
+    await _broadcast_payload(json.dumps(event))
+
+
+async def _disengage_after_ws_loss(client_host: str) -> None:
+    """Kiosk / last WebSocket client went away while weight was engaged: disengage."""
+    try:
+        await motor.disable_resistance()
+    except Exception as exc:
+        # Nothing to report to: the client is gone. A failed disengage leaves weight_enabled True
+        # and the state FAULT, so nothing believes the weight is off. If the board link is down,
+        # the board drops resistance when it stops hearing the host, and the reconnect disengages
+        # before anything else.
+        logger.critical(
+            "Safety disengage after WebSocket client (%s) loss FAILED: %s", client_host, exc
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Initialize and cleanly tear down MotorBridge, BLEHandleManager, ModeSwitcher, and LibrespotBridge."""
     global motor, ble, switcher, librespot
     config = load_config()
     motor = MotorBridge(config)
-
-    async def handle_ble_event(event: dict) -> None:
-        if motor is not None:
-            action = event.get("action")
-            if action == "toggle_weight":
-                await motor.toggle_resistance()
-            elif action == "emergency_stop":
-                await motor.disable_resistance()
-        await _broadcast_payload(json.dumps(event))
 
     ble = BLEHandleManager(config, handle_ble_event, mock_mode=motor.mock_mode)
     server_url = config.get("daemon", {}).get(
@@ -352,7 +374,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "Safety disengage: kiosk/last WebSocket client (%s) disconnected while weight was engaged.",
                 client_host,
             )
-            await motor.disable_resistance()
+            await _disengage_after_ws_loss(client_host)
     except Exception as exc:
         logger.error("WebSocket processing error: %s", exc)
         if websocket in active_websockets:
@@ -361,7 +383,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if motor is not None and motor.weight_enabled and (
             client_host in ("127.0.0.1", "::1", "localhost") or not active_websockets
         ):
-            await motor.disable_resistance()
+            await _disengage_after_ws_loss(client_host)
 
 
 @app.post("/api/mode/stock")
