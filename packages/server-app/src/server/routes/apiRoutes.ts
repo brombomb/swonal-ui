@@ -313,6 +313,14 @@ const PUBLIC_USER_SELECT = {
 
   const ExerciseSchema = z.object({
     name: z.string().min(1).max(80),
+    // Short coaching cue shown during the set. Trimmed; null or "" clears it, leaving it out keeps it.
+    notes: z
+      .string()
+      .trim()
+      .max(500)
+      .nullable()
+      .optional()
+      .transform((v) => (v === '' ? null : v)),
     muscleGroup: z.string().min(1).max(40),
     accessory: z.enum(['HANDLES', 'BAR', 'ROPE', 'BODYWEIGHT']).default('HANDLES'),
     unilateral: z.boolean().optional(),
