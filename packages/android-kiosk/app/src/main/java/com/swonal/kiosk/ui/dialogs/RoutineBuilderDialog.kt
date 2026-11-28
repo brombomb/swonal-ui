@@ -358,7 +358,7 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                 })
                 val itemEx = exMap[item.exerciseId]
                 // Bodyweight moves take no attachment, so they get no picker (unless one was already saved).
-                if (itemEx != null && (itemEx.accessory != Accessories.BODYWEIGHT || item.accessory != null)) {
+                if (itemEx != null && (!itemEx.accessory.equals(Accessories.BODYWEIGHT, ignoreCase = true) || item.accessory != null)) {
                     nameRow.addView(makeAccessoryPill(item, itemEx.accessory, ui.preferredAccessory).apply {
                         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply {
                             if (blk.items.size > 1) marginEnd = dp(6)

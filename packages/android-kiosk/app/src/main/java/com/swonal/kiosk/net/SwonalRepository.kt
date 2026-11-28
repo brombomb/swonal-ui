@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -125,9 +127,12 @@ data class KioskUiState(
     val activeAccessory: String?
         get() = activeExercise?.let { accessoryFor(it, currentStep) }
 
-    /** The attachment [exercise] uses as [step] of the routine (or as a free lift when [step] is null). */
-    fun accessoryFor(exercise: Exercise, step: RoutineStep? = null): String =
-        Accessories.resolve(exercise.accessory, step?.accessory, preferredAccessory)
+    /**
+     * The attachment [exercise] uses as [step] of the routine (or as a free lift when [step] is null)
+     * for [userId], who defaults to the active lifter.
+     */
+    fun accessoryFor(exercise: Exercise, step: RoutineStep? = null, userId: String? = activeUser?.id): String =
+        Accessories.resolve(exercise.accessory, step?.accessory, userId?.let { preferredAccessories[it] })
 
     val currentStep: RoutineStep?
         get() = routineSteps.getOrNull(currentStepIdx)
@@ -449,6 +454,16 @@ class SwonalRepository(
     private var prevRepCount = 0
     private var activeTelemetrySource = TelemetrySource.NONE
     private var lastAutoLoggedStepKey: String? = null
+
+    /**
+     * An attachment change that is waiting for resistance to disengage (see [applyMotorAccessory]).
+     * Cleared when it is sent, or when the lifter confirms an attachment on the Kiosk.
+     */
+    @Volatile
+    private var pendingMotorAccessory: String? = null
+
+    /** Keeps a default-accessory save from being overwritten by a read that started before it. */
+    private val preferredAccessoryLock = Mutex()
 
     private val started = AtomicBoolean(false)
     private val logSetInFlight = AtomicBoolean(false)
@@ -785,6 +800,9 @@ class SwonalRepository(
                     authRequired = false
                 )
             }
+            // Every lifter's default, so starting another lifter's routine or a partner rotation
+            // resolves their attachment without waiting for them to become the active user first.
+            loadPreferredAccessories(state.users.map { it.id })
             val activeUid = _uiStateFlow.value.activeUser?.id
             if (activeUid != null) {
                 refreshUserScopedData(activeUid)
@@ -880,9 +898,7 @@ class SwonalRepository(
                 _uiStateFlow.update { it.copy(showDemoPip = enabled) }
             }
         }
-        runCatching { localEngine.getPreferredAccessory(userId) }.onSuccess { acc ->
-            _uiStateFlow.update { it.copy(preferredAccessories = it.preferredAccessories.withEntry(userId, acc)) }
-        }
+        loadPreferredAccessories(listOf(userId))
         runCatching { localEngine.listSessions(userId) }.onSuccess { sessions ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(recentSessions = sessions) }
@@ -893,6 +909,17 @@ class SwonalRepository(
             refreshOverload(userId, exId)
         }
         refreshMusicAll(userId)
+    }
+
+    /** Reads each of [userIds]' saved default attachment into [KioskUiState.preferredAccessories]. */
+    private suspend fun loadPreferredAccessories(userIds: Collection<String>) {
+        preferredAccessoryLock.withLock {
+            userIds.forEach { uid ->
+                runCatching { localEngine.getPreferredAccessory(uid) }.onSuccess { acc ->
+                    _uiStateFlow.update { it.copy(preferredAccessories = it.preferredAccessories.withEntry(uid, acc)) }
+                }
+            }
+        }
     }
 
     private suspend fun refreshOverload(userId: String, exerciseId: String) {
@@ -1208,6 +1235,8 @@ class SwonalRepository(
             prevRepCount = frame.repCount
         }
 
+        if (!frame.weightEnabled) flushPendingMotorAccessory()
+
         val repsToLog = shouldAutoLogReps
         if (repsToLog != null) {
             scope.launch { logCompletedSetInternal(repsToLog) }
@@ -1396,6 +1425,8 @@ class SwonalRepository(
 
     fun setAccessory(accessory: String) {
         if (_uiStateFlow.value.authRequired) return
+        // An explicit attachment (or a deferred one being sent now) replaces any change still waiting.
+        pendingMotorAccessory = null
         val sentLocal = if (localDaemon.connected.value) localDaemon.setAccessoryDirect(accessory) else false
         if (!sentLocal && canSendMotorViaServer()) {
             sendWs(
@@ -1405,6 +1436,26 @@ class SwonalRepository(
                 }
             )
         }
+    }
+
+    /**
+     * Tells the motor which attachment the lifter should be using now. While resistance is engaged
+     * the change waits until it disengages: the daemon only runs the bar-tilt cutout while the
+     * accessory is BAR, so switching attachments under load could turn that protection off mid-set.
+     */
+    private fun applyMotorAccessory(accessory: String) {
+        if (isWeightCurrentlyEngaged()) {
+            pendingMotorAccessory = accessory
+            return
+        }
+        setAccessory(accessory)
+    }
+
+    /** Sends the attachment change [applyMotorAccessory] held back, once resistance is off. */
+    private fun flushPendingMotorAccessory() {
+        val accessory = pendingMotorAccessory ?: return
+        if (_uiStateFlow.value.authRequired || isWeightCurrentlyEngaged()) return
+        setAccessory(accessory)
     }
 
     fun resetReps() {
@@ -1431,6 +1482,7 @@ class SwonalRepository(
 
     fun switchUser(userId: String) {
         if (_uiStateFlow.value.authRequired) return
+        val accessoryBefore = _uiStateFlow.value.activeAccessory
         scope.launch {
             val nextState = localEngine.setActiveUser(userId)
             _uiStateFlow.update { it.copy(sessionState = nextState) }
@@ -1443,6 +1495,13 @@ class SwonalRepository(
                 )
             }
             refreshUserScopedData(userId)
+            // The new lifter's default can change the current exercise's attachment. Skip it if
+            // another switch has already happened, so a slow load never applies a stale lifter's pick.
+            val switched = _uiStateFlow.value
+            if (switched.activeUser?.id == userId) {
+                val accessoryAfter = switched.activeAccessory
+                if (accessoryAfter != null && accessoryAfter != accessoryBefore) applyMotorAccessory(accessoryAfter)
+            }
             if (!isWeightCurrentlyEngaged()) {
                 val exId = _uiStateFlow.value.activeExercise?.id
                 val pr = _uiStateFlow.value.prs.firstOrNull { it.exerciseId == exId }
@@ -1538,20 +1597,31 @@ class SwonalRepository(
     }
 
     /**
-     * Sets the active lifter's default attachment (null = each exercise's own) and, when the current
-     * exercise follows that default, tells the motor about the new attachment right away.
+     * Saves the active lifter's default attachment (null = each exercise's own). When that changes
+     * the current exercise's attachment, the motor follows (after the set, if weight is engaged).
      */
     fun setPreferredAccessory(accessory: String?) {
         if (_uiStateFlow.value.authRequired) return
         val uid = _uiStateFlow.value.activeUser?.id ?: return
         val clean = Accessories.normalize(accessory)
-        _uiStateFlow.update { it.copy(preferredAccessories = it.preferredAccessories.withEntry(uid, clean)) }
-        _uiStateFlow.value.activeAccessory?.let { setAccessory(it) }
         scope.launch {
-            runCatching { localEngine.setPreferredAccessory(uid, clean) }
-                .onFailure { err ->
-                    _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to save default accessory"))
-                }
+            val accessoryBefore = _uiStateFlow.value.activeAccessory
+            // Save first, then show it: a failed save leaves nothing to undo, and the lock keeps a
+            // refresh that read the old value from landing on top of the new one.
+            val saved = preferredAccessoryLock.withLock {
+                runCatching { localEngine.setPreferredAccessory(uid, clean) }
+                    .onSuccess {
+                        _uiStateFlow.update { s -> s.copy(preferredAccessories = s.preferredAccessories.withEntry(uid, clean)) }
+                    }
+                    .onFailure { err ->
+                        _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to save default accessory"))
+                    }
+                    .isSuccess
+            }
+            val ui = _uiStateFlow.value
+            if (!saved || ui.activeUser?.id != uid) return@launch
+            val accessoryAfter = ui.activeAccessory
+            if (accessoryAfter != null && accessoryAfter != accessoryBefore) applyMotorAccessory(accessoryAfter)
         }
     }
 
@@ -1676,6 +1746,9 @@ class SwonalRepository(
                 disableWeightAndAwait()
             }
             val session = runCatching { localEngine.createSession(uid, templateId) }.getOrNull()
+            // The routine may belong to a lifter who isn't active yet; their default must be loaded
+            // before the first step resolves its attachment.
+            loadPreferredAccessories(listOf(uid))
             val step0 = steps[0]
             val ex0 = _uiStateFlow.value.exercises.firstOrNull { it.id == step0.exerciseId }
             lastAutoLoggedStepKey = null
@@ -1691,7 +1764,7 @@ class SwonalRepository(
                     } else it.sessionState.copy(activeUserId = uid)
                 )
             }
-            if (ex0 != null) setAccessory(_uiStateFlow.value.accessoryFor(ex0, step0))
+            if (ex0 != null) applyMotorAccessory(_uiStateFlow.value.accessoryFor(ex0, step0, uid))
             setWeight(step0.targetWeightLb, step0.mode, step0.modifierPct, allowWhileEngaged = false)
             resetReps()
             refreshOverload(uid, step0.exerciseId)
@@ -1711,7 +1784,7 @@ class SwonalRepository(
                 activeExerciseId = exercise.id
             )
         }
-        setAccessory(_uiStateFlow.value.accessoryFor(exercise))
+        applyMotorAccessory(_uiStateFlow.value.accessoryFor(exercise))
         resetReps()
         val ui = _uiStateFlow.value
         val pr = ui.prs.firstOrNull { it.exerciseId == exercise.id }
@@ -1722,6 +1795,7 @@ class SwonalRepository(
         scope.launch {
             if (wasEngaged) {
                 disableWeightAndAwait()
+                flushPendingMotorAccessory()
             }
             if (suggested != null) {
                 setWeight(suggested, allowWhileEngaged = false)
@@ -1744,11 +1818,12 @@ class SwonalRepository(
             _uiStateFlow.update {
                 it.copy(currentStepIdx = nextIdx, activeExerciseId = step.exerciseId)
             }
-            if (ex != null) setAccessory(ui.accessoryFor(ex, step))
+            if (ex != null) applyMotorAccessory(ui.accessoryFor(ex, step))
             resetReps()
             scope.launch {
                 if (wasEngaged) {
                     disableWeightAndAwait()
+                    flushPendingMotorAccessory()
                 }
                 setWeight(step.targetWeightLb, step.mode, step.modifierPct, allowWhileEngaged = false)
                 ui.activeUser?.id?.let { uid ->
@@ -1863,8 +1938,10 @@ class SwonalRepository(
                     _uiStateFlow.update {
                         it.copy(currentStepIdx = nextIdx, activeExerciseId = nextStep.exerciseId)
                     }
+                    // Resolve for whoever lifts next (the rotated partner, in Work-In). The partner's
+                    // weight was already set by the engine, so only a solo advance sets it here.
+                    if (nextEx != null) applyMotorAccessory(updatedUi.accessoryFor(nextEx, nextStep, effectiveUid))
                     if (resp.partnerRotation == null) {
-                        if (nextEx != null) setAccessory(updatedUi.accessoryFor(nextEx, nextStep))
                         setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct, allowWhileEngaged = false)
                     }
                     refreshOverload(effectiveUid, nextStep.exerciseId)
@@ -1901,6 +1978,8 @@ class SwonalRepository(
                 sessionState = it.sessionState.copy(activeSessionId = null, restTimerEndsAt = null)
             )
         }
+        // Back to a free lift: drop the last routine item's pick (e.g. BAR) for the exercise's own.
+        _uiStateFlow.value.let { ui -> ui.activeExercise?.let { applyMotorAccessory(ui.accessoryFor(it)) } }
         if (completed != null) {
             _uiStateFlow.value.activeUser?.id?.let { uid ->
                 runCatching { localEngine.listSessions(uid) }.onSuccess { sessions ->

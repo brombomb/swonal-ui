@@ -21,7 +21,7 @@ describe('Routine items carry their own accessory pick', () => {
     await prisma.$disconnect();
   });
 
-  it('saves HANDLES/BAR/ROPE picks, keeps "default" items unset, and drops unknown values', async () => {
+  it('saves HANDLES/BAR/ROPE picks (any case), keeps "default" items unset, and drops unknown values', async () => {
     const barExercise = await prisma.exercise.findFirstOrThrow({
       where: { accessory: 'BAR', deletedAt: null },
     });
@@ -43,6 +43,8 @@ describe('Routine items carry their own accessory pick', () => {
               { ...item, accessory: null },
               { ...item },
               { ...item, accessory: 'KETTLEBELL' },
+              { ...item, accessory: ' bar ' },
+              { ...item, accessory: 'handles' },
             ],
           },
         ],
@@ -56,7 +58,7 @@ describe('Routine items carry their own accessory pick', () => {
     createdTemplateIds.push(created.id);
 
     const saved = created.blocks[0].items.map((i) => i.accessory ?? null);
-    expect(saved).toEqual(['HANDLES', 'ROPE', null, null, null]);
+    expect(saved).toEqual(['HANDLES', 'ROPE', null, null, null, 'BAR', 'HANDLES']);
 
     // Editing the routine keeps the per-item picks.
     const putResp = await fetch(`${baseUrl}/api/templates/${created.id}`, {

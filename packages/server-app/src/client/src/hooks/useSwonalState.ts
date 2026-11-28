@@ -290,6 +290,13 @@ export function useSwonalState() {
     return exercises.find((e) => e.id === targetId) ?? exercises[0] ?? null;
   }, [exercises, currentStep, selectedExerciseId]);
 
+  // The attachment the active exercise uses: the current routine item's pick, else the exercise's own.
+  const activeAccessory: AccessoryType | null = useMemo(() => {
+    if (!activeExercise) return null;
+    const step = currentStep?.exerciseId === activeExercise.id ? currentStep : null;
+    return resolveAccessory(activeExercise.accessory, step?.accessory);
+  }, [activeExercise, currentStep]);
+
   const activeExercisePr = useMemo(() => {
     if (!activeExercise) return null;
     return personalRecords.find((pr) => pr.exerciseId === activeExercise.id) ?? null;
@@ -756,11 +763,13 @@ export function useSwonalState() {
 
   const alignMockArmsToExercise = useCallback(
     async (exercise: Exercise) => {
+      // Keep the routine item's accessory pick rather than resetting it to the catalog one.
+      const step = currentStep?.exerciseId === exercise.id ? currentStep : null;
       await fetch('/api/daemon/mock/arm-positions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accessory: exercise.accessory,
+          accessory: resolveAccessory(exercise.accessory, step?.accessory),
           height_left: exercise.recommendedHeight,
           height_right: exercise.recommendedHeight,
           rot_left: exercise.recommendedRotation,
@@ -770,7 +779,7 @@ export function useSwonalState() {
         }),
       });
     },
-    []
+    [currentStep]
   );
 
   // User, Theme, Accent, Units, & Partner Actions
@@ -971,11 +980,13 @@ export function useSwonalState() {
           setCurrentStepIdx(nextIdx);
           const nextStep = routineSteps[nextIdx];
           setSelectedExerciseId(nextStep.exerciseId);
+          // The next item's attachment applies in a partner rotation too; only the weight is
+          // left alone then, because the server already set the rotated lifter's weight.
+          const ex = exercises.find((e) => e.id === nextStep.exerciseId);
+          if (ex) {
+            sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, nextStep.accessory) });
+          }
           if (!result.partnerRotation) {
-            const ex = exercises.find((e) => e.id === nextStep.exerciseId);
-            if (ex) {
-              sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, nextStep.accessory) });
-            }
             setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct);
           }
         } else {
@@ -996,6 +1007,8 @@ export function useSwonalState() {
           setActiveTemplateName(null);
           setRoutineSteps([]);
           setCurrentStepIdx(0);
+          // Back to a free lift: drop the last routine item's pick for the exercise's own attachment.
+          if (activeExercise) sendWs({ type: 'set_accessory', accessory: activeExercise.accessory });
         }
       }
 
@@ -1440,6 +1453,7 @@ export function useSwonalState() {
     setWeightEnabled,
     setWeightMode,
     setAccessory,
+    activeAccessory,
     alignMockArmsToExercise,
     switchUser,
     updateUserPreferences,

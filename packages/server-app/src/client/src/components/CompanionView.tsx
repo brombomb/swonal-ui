@@ -76,6 +76,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     daemonConnected,
     wsConnected,
     activeExercise,
+    activeAccessory,
     currentStep,
     restSecondsRemaining,
     vbtMetrics,
@@ -1039,7 +1040,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                             }`}
                           >
                             <span>
-                              {activeExercise.accessory} • {target}
+                              {activeAccessory ?? activeExercise.accessory} • {target}
                             </span>
                             <Info size={12} />
                           </button>
@@ -1797,10 +1798,10 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                               </span>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {/* Bodyweight moves take no attachment (keep a pick that was already saved). */}
-                                {ex && (ex.accessory !== 'BODYWEIGHT' || item.accessory) && (
+                                {ex && (ex.accessory.toUpperCase() !== 'BODYWEIGHT' || item.accessory) && (
                                   <select
                                     aria-label={`Accessory for ${ex.name}`}
-                                    title={`Default uses the lifter's default accessory, else this exercise's (${ex.accessory})`}
+                                    title={`Default uses the lifter's default accessory on the Kiosk, else this exercise's (${ex.accessory.toUpperCase()})`}
                                     value={item.accessory ?? ''}
                                     onChange={(e) =>
                                       updateBlockItem(bIdx, iIdx, {
@@ -1809,7 +1810,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                     }
                                     className="elevated-pill px-1.5 py-1 rounded-lg text-xs font-mono"
                                   >
-                                    <option value="">Default</option>
+                                    {/* Shown in the label, not only the tooltip, so touch screens see it too. */}
+                                    <option value="">Default ({ex.accessory.toUpperCase()})</option>
                                     {SELECTABLE_ACCESSORIES.map((acc) => (
                                       <option key={acc} value={acc}>
                                         {acc}

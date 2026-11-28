@@ -148,6 +148,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     showDemoPip,
     setShowDemoPip,
     activeExercise,
+    activeAccessory,
     activeExercisePr,
     overloadSuggestion,
     vbtMetrics,
@@ -945,9 +946,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     if (!activeExercise) return true;
     return (
       armsMatchExercise(activeExercise, telemetry.arm_positions) &&
-      telemetry.accessory === activeExercise.accessory
+      telemetry.accessory === (activeAccessory ?? activeExercise.accessory)
     );
-  }, [activeExercise, telemetry.arm_positions, telemetry.accessory]);
+  }, [activeExercise, activeAccessory, telemetry.arm_positions, telemetry.accessory]);
 
   const muscleGroups = useMemo(
     () => ['ALL', ...Array.from(new Set(exercises.map((e) => e.muscleGroup)))],
@@ -1640,7 +1641,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   <CheckCircle2 size={18} />
                   <span>
                     ARMS {armsAligned ? 'ALIGNED' : 'ADJUST'} • {formatArmTarget(activeExercise)} •{' '}
-                    {activeExercise.accessory}
+                    {activeAccessory ?? activeExercise.accessory}
                   </span>
                   <button
                     type="button"
