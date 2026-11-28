@@ -45,7 +45,29 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
 
   const deleteExercise = (id: string) => fetch(`${baseUrl}/api/exercises/${id}`, { method: 'DELETE' });
 
+  // Lets a test run code right after the delete route has looked up the routines
+  // that use a given exercise, and just before it soft-deletes that exercise.
+  let deleteHook:
+    | { exerciseId: string; afterRoutineCheck: () => Promise<void>; beforeWrite: () => Promise<void>; fired?: boolean }
+    | undefined;
+
   beforeAll(async () => {
+    prisma.$use(async (params, next) => {
+      const hook = deleteHook;
+      if (!hook) return next(params);
+      const where = (params.args as { where?: { id?: unknown; blocksJson?: { contains?: unknown } } } | undefined)
+        ?.where;
+      if (params.model === 'WorkoutTemplate' && params.action === 'findMany' && where?.blocksJson?.contains === hook.exerciseId && !hook.fired) {
+        hook.fired = true;
+        const result = await next(params);
+        await hook.afterRoutineCheck();
+        return result;
+      }
+      if (params.model === 'Exercise' && params.action === 'update' && where?.id === hook.exerciseId) {
+        await hook.beforeWrite();
+      }
+      return next(params);
+    });
     srv = await createSwonalServer({ port: 0, connectDaemonWs: false });
     baseUrl = `http://127.0.0.1:${srv.port}`;
   });
@@ -119,6 +141,53 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
 
     const res = await deleteExercise(exId);
     expect(res.status).toBe(200);
+  });
+
+  it('a routine edit racing the delete cannot commit between its check and its write', async () => {
+    const exId = await createExercise('Guard Test Race Target');
+    const otherId = await createExercise('Guard Test Race Other');
+    const tplId = await createTemplate('Guard Test Race Routine', otherId);
+
+    let putDone: Promise<Response> | undefined;
+    let routineUsedItAtWrite: boolean | undefined;
+    deleteHook = {
+      exerciseId: exId,
+      // Once the delete has found no routine using the exercise, add it to the
+      // routine and give that write time to commit if nothing holds it back.
+      afterRoutineCheck: async () => {
+        putDone = fetch(`${baseUrl}/api/templates/${tplId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            blocks: [
+              {
+                blockType: 'STRAIGHT_SET',
+                restSeconds: 60,
+                items: [{ exerciseId: exId, sets: 3, targetReps: 10, mode: 'standard', modifierPct: 0, targetWeightLb: 30 }],
+              },
+            ],
+          }),
+        });
+        await Promise.race([putDone, new Promise((r) => setTimeout(r, 300))]);
+      },
+      // Committed state (read outside the delete's transaction) at the moment of the write.
+      beforeWrite: async () => {
+        const t = await prisma.workoutTemplate.findUnique({ where: { id: tplId } });
+        routineUsedItAtWrite = t!.blocksJson.includes(exId);
+      },
+    };
+    try {
+      const res = await deleteExercise(exId);
+      expect(res.status).toBe(200);
+      // Without the transaction the PUT commits mid-check, so the delete writes
+      // over a routine that now uses the exercise.
+      expect(routineUsedItAtWrite).toBe(false);
+    } finally {
+      deleteHook = undefined;
+      // The PUT then runs after the delete has committed. Rejecting a routine
+      // that names a deleted exercise is the template-side check's job, not this one.
+      await putDone;
+    }
   });
 
   it('still deletes an exercise no routine mentions', async () => {
