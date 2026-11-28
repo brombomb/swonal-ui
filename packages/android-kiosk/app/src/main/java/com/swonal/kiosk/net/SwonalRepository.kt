@@ -91,7 +91,11 @@ data class KioskUiState(
     val calibrationStatus: CalibrationStatus? = null,
     val haStatus: HomeAssistantStatus? = null,
     val recentSessions: List<WorkoutSession> = emptyList(),
-    val statusToast: String? = null
+    val statusToast: String? = null,
+    /** Per-profile "Auto-Complete Set" timer seconds (0 / missing = Off), keyed by user id. */
+    val autoCompleteTimerSecByUser: Map<String, Int> = emptyMap(),
+    /** The running auto-complete countdown, or null when none is showing. */
+    val autoCompleteCountdown: AutoCompleteCountdown? = null
 ) {
     val activeUser: User?
         get() = users.firstOrNull { it.id == sessionState.activeUserId } ?: users.firstOrNull()
@@ -105,6 +109,10 @@ data class KioskUiState(
 
     val activeUnit: String
         get() = activeUser?.weightUnit ?: "LB"
+
+    /** The active lifter's Auto-Complete Set timer in seconds (0 = Off). */
+    val autoCompleteTimerSec: Int
+        get() = activeUser?.id?.let { autoCompleteTimerSecByUser[it] } ?: 0
 
     val activeThemeMode: String
         get() = activeUser?.themeMode ?: "dark"
@@ -435,6 +443,8 @@ class SwonalRepository(
     private var prevRepCount = 0
     private var activeTelemetrySource = TelemetrySource.NONE
     private var lastAutoLoggedStepKey: String? = null
+    private val autoCompleteTimer = AutoCompleteSetTimer()
+    private var autoCompleteTickSec = 0
 
     private val started = AtomicBoolean(false)
     private val logSetInFlight = AtomicBoolean(false)
@@ -771,6 +781,7 @@ class SwonalRepository(
                     authRequired = false
                 )
             }
+            refreshAutoCompleteSettings(state.users)
             val activeUid = _uiStateFlow.value.activeUser?.id
             if (activeUid != null) {
                 refreshUserScopedData(activeUid)
@@ -1156,6 +1167,7 @@ class SwonalRepository(
 
     private fun handleTelemetryFrame(frame: TelemetryFrame, source: TelemetrySource) {
         var shouldAutoLogReps: Int? = null
+        var shouldAutoComplete = false
 
         synchronized(telemetryLock) {
             val sourceSwitched = (activeTelemetrySource != TelemetrySource.NONE && activeTelemetrySource != source)
@@ -1177,7 +1189,8 @@ class SwonalRepository(
                     val ui = _uiStateFlow.value
                     val step = ui.currentStep
                     val stepKey = "${ui.sessionState.activeSessionId}:${ui.currentStepIdx}:${step?.exerciseId}"
-                    if (step != null && frame.repCount >= step.targetReps && stepKey != lastAutoLoggedStepKey) {
+                    // With the Auto-Complete Set timer on, a release starts its (cancelable) countdown instead.
+                    if (ui.autoCompleteTimerSec == 0 && step != null && frame.repCount >= step.targetReps && stepKey != lastAutoLoggedStepKey) {
                         lastAutoLoggedStepKey = stepKey
                         shouldAutoLogReps = frame.repCount
                     }
@@ -1185,6 +1198,7 @@ class SwonalRepository(
                 if (frame.repCount > oldReps) {
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.REP_COMPLETE))
                 }
+                shouldAutoComplete = updateAutoCompleteTimer(frame)
             }
 
             prevWeightEnabled = frame.weightEnabled
@@ -1194,7 +1208,80 @@ class SwonalRepository(
         val repsToLog = shouldAutoLogReps
         if (repsToLog != null) {
             scope.launch { logCompletedSetInternal(repsToLog) }
+        } else if (shouldAutoComplete) {
+            // Exactly what the "Complete & Log Set" button does.
+            logCompletedSet()
         }
+    }
+
+    /** Called under [telemetryLock] for every frame. Returns true when the countdown just ran out. */
+    private fun updateAutoCompleteTimer(frame: TelemetryFrame): Boolean {
+        val ui = _uiStateFlow.value
+        val seconds = if (ui.authRequired || ui.safetyEvent != null || ui.activeExercise == null) {
+            0
+        } else {
+            ui.autoCompleteTimerSec
+        }
+        // Anything here changing means "a different set": restart the timer from scratch.
+        val contextKey = listOf(
+            ui.activeUser?.id,
+            ui.activeExercise?.id,
+            ui.activeTemplateName,
+            ui.currentStepIdx,
+            frame.targetWeightLb,
+            frame.profileMode,
+            frame.modifierPct
+        ).joinToString("|")
+        val now = System.currentTimeMillis()
+        val fire = autoCompleteTimer.onFrame(now, frame, contextKey, seconds)
+        val countdown = autoCompleteTimer.countdown
+
+        if (countdown != null) {
+            val remaining = countdown.secondsRemaining(now)
+            if (remaining != autoCompleteTickSec) {
+                if (remaining in 1..3 && remaining < autoCompleteTickSec) {
+                    _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.COUNTDOWN_TICK))
+                }
+                autoCompleteTickSec = remaining
+            }
+        } else {
+            autoCompleteTickSec = 0
+        }
+        if (countdown != ui.autoCompleteCountdown) {
+            _uiStateFlow.update { it.copy(autoCompleteCountdown = countdown) }
+        }
+        return fire
+    }
+
+    /** The countdown's ✕ button: stop it for this set (the next rep re-arms it). */
+    fun cancelAutoComplete() {
+        synchronized(telemetryLock) {
+            autoCompleteTimer.cancel()
+            autoCompleteTickSec = 0
+        }
+        _uiStateFlow.update { it.copy(autoCompleteCountdown = null) }
+    }
+
+    fun setAutoCompleteTimerSec(seconds: Int) {
+        if (_uiStateFlow.value.authRequired) return
+        val uid = _uiStateFlow.value.activeUser?.id ?: return
+        val normalized = AutoCompleteSetTimer.normalizeSeconds(seconds)
+        _uiStateFlow.update {
+            it.copy(autoCompleteTimerSecByUser = it.autoCompleteTimerSecByUser + (uid to normalized))
+        }
+        scope.launch {
+            runCatching { localEngine.setAutoCompleteTimerSec(uid, normalized) }
+                .onFailure { err ->
+                    _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to save timer setting"))
+                }
+        }
+    }
+
+    private suspend fun refreshAutoCompleteSettings(users: List<User>) {
+        val byUser = users.associate { u ->
+            u.id to (runCatching { localEngine.getAutoCompleteTimerSec(u.id) }.getOrNull() ?: 0)
+        }
+        _uiStateFlow.update { it.copy(autoCompleteTimerSecByUser = byUser) }
     }
 
     private fun handleSafetyEvent(event: SafetyEvent) {
@@ -1735,6 +1822,8 @@ class SwonalRepository(
     private suspend fun logCompletedSetInternal(repsOverride: Int? = null) {
         if (!logSetInFlight.compareAndSet(false, true)) return
         try {
+            // However this set is being logged (button, timer, release, voice), its countdown is done.
+            cancelAutoComplete()
             val ui = _uiStateFlow.value
             val user = ui.activeUser ?: return
             val exercise = ui.activeExercise ?: return

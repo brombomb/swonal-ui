@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Outline
 import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.media.AudioManager
@@ -120,6 +121,12 @@ class MainActivity : AppCompatActivity() {
     private var lastFatigueAlert: Boolean? = null
     private var lastHardwareStatusKey: String = ""
     private var lastPartnerKey: String = ""
+
+    // Auto-Complete Set countdown on the Complete & Log Set button
+    private var completeSetIdleBg: Drawable? = null
+    private var completeSetCountdownBg: LayerDrawable? = null
+    private var lastAutoCompleteActive: Boolean = false
+    private var lastAutoCompleteLabel: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -645,6 +652,7 @@ class MainActivity : AppCompatActivity() {
 
         // Set Control Deck
         binding.btnCompleteSet.setOnClickListener { repo.logCompletedSet() }
+        binding.btnCancelAutoComplete.setOnClickListener { repo.cancelAutoComplete() }
         binding.btnFinishWorkout.setOnClickListener { repo.finishWorkout() }
         binding.btnModeStandard.setOnClickListener { repo.setDynamicMode("standard") }
         binding.btnModeEccentric.setOnClickListener { repo.setDynamicMode("eccentric") }
@@ -767,6 +775,7 @@ class MainActivity : AppCompatActivity() {
             binding.overloadReadyPill,
             binding.btnEnableSpotterAlert,
             binding.btnCompleteSet,
+            binding.btnCancelAutoComplete,
             binding.btnFinishWorkout,
             binding.btnModeStandard,
             binding.btnModeEccentric,
@@ -911,6 +920,49 @@ class MainActivity : AppCompatActivity() {
         renderArmAlignmentBadgeIfChanged(frame, ui)
         renderAccessoryButtonsIfChanged(frame.accessory)
         renderDynamicModeButtonsIfChanged(frame.profileMode, frame.modifierPct)
+        renderAutoCompleteCountdown(ui)
+    }
+
+    /**
+     * Auto-Complete Set countdown: the Complete & Log Set button drains (a dark overlay grows from
+     * the right) and reads "Logging set in Ns"; the ✕ next to it cancels. Driven from both the 30Hz
+     * hot path (progress) and discrete state (start/stop), with diffed text/background writes.
+     */
+    private fun renderAutoCompleteCountdown(ui: KioskUiState) {
+        val cd = ui.autoCompleteCountdown?.takeIf { ui.hardwareConnected }
+        val active = cd != null
+        if (active != lastAutoCompleteActive) {
+            lastAutoCompleteActive = active
+            if (active && binding.btnCompleteSet.width > 0) {
+                // Keep the button from changing width as the label changes.
+                binding.btnCompleteSet.minWidth = binding.btnCompleteSet.width
+            }
+            binding.btnCompleteSet.background = if (active) completeSetCountdownBg else completeSetIdleBg
+            binding.btnCancelAutoComplete.visibility = if (active) View.VISIBLE else View.GONE
+            if (!active) {
+                binding.btnCompleteSet.text = COMPLETE_SET_LABEL
+                lastAutoCompleteLabel = ""
+            }
+        }
+        if (cd == null) return
+        val now = System.currentTimeMillis()
+        completeSetCountdownBg?.setLevel((cd.elapsedFraction(now) * 10000f).roundToInt())
+        val label = "Logging set in ${cd.secondsRemaining(now)}s"
+        if (label != lastAutoCompleteLabel) {
+            lastAutoCompleteLabel = label
+            binding.btnCompleteSet.text = label
+        }
+    }
+
+    private fun createCountdownButtonDrawable(p: SwonalPalette, d: Float, radiusDp: Float): LayerDrawable {
+        val base = p.accentPillDrawable(d, radiusDp, interactive = false)
+        val overlay = GradientDrawable().apply {
+            setColor(0x59000000)
+            cornerRadius = radiusDp * d
+        }
+        // Drains from the right as the countdown runs.
+        val drain = ClipDrawable(overlay, Gravity.RIGHT, ClipDrawable.HORIZONTAL)
+        return LayerDrawable(arrayOf(base, drain))
     }
 
     private fun renderVbtHotPath(vbt: VbtMetrics, ui: KioskUiState) {
@@ -1211,6 +1263,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnFinishWorkout.visibility =
             if (ui.sessionState.activeSessionId != null) View.VISIBLE else View.GONE
+        renderAutoCompleteCountdown(ui)
 
         val nextStep = ui.nextStep
         val nextEx = ui.nextExercise
@@ -1718,8 +1771,13 @@ class MainActivity : AppCompatActivity() {
         binding.tvRepsLabel.setTextColor(p.textMuted)
         binding.tvCompletedReps.setTextColor(p.textPrimary)
         binding.tvTargetReps.setTextColor(p.textMuted)
-        binding.btnCompleteSet.background = p.accentPillDrawable(d, 14f)
+        completeSetIdleBg = p.accentPillDrawable(d, 14f)
+        completeSetCountdownBg = createCountdownButtonDrawable(p, d, 14f)
+        binding.btnCompleteSet.background =
+            if (lastAutoCompleteActive) completeSetCountdownBg else completeSetIdleBg
         binding.btnCompleteSet.setTextColor(p.accentTextColor)
+        binding.btnCancelAutoComplete.background = p.elevatedPillDrawable(d, 14f)
+        binding.btnCancelAutoComplete.setColorFilter(p.textPrimary)
         binding.btnFinishWorkout.background = p.elevatedPillDrawable(d, 14f)
         binding.btnFinishWorkout.setTextColor(p.textPrimary)
         binding.upNextCard.background = p.elevatedPillDrawable(d, 12f, interactive = false)
@@ -1887,5 +1945,9 @@ class MainActivity : AppCompatActivity() {
         if (supportFragmentManager.isStateSaved) return
         if (supportFragmentManager.findFragmentByTag(tag) != null) return
         factory().show(supportFragmentManager, tag)
+    }
+
+    private companion object {
+        const val COMPLETE_SET_LABEL = "Complete & Log Set"
     }
 }

@@ -19,6 +19,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.swonal.kiosk.BuildConfig
 import com.swonal.kiosk.model.ArmPositionSets
+import com.swonal.kiosk.model.AutoCompleteSetTimer
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.net.AppUpdateManager
 import com.swonal.kiosk.net.BugReportContext
@@ -63,6 +64,8 @@ open class AppSettingsDialog : BaseSwonalDialog() {
     private var liveDiagStatusTv: TextView? = null
     private var liveSyncStatusTv: TextView? = null
     private var latestVersionTv: TextView? = null
+    // Live value of the active profile's Auto-Complete Set timer row (Tab 0)
+    private var liveAutoCompleteTimerTv: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,6 +150,10 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                     repo.uiStateFlow.collect { st ->
                         updateLiveSyncCard(st)
                         updateLiveDiagCard(st)
+                        liveAutoCompleteTimerTv?.let { tv ->
+                            val label = AutoCompleteSetTimer.label(st.autoCompleteTimerSec)
+                            if (tv.text.toString() != label) tv.text = label
+                        }
                     }
                 }
             }
@@ -218,6 +225,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         liveDiagStatusTv = null
         liveSyncStatusTv = null
         latestVersionTv = null
+        liveAutoCompleteTimerTv = null
         bodyContainer.removeAllViews()
         when (activeTab) {
             0 -> renderProfilesTab()
@@ -242,7 +250,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         val prefsCard = createSurfaceCard()
         prefsCard.addView(makeCardHeading(
             "Personal Preferences — ${activeUser?.name ?: "Active Lifter"}",
-            "Units, theme, form demo video, VBT/symmetry telemetry, and accent color"
+            "Units, theme, form demo video, VBT/symmetry telemetry, auto-complete set timer, and accent color"
         ))
 
         // Toggle rows: Theme, Units, Form Demo Video, VBT & Symmetry
@@ -284,6 +292,34 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             repo.cycleTelemetryDisplayMode()
         }
         prefsCard.addView(vbtRow)
+
+        // Auto-Complete Set timer (per profile, Off by default): Off / 5 / 10 / 20 s or exact seconds
+        val (autoRow, autoValTv) = makeLargeToggleRow(
+            "Auto-Complete Set Timer",
+            AutoCompleteSetTimer.label(ui.autoCompleteTimerSec)
+        )
+        liveAutoCompleteTimerTv = autoValTv
+        autoRow.setOnClickListener {
+            val fm = parentFragmentManager
+            if (!fm.isStateSaved && fm.findFragmentByTag("auto_complete_timer") == null) {
+                AutoCompleteTimerDialog().show(fm, "auto_complete_timer")
+            }
+        }
+        prefsCard.addView(autoRow)
+        prefsCard.addView(TextView(requireContext()).apply {
+            text = "After at least 1 rep, logs the set automatically once you stop (handles back at rest) or turn the weight off. Tap ✕ on the countdown to cancel."
+            textSize = 12f
+            setTextColor(p.textMuted)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = -dp(4)
+                bottomMargin = dp(10)
+                marginStart = dp(4)
+                marginEnd = dp(4)
+            }
+        })
 
         // Accent Color Swatches
         prefsCard.addView(makeSectionLabel("Accent Color"))

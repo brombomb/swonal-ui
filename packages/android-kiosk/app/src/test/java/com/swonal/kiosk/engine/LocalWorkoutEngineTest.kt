@@ -236,4 +236,22 @@ class LocalWorkoutEngineTest {
         val iso = IsoTime.formatUtc(nowMs)
         assertEquals(nowMs, IsoTime.parseUtcMs(iso))
     }
+
+    @Test
+    fun `auto-complete set timer is per profile, Off by default and normalized`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val taylor = state.users[1]
+
+        assertEquals(0, engine.getAutoCompleteTimerSec(alex.id))
+        assertEquals(7, engine.setAutoCompleteTimerSec(alex.id, 7))
+        assertEquals(7, engine.getAutoCompleteTimerSec(alex.id))
+        assertEquals(0, engine.getAutoCompleteTimerSec(taylor.id))
+
+        assertEquals(60, engine.setAutoCompleteTimerSec(taylor.id, 999))
+        assertEquals(60, engine.getAutoCompleteTimerSec(taylor.id))
+        assertEquals(0, engine.setAutoCompleteTimerSec(alex.id, 0))
+        assertEquals(0, engine.getAutoCompleteTimerSec(alex.id))
+    }
 }

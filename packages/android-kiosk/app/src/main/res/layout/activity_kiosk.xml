@@ -1279,6 +1279,19 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
+                <!-- Cancels the Auto-Complete Set countdown (visible only while it runs) -->
+                <ImageView
+                    android:id="@+id/btnCancelAutoComplete"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="8dp"
+                    android:clickable="true"
+                    android:contentDescription="Cancel auto-complete"
+                    android:focusable="true"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_close"
+                    android:visibility="gone" />
+
                 <!-- Finish Workout (visible during active session) -->
                 <TextView
                     android:id="@+id/btnFinishWorkout"
