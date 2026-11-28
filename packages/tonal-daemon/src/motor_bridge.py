@@ -801,6 +801,11 @@ class MotorBridge:
 
     async def disable_resistance(self) -> None:
         """Zero and disengage motor resistance (serialized under command lock)."""
+        # Unlike enable/toggle/set_target, this deliberately does NOT fail fast on _link_lost before
+        # taking the lock. If a reconnect holds the lock, waiting lets it finish (bounded by
+        # bring_up()'s per-step timeouts, 3 s each), so a disengage during an outage is then sent
+        # on the new link and confirmed instead of refused. If the link is still down once we
+        # hold the lock, _disable_resistance_unlocked() raises.
         async with self._cmd_lock:
             await self._disable_resistance_unlocked()
 
