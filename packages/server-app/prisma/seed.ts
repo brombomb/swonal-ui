@@ -446,7 +446,10 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
   console.log('Database seed complete.');
 }
 
-if (require.main === module) {
+// Only when run as a script (`tsx prisma/seed.ts`). esbuild bundles this file into
+// dist/server/index.js, where `require.main === module` is also true, so the old check re-ran the
+// whole seed (demo users, exercise upserts, sample sessions) on every server start.
+if (/(^|[\\/])seed\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
   const client = new PrismaClient();
   seedDatabase(client)
     .catch((err) => {

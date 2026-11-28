@@ -1,13 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-# swonal-ui Implementation Progress
-
-## Current Status
-- **Active Milestone:** Milestone 8 Complete — Standalone-First Architecture + Optional Home/Cloud Server Sync
-- **Last Completed Task:** Embedded `:3000` Kiosk server, native SQLite engine (`BundledSQLiteDriver`), native Routine Builder, Spotify PKCE, local AI Voice Coach, Nostr Swocial, Home Assistant webhooks, idempotent `/api/sync/*` + `/ws/sync` server sync, and security/audit hardening on `feat/standalone-first-sync`
+- **Active Milestone:** Milestone 8+ Complete — Standalone-First Architecture + Path-Filtered `CI Gate` & Contributor Guides
+- **Last Completed Task:** Embedded `:53013` HTTP / `:53443` HTTPS Kiosk server, native SQLite engine (`BundledSQLiteDriver`), native dialogs (`RoutineBuilderDialog`, `HistoryDialog`, `AppSettingsDialog`, `AdminDialog`), offline Vosk voice STT, Spotify PKCE, local AI Voice Coach, Nostr Swocial, Home Assistant webhooks, idempotent `/api/sync/*` + `/ws/sync` server sync, and path-filtered `CI Gate` (`ci.yml` + `labeler.yml` + `CONTRIBUTING.md`)
 - **Next Immediate Task:** None — ready for review/merge
-- **Verification / Test Status:** Pending final `./scripts/ci-local.sh` & `:app:assembleRelease` verification pass after audit hardening
+- **Verification / Test Status:** Verified via `./scripts/ci-local.sh` (workflows, bash syntax, clean-room `server-app` Vitest, `tonal-daemon` pytest + Python 3.8 AST, `android-kiosk` unit tests/debug build) and `:app:assembleRelease` (`lintVitalRelease` + R8)
 
 ---
 
