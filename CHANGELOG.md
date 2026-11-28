@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.3.1](https://github.com/brombomb/swonal-ui/compare/v2.3.0...v2.3.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **scripts:** make ci-local.sh run the same checks as CI ([#44](https://github.com/brombomb/swonal-ui/issues/44)) ([7109ad0](https://github.com/brombomb/swonal-ui/commit/7109ad07e48257ced06e566bd8cc131887154df1))
+
 ## [2.3.0](https://github.com/brombomb/swonal-ui/compare/v2.2.0...v2.3.0) (2026-11-28)
 
 
