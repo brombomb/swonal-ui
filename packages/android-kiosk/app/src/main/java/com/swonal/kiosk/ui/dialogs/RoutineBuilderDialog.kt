@@ -302,6 +302,14 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     marginEnd = dp(6)
                 }
             })
+            topRow.addView(makePillButton("Copy", mono = true) {
+                duplicateBlock(bIdx)
+            }.apply {
+                textSize = 10.5f
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply {
+                    if (draftBlocks.size > 1) marginEnd = dp(6)
+                }
+            })
             if (draftBlocks.size > 1) {
                 topRow.addView(makePillButton("✕") {
                     draftBlocks.removeAt(bIdx)
@@ -428,6 +436,17 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
 
             blocksContainer.addView(card)
         }
+    }
+
+    /** Inserts a deep copy of the block directly below the original, so it can be tweaked in place. */
+    private fun duplicateBlock(bIdx: Int) {
+        val src = draftBlocks.getOrNull(bIdx) ?: return
+        draftBlocks.add(
+            bIdx + 1,
+            src.copy(items = src.items.map { it.copy() }.toMutableList())
+        )
+        renderBlocks()
+        Toast.makeText(requireContext(), "Copied as Block ${bIdx + 2}", Toast.LENGTH_SHORT).show()
     }
 
     private fun makeStepperButton(label: String, onClick: () -> Unit): TextView =

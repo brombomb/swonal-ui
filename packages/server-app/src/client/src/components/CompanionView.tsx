@@ -670,6 +670,18 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     });
   };
 
+  // Inserts a deep copy of the block directly below the original, so it can be tweaked in place.
+  const duplicateBlock = (idx: number) => {
+    setBlocks((prev) => {
+      const src = prev[idx];
+      if (!src) return prev;
+      const next = [...prev];
+      next.splice(idx + 1, 0, { ...src, items: src.items.map((item) => ({ ...item })) });
+      return next;
+    });
+    showToast(`Copied as Block ${idx + 2}`);
+  };
+
   const removeBlock = (idx: number) => {
     setBlocks((prev) => prev.filter((_, i) => i !== idx));
   };
@@ -1724,6 +1736,15 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                           title="Move Block Down"
                         >
                           <ArrowDown size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => duplicateBlock(bIdx)}
+                          className="surface-card p-1.5 rounded-lg"
+                          title="Copy Block"
+                          aria-label="Copy Block"
+                        >
+                          <Copy size={14} />
                         </button>
                         {blocks.length > 1 && (
                           <button
