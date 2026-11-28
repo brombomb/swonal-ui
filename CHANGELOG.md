@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.1.4](https://github.com/brombomb/swonal-ui/compare/v2.1.3...v2.1.4) (2026-11-28)
+
+
+### Bug Fixes
+
+* **server-app:** save exercise notes on create and update ([95b7060](https://github.com/brombomb/swonal-ui/commit/95b70600fba52cacea33d81f5aa438d6e750954d))
+
 ## [2.1.3](https://github.com/brombomb/swonal-ui/compare/v2.1.2...v2.1.3) (2026-11-28)
 
 
