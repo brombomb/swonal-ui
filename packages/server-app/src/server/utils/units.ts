@@ -53,9 +53,11 @@ export function toCanonicalLb(value: number, unit: WeightUnit, clamp: boolean = 
 }
 
 /**
- * Calculate Epley 1RM estimate in pounds.
+ * Calculate Epley 1RM estimate in pounds. A set with no completed reps proves
+ * nothing about strength, so it estimates 0.
  */
 export function estimateOneRepMaxLb(weightLb: number, reps: number): number {
-  if (reps <= 1) return Math.round(weightLb * 10) / 10;
+  if (reps < 1) return 0;
+  if (reps === 1) return Math.round(weightLb * 10) / 10;
   return Math.round(weightLb * (1 + reps / 30) * 10) / 10;
 }
