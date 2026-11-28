@@ -2,6 +2,19 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.2.0](https://github.com/brombomb/swonal-ui/compare/v2.1.4...v2.2.0) (2026-11-28)
+
+
+### New Features
+
+* **android:** add an X close button to the routine builder's Select Exercise picker ([#29](https://github.com/brombomb/swonal-ui/issues/29)) ([0f86f43](https://github.com/brombomb/swonal-ui/commit/0f86f43349d6975a3a9a820be74c2bed55e3fd43))
+
+
+### Bug Fixes
+
+* **daemon:** arm buttons never toggle weight, both handle buttons do; disengage uncommanded hardware engage ([#20](https://github.com/brombomb/swonal-ui/issues/20)) ([3041789](https://github.com/brombomb/swonal-ui/commit/3041789306d560b6f071bc8099482268b3978d9b))
+* **daemon:** start the target weight at the configured minimum, not 45 lb ([#23](https://github.com/brombomb/swonal-ui/issues/23)) ([0758304](https://github.com/brombomb/swonal-ui/commit/075830407e5689c1dd97fc43800d80f57583efbb))
+
 ## [2.1.4](https://github.com/brombomb/swonal-ui/compare/v2.1.3...v2.1.4) (2026-11-28)
 
 
