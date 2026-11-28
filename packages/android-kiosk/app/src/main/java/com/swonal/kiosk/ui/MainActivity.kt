@@ -38,6 +38,7 @@ import com.swonal.kiosk.SwonalApp
 import com.swonal.kiosk.audio.SwonalSoundEngine
 import com.swonal.kiosk.databinding.ActivityKioskBinding
 import com.swonal.kiosk.model.ArmAlignmentHelper
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.ArmAlignmentStatus
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.model.SymmetryStatus
@@ -137,6 +138,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         app = application as SwonalApp
+        ScreenSleepController(this).attach()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         binding = ActivityKioskBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -202,6 +204,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -1216,7 +1223,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvUpNextTitle.text = nextEx.name
             binding.tvUpNextMeta.visibility = View.VISIBLE
             binding.tvUpNextMeta.text =
-                "${nextEx.accessory} • H${nextEx.recommendedHeight} R${nextEx.recommendedRotation} A${nextEx.recommendedAngle} • ${nextStep.targetReps} reps"
+                "${nextEx.accessory} • ${ArmPositionSets.targetCoords(nextEx)} • ${nextStep.targetReps} reps"
         } else {
             binding.tvUpNextMeta.visibility = View.GONE
             binding.tvUpNextTitle.text = if (inRoutine) {
@@ -1356,7 +1363,7 @@ class MainActivity : AppCompatActivity() {
             lastArmStatus = alignment.status
         }
 
-        val key = "${ex.recommendedHeight}:${ex.recommendedRotation}:${ex.recommendedAngle}|" +
+        val key = "${ArmPositionSets.targetCoords(ex)}:${ex.unilateral}|" +
             "${arms.height.left}:${arms.rotation.left}:${arms.angle.left}:${alignment.leftUnlocked}|" +
             "${arms.height.right}:${arms.rotation.right}:${arms.angle.right}:${alignment.rightUnlocked}|" +
             "${alignment.status}"
@@ -1385,10 +1392,10 @@ class MainActivity : AppCompatActivity() {
         appendColored(
             String.format(
                 Locale.US,
-                "Target  H%-2d R%d  A%d\n",
-                ex.recommendedHeight,
-                ex.recommendedRotation,
-                ex.recommendedAngle
+                "Target  H%-2s R%s  A%s\n",
+                ArmPositionSets.formatHeight(ex),
+                ArmPositionSets.formatRotation(ex),
+                ArmPositionSets.formatAngle(ex)
             ),
             p.textMuted
         )
@@ -1398,17 +1405,17 @@ class MainActivity : AppCompatActivity() {
             appendColored(label, p.textPrimary)
             val hColor = when {
                 moving -> colorYellow
-                h == ex.recommendedHeight -> colorGreen
+                ArmPositionSets.heightMatches(ex, h) -> colorGreen
                 else -> colorRed
             }
             val rColor = when {
                 moving -> colorYellow
-                r == ex.recommendedRotation -> colorGreen
+                ArmPositionSets.rotationMatches(ex, r) -> colorGreen
                 else -> colorRed
             }
             val aColor = when {
                 moving -> colorYellow
-                a == ex.recommendedAngle -> colorGreen
+                ArmPositionSets.angleMatches(ex, a) -> colorGreen
                 else -> colorRed
             }
             appendColored(String.format(Locale.US, "H%-2d ", h), hColor)
@@ -1421,8 +1428,8 @@ class MainActivity : AppCompatActivity() {
         appendArmRow("Right   ", arms.height.right, arms.rotation.right, arms.angle.right, alignment.rightUnlocked, false)
 
         binding.tvArmSync.text = sb
-        val allMatched = alignment.leftMatched && alignment.rightMatched
-        val anyMoving = alignment.leftUnlocked || alignment.rightUnlocked
+        val allMatched = alignment.armsMatched
+        val anyMoving = alignment.status == ArmAlignmentStatus.UNLOCKED
         when {
             anyMoving -> {
                 binding.btnArmSync.background = p.warningPillDrawable(d, 10f, interactive = true)
@@ -1457,16 +1464,21 @@ class MainActivity : AppCompatActivity() {
             "ROPE" to binding.btnAccRope
         )
         mapping.forEach { (acc, view) ->
+            // Only the attachment that is actually selected is highlighted. The exercise's
+            // recommended attachment gets the amber/green confirm colors only while it is
+            // the selected one, so picking another attachment turns it off like the rest.
+            val isSelected = norm == acc
             val isTarget = acc == targetAcc
-            val isConfirmedTarget = isTarget && isConfirmed
-            val isSelectedNonTarget = !isTarget && norm == acc
+            val isSelectedTarget = isSelected && isTarget
+            val isConfirmedTarget = isSelectedTarget && isConfirmed
+            val isSelectedNonTarget = isSelected && !isTarget
             when {
                 isConfirmedTarget -> {
                     view.background = p.successPillDrawable(d, 9f, interactive = true)
                     view.setTextColor(p.successText)
                     view.alpha = 1f
                 }
-                isTarget -> {
+                isSelectedTarget -> {
                     view.background = p.warningPillDrawable(d, 9f, interactive = true)
                     view.setTextColor(p.warningText)
                     view.alpha = 1f

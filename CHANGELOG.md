@@ -2,6 +2,61 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.3.2](https://github.com/brombomb/swonal-ui/compare/v2.3.1...v2.3.2) (2026-11-28)
+
+
+### Bug Fixes
+
+* **daemon,server-app,kiosk:** real Tonal V1 arm-position scales, allowed position sets, one-arm alignment ([#25](https://github.com/brombomb/swonal-ui/issues/25)) ([c4783ad](https://github.com/brombomb/swonal-ui/commit/c4783ad893f1ea460f989a43c82451ff053305d7))
+
+## [2.3.1](https://github.com/brombomb/swonal-ui/compare/v2.3.0...v2.3.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **scripts:** make ci-local.sh run the same checks as CI ([#44](https://github.com/brombomb/swonal-ui/issues/44)) ([7109ad0](https://github.com/brombomb/swonal-ui/commit/7109ad07e48257ced06e566bd8cc131887154df1))
+
+## [2.3.0](https://github.com/brombomb/swonal-ui/compare/v2.2.0...v2.3.0) (2026-11-28)
+
+
+### New Features
+
+* **android:** optional screen sleep after inactivity ([#26](https://github.com/brombomb/swonal-ui/issues/26)) ([62fa37f](https://github.com/brombomb/swonal-ui/commit/62fa37f0495ef2772cf87dcc4b07fb2492348f29))
+* **routines:** add Copy Block to the Kiosk and Companion routine builders ([#27](https://github.com/brombomb/swonal-ui/issues/27)) ([8d5604e](https://github.com/brombomb/swonal-ui/commit/8d5604eb1d0c267eeb6a7400014a8f0b7c990704))
+
+
+### Bug Fixes
+
+* **android:** only highlight the selected attachment button ([#28](https://github.com/brombomb/swonal-ui/issues/28)) ([60c2c24](https://github.com/brombomb/swonal-ui/commit/60c2c249451d9e480d5b51254e3002bc1a5b5402))
+
+## [2.2.0](https://github.com/brombomb/swonal-ui/compare/v2.1.4...v2.2.0) (2026-11-28)
+
+
+### New Features
+
+* **android:** add an X close button to the routine builder's Select Exercise picker ([#29](https://github.com/brombomb/swonal-ui/issues/29)) ([0f86f43](https://github.com/brombomb/swonal-ui/commit/0f86f43349d6975a3a9a820be74c2bed55e3fd43))
+
+
+### Bug Fixes
+
+* **daemon:** arm buttons never toggle weight, both handle buttons do; disengage uncommanded hardware engage ([#20](https://github.com/brombomb/swonal-ui/issues/20)) ([3041789](https://github.com/brombomb/swonal-ui/commit/3041789306d560b6f071bc8099482268b3978d9b))
+* **daemon:** start the target weight at the configured minimum, not 45 lb ([#23](https://github.com/brombomb/swonal-ui/issues/23)) ([0758304](https://github.com/brombomb/swonal-ui/commit/075830407e5689c1dd97fc43800d80f57583efbb))
+
+## [2.1.4](https://github.com/brombomb/swonal-ui/compare/v2.1.3...v2.1.4) (2026-11-28)
+
+
+### Bug Fixes
+
+* **server-app:** save exercise notes on create and update ([95b7060](https://github.com/brombomb/swonal-ui/commit/95b70600fba52cacea33d81f5aa438d6e750954d))
+
+## [2.1.3](https://github.com/brombomb/swonal-ui/compare/v2.1.2...v2.1.3) (2026-11-28)
+
+
+### Bug Fixes
+
+* **daemon,installer:** load config.yaml on Termux and warn when the motor is LAN-exposed ([4cc67f6](https://github.com/brombomb/swonal-ui/commit/4cc67f69aa340f89221b2db4978651081c4dbd80))
+* **server-app:** run the seed script entry only when invoked directly ([36a9ebc](https://github.com/brombomb/swonal-ui/commit/36a9ebca0b1a2fc55a96c82cc120353e1709d301))
+
 ## [2.1.2](https://github.com/brombomb/swonal-ui/compare/v2.1.1...v2.1.2) (2026-11-26)
 
 
