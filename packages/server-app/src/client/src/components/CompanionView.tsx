@@ -110,6 +110,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     repConfirm,
     confirmRepCount,
     cancelRepConfirm,
+    setRepCount,
     skipRestTimer,
     skipRest,
     extendRestTimer,
@@ -421,7 +422,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       soundEngine.playVoiceCommandExecuted();
       return executeCoachSuggestedAction(action, {
         currentWeightLb: telemetry.target_weight_lb,
-        currentRepCount: telemetry.rep_count,
+        currentRepCount: setRepCount,
         activeUnit,
         exercises,
         setTargetWeight,
@@ -436,7 +437,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     },
     [
       telemetry.target_weight_lb,
-      telemetry.rep_count,
+      setRepCount,
       activeUnit,
       exercises,
       setTargetWeight,
@@ -999,7 +1000,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   <div className="text-right font-mono tabular-nums shrink-0">
                     <p className="text-xs font-bold tracking-wider opacity-65">REPS</p>
                     <p className="text-4xl font-black leading-none mt-0.5">
-                      {telemetry.rep_count}
+                      {setRepCount}
                       {currentStep ? (
                         <span className="text-lg opacity-55"> / {currentStep.targetReps}</span>
                       ) : null}

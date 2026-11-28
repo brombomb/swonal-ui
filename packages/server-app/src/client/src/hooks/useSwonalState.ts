@@ -25,7 +25,14 @@ import {
 } from '../types';
 import { soundEngine } from '../utils/soundEngine';
 import { hexToRgba, WeightUnit } from '../utils/units';
-import { decideRepsToLog, LogSetResult, RepConfirmRequest } from '../utils/setReps';
+import {
+  autoLogReps,
+  decideRepsToLog,
+  LogSetResult,
+  RepConfirmRequest,
+  SetRepTracker,
+  setKeyOf,
+} from '../utils/setReps';
 
 interface SpotifySdkPlayer {
   connect: () => Promise<boolean>;
@@ -293,6 +300,29 @@ export function useSwonalState() {
     if (!activeExercise) return null;
     return personalRecords.find((pr) => pr.exerciseId === activeExercise.id) ?? null;
   }, [personalRecords, activeExercise]);
+
+  // COMPLETED REPS for the current set. Unlike telemetry.rep_count it is kept after the weight
+  // turns off (the V1 board zeroes its counter in that frame) until the set is logged.
+  const setRepTrackerRef = useRef(new SetRepTracker());
+  const setRepCountRef = useRef(0);
+  const [setRepCount, setSetRepCount] = useState(0);
+  const setKey = setKeyOf(sessionState.activeSessionId, currentStepIdx, activeExercise?.id);
+  const setKeyRef = useRef(setKey);
+  setKeyRef.current = setKey;
+  const publishSetReps = useCallback((reps: number) => {
+    if (reps === setRepCountRef.current) return;
+    setRepCountRef.current = reps;
+    setSetRepCount(reps);
+  }, []);
+  /** Start the next set's rep count at 0 (set logged, reps reset, workout ended, exercise changed). */
+  const resetSetReps = useCallback(() => {
+    setRepTrackerRef.current.reset();
+    publishSetReps(setRepTrackerRef.current.setReps);
+  }, [publishSetReps]);
+  useEffect(() => {
+    // New session, routine step or exercise: a new set (the tracker also notices on the next frame).
+    resetSetReps();
+  }, [setKey, resetSetReps]);
 
   const symmetryMetrics: SymmetryMetrics = useMemo(() => {
     const leftPos = telemetry.left_cable.position ?? 0;
@@ -581,12 +611,15 @@ export function useSwonalState() {
           const msg = JSON.parse(event.data);
           if (msg.type === 'telemetry') {
             const frame = msg as TelemetryFrame;
+            const setReps = setRepTrackerRef.current.onFrame(frame.rep_count, setKeyRef.current);
+            publishSetReps(setReps);
             if (frame.weight_enabled && !prevWeightEnabledRef.current) {
               soundEngine.playWeightEngage();
             } else if (!frame.weight_enabled && prevWeightEnabledRef.current) {
               soundEngine.playWeightDisengage();
-              if (frame.rep_count > 0) {
-                autoLogCallbackRef.current(frame.rep_count);
+              // The V1 board already reads 0 in this disengage frame: use the held set count.
+              if (setReps > 0) {
+                autoLogCallbackRef.current(setReps);
               }
             }
             if (frame.rep_count > prevRepCountRef.current) {
@@ -887,16 +920,19 @@ export function useSwonalState() {
         }
         setWeight(firstStep.targetWeightLb, firstStep.mode, firstStep.modifierPct);
         sendWs({ type: 'reset_reps' });
+        resetSetReps();
       }
     },
-    [activeUser?.id, exercises, sendWs, setWeight]
+    [activeUser?.id, exercises, sendWs, setWeight, resetSetReps]
   );
 
   const logCompletedSet = useCallback(
     async (repsOverride?: number, rpe?: number | null): Promise<LogSetResult> => {
       if (!activeUser || !activeExercise) return 'not_logged';
 
-      const decision = decideRepsToLog(repsOverride, telemetry.rep_count, currentStep?.targetReps);
+      // The held set count, not telemetry.rep_count: the V1 board zeroes that when the weight turns off.
+      const countedReps = setRepTrackerRef.current.setReps;
+      const decision = decideRepsToLog(repsOverride, countedReps, currentStep?.targetReps);
       if (decision.kind === 'confirm') {
         // Nothing counted and no explicit count: never log a guessed rep count; ask instead.
         setRepConfirm({ suggestedReps: decision.suggestedReps, rpe: rpe ?? null });
@@ -937,6 +973,8 @@ export function useSwonalState() {
       });
 
       if (!resp.ok) return 'not_logged';
+      // Logged (counted, entered or auto-logged): the next set starts at 0.
+      resetSetReps();
       const result = (await resp.json()) as {
         newPr: boolean;
         partnerRotation: { rotatedToUserId: string; targetWeightLb: number } | null;
@@ -1008,7 +1046,6 @@ export function useSwonalState() {
       activeUser,
       activeExercise,
       sessionState.activeSessionId,
-      telemetry.rep_count,
       telemetry.profile_mode,
       telemetry.modifier_pct,
       telemetry.target_weight_lb,
@@ -1020,6 +1057,7 @@ export function useSwonalState() {
       sendWs,
       setWeight,
       refreshUserHistory,
+      resetSetReps,
     ]
   );
 
@@ -1053,10 +1091,17 @@ export function useSwonalState() {
     setActiveTemplateName(null);
     setRoutineSteps([]);
     setCurrentStepIdx(0);
+    resetSetReps();
     if (activeUser) {
       await refreshUserHistory(activeUser.id);
     }
-  }, [sessionState.activeSessionId, activeUser, sendWs, refreshUserHistory]);
+  }, [sessionState.activeSessionId, activeUser, sendWs, refreshUserHistory, resetSetReps]);
+
+  /** Reset the board's rep counter and start the current set's count at 0. */
+  const resetReps = useCallback(() => {
+    sendWs({ type: 'reset_reps' });
+    resetSetReps();
+  }, [sendWs, resetSetReps]);
 
   // Music Controls
   const handleMusicResponse = useCallback(async (resp: Response): Promise<boolean> => {
@@ -1276,10 +1321,10 @@ export function useSwonalState() {
   );
 
   useEffect(() => {
-    autoLogCallbackRef.current = (reps: number) => {
-      if (activeTemplateName && currentStep && reps >= currentStep.targetReps) {
-        void logCompletedSet(reps);
-      }
+    autoLogCallbackRef.current = (setReps: number) => {
+      if (!activeTemplateName || !currentStep) return;
+      const reps = autoLogReps(setReps, currentStep.targetReps);
+      if (reps != null) void logCompletedSet(reps);
     };
   }, [activeTemplateName, currentStep, logCompletedSet]);
 
@@ -1466,6 +1511,8 @@ export function useSwonalState() {
     stepRoutine,
     logCompletedSet,
     completeSet: logCompletedSet,
+    setRepCount,
+    resetReps,
     repConfirm,
     confirmRepCount,
     cancelRepConfirm,
