@@ -1251,7 +1251,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       type="button"
                       onClick={() => {
                         const maxPct = telemetry.profile_mode === 'chains' ? 100 : 60;
-                        const nextPct = Math.max(5, Math.min(maxPct, (telemetry.modifier_pct || 25) - 5));
+                        const cur = telemetry.modifier_pct;
+                        const nextPct = Math.max(5, Math.min(maxPct, cur - 5));
+                        if (nextPct >= cur) return;
                         setWeight(telemetry.target_weight_lb, telemetry.profile_mode, nextPct);
                       }}
                       className="surface-card px-2.5 py-1 rounded-lg"
@@ -1263,7 +1265,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                       type="button"
                       onClick={() => {
                         const maxPct = telemetry.profile_mode === 'chains' ? 100 : 60;
-                        const nextPct = Math.max(5, Math.min(maxPct, (telemetry.modifier_pct || 25) + 5));
+                        const cur = telemetry.modifier_pct;
+                        const nextPct = Math.max(5, Math.min(maxPct, cur + 5));
+                        if (nextPct <= cur) return;
                         setWeight(telemetry.target_weight_lb, telemetry.profile_mode, nextPct);
                       }}
                       className="surface-card px-2.5 py-1 rounded-lg"

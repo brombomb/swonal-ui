@@ -1384,11 +1384,14 @@ class SwonalRepository(
     }
 
     fun stepModifierPct(deltaPct: Int) {
-        if (_uiStateFlow.value.authRequired) return
+        if (_uiStateFlow.value.authRequired || deltaPct == 0) return
         val current = _telemetryFlow.value
         val norm = current.profileMode.lowercase(Locale.US)
         if (norm !in setOf("eccentric", "chains", "smart_flex")) return
         val bounded = Units.clampModifierPctForMode(norm, current.modifierPct + deltaPct)
+        if (bounded == current.modifierPct) return
+        if (deltaPct < 0 && bounded > current.modifierPct) return
+        if (deltaPct > 0 && bounded < current.modifierPct) return
         setWeight(current.targetWeightLb, norm, bounded, allowWhileEngaged = true)
     }
 
