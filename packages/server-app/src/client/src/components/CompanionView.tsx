@@ -39,6 +39,7 @@ import { useSwonalState } from '../hooks/useSwonalState';
 import { MusicPickerDialog } from './MusicPickerDialog';
 import { ProgressionAnalytics } from './ProgressionAnalytics';
 import { BlockType, CoachSuggestedAction, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
+import { normalizeAccessory, SELECTABLE_ACCESSORIES } from '../utils/accessories';
 import { soundEngine } from '../utils/soundEngine';
 import { acceptedPositions, armsMatchExercise, formatArmTarget } from '../utils/armPositions';
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
@@ -75,6 +76,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     daemonConnected,
     wsConnected,
     activeExercise,
+    activeAccessory,
     currentStep,
     restSecondsRemaining,
     vbtMetrics,
@@ -1038,7 +1040,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                             }`}
                           >
                             <span>
-                              {activeExercise.accessory} • {target}
+                              {activeAccessory ?? activeExercise.accessory} • {target}
                             </span>
                             <Info size={12} />
                           </button>
@@ -1794,13 +1796,37 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                               <span className="font-bold text-sm">
                                 {ex?.name ?? 'Exercise'}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => removeBlockItem(bIdx, iIdx)}
-                                className="text-red-400 p-1"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {/* Bodyweight moves take no attachment (keep a pick that was already saved). */}
+                                {ex && (ex.accessory.toUpperCase() !== 'BODYWEIGHT' || item.accessory) && (
+                                  <select
+                                    aria-label={`Accessory for ${ex.name}`}
+                                    title={`Default uses the lifter's default accessory on the Kiosk, else this exercise's (${ex.accessory.toUpperCase()})`}
+                                    value={item.accessory ?? ''}
+                                    onChange={(e) =>
+                                      updateBlockItem(bIdx, iIdx, {
+                                        accessory: normalizeAccessory(e.target.value),
+                                      })
+                                    }
+                                    className="elevated-pill px-1.5 py-1 rounded-lg text-xs font-mono"
+                                  >
+                                    {/* Shown in the label, not only the tooltip, so touch screens see it too. */}
+                                    <option value="">Default ({ex.accessory.toUpperCase()})</option>
+                                    {SELECTABLE_ACCESSORIES.map((acc) => (
+                                      <option key={acc} value={acc}>
+                                        {acc}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeBlockItem(bIdx, iIdx)}
+                                  className="text-red-400 p-1"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             </div>
                             <div className="grid grid-cols-4 gap-2 text-xs">
                               <label className="flex flex-col gap-1">

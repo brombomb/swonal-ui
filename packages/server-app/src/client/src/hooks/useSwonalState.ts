@@ -23,6 +23,7 @@ import {
   WorkoutSummaryData,
   WorkoutTemplate,
 } from '../types';
+import { resolveAccessory } from '../utils/accessories';
 import { soundEngine } from '../utils/soundEngine';
 import { hexToRgba, WeightUnit } from '../utils/units';
 
@@ -89,6 +90,7 @@ export function flattenTemplateBlocks(blocks: WorkoutBlock[]): RoutineStep[] {
               mode: item.mode,
               modifierPct: item.modifierPct,
               exerciseId: item.exerciseId,
+              accessory: item.accessory ?? null,
             });
           }
         });
@@ -108,6 +110,7 @@ export function flattenTemplateBlocks(blocks: WorkoutBlock[]): RoutineStep[] {
             mode: item.mode,
             modifierPct: item.modifierPct,
             exerciseId: item.exerciseId,
+            accessory: item.accessory ?? null,
           });
         }
       });
@@ -286,6 +289,13 @@ export function useSwonalState() {
     const targetId = currentStep?.exerciseId || selectedExerciseId;
     return exercises.find((e) => e.id === targetId) ?? exercises[0] ?? null;
   }, [exercises, currentStep, selectedExerciseId]);
+
+  // The attachment the active exercise uses: the current routine item's pick, else the exercise's own.
+  const activeAccessory: AccessoryType | null = useMemo(() => {
+    if (!activeExercise) return null;
+    const step = currentStep?.exerciseId === activeExercise.id ? currentStep : null;
+    return resolveAccessory(activeExercise.accessory, step?.accessory);
+  }, [activeExercise, currentStep]);
 
   const activeExercisePr = useMemo(() => {
     if (!activeExercise) return null;
@@ -753,11 +763,13 @@ export function useSwonalState() {
 
   const alignMockArmsToExercise = useCallback(
     async (exercise: Exercise) => {
+      // Keep the routine item's accessory pick rather than resetting it to the catalog one.
+      const step = currentStep?.exerciseId === exercise.id ? currentStep : null;
       await fetch('/api/daemon/mock/arm-positions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accessory: exercise.accessory,
+          accessory: resolveAccessory(exercise.accessory, step?.accessory),
           height_left: exercise.recommendedHeight,
           height_right: exercise.recommendedHeight,
           rot_left: exercise.recommendedRotation,
@@ -767,7 +779,7 @@ export function useSwonalState() {
         }),
       });
     },
-    []
+    [currentStep]
   );
 
   // User, Theme, Accent, Units, & Partner Actions
@@ -881,7 +893,7 @@ export function useSwonalState() {
         setSelectedExerciseId(firstStep.exerciseId);
         const ex = exercises.find((e) => e.id === firstStep.exerciseId);
         if (ex) {
-          sendWs({ type: 'set_accessory', accessory: ex.accessory });
+          sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, firstStep.accessory) });
         }
         setWeight(firstStep.targetWeightLb, firstStep.mode, firstStep.modifierPct);
         sendWs({ type: 'reset_reps' });
@@ -968,9 +980,13 @@ export function useSwonalState() {
           setCurrentStepIdx(nextIdx);
           const nextStep = routineSteps[nextIdx];
           setSelectedExerciseId(nextStep.exerciseId);
+          // The next item's attachment applies in a partner rotation too; only the weight is
+          // left alone then, because the server already set the rotated lifter's weight.
+          const ex = exercises.find((e) => e.id === nextStep.exerciseId);
+          if (ex) {
+            sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, nextStep.accessory) });
+          }
           if (!result.partnerRotation) {
-            const ex = exercises.find((e) => e.id === nextStep.exerciseId);
-            if (ex) sendWs({ type: 'set_accessory', accessory: ex.accessory });
             setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct);
           }
         } else {
@@ -991,6 +1007,8 @@ export function useSwonalState() {
           setActiveTemplateName(null);
           setRoutineSteps([]);
           setCurrentStepIdx(0);
+          // Back to a free lift: drop the last routine item's pick for the exercise's own attachment.
+          if (activeExercise) sendWs({ type: 'set_accessory', accessory: activeExercise.accessory });
         }
       }
 
@@ -1190,7 +1208,7 @@ export function useSwonalState() {
         const step = routineSteps[nextIdx];
         setSelectedExerciseId(step.exerciseId);
         const ex = exercises.find((e) => e.id === step.exerciseId);
-        if (ex) sendWs({ type: 'set_accessory', accessory: ex.accessory });
+        if (ex) sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, step.accessory) });
         setWeight(step.targetWeightLb, step.mode, step.modifierPct);
         return;
       }
@@ -1435,6 +1453,7 @@ export function useSwonalState() {
     setWeightEnabled,
     setWeightMode,
     setAccessory,
+    activeAccessory,
     alignMockArmsToExercise,
     switchUser,
     updateUserPreferences,

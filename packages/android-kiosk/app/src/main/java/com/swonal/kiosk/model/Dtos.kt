@@ -129,7 +129,9 @@ data class WorkoutBlockItem(
     val targetReps: Int = 10,
     val mode: String = "standard",
     val modifierPct: Int = 0,
-    val targetWeightLb: Double = 25.0
+    val targetWeightLb: Double = 25.0,
+    /** HANDLES / BAR / ROPE for this item; null = the lifter's default, else the exercise's accessory. */
+    val accessory: String? = null
 )
 
 @Serializable
@@ -163,7 +165,9 @@ data class RoutineStep(
     val targetWeightLb: Double,
     val mode: String,
     val modifierPct: Int,
-    val restSeconds: Int
+    val restSeconds: Int,
+    /** The routine item's accessory pick (see [WorkoutBlockItem.accessory]); null = not picked. */
+    val accessory: String? = null
 )
 
 @Serializable

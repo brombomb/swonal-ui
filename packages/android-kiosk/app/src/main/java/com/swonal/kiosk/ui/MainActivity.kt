@@ -1213,7 +1213,7 @@ class MainActivity : AppCompatActivity() {
             if (ui.sessionState.activeSessionId != null) View.VISIBLE else View.GONE
 
         val nextStep = ui.nextStep
-        val nextEx = ui.nextExercise
+        val nextEx = ui.nextExercise?.let { ex -> ex.copy(accessory = ui.accessoryFor(ex, nextStep)) }
         if (nextStep != null && nextEx != null) {
             binding.tvUpNextTitle.text = nextEx.name
             binding.tvUpNextMeta.visibility = View.VISIBLE
@@ -1338,7 +1338,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderArmAlignmentBadgeIfChanged(frame: TelemetryFrame, ui: KioskUiState) {
-        val ex = ui.activeExercise ?: return
+        // Judge the attachment against the routine item's / lifter's pick, not just the catalog default.
+        val ex = ui.activeExercise?.let { it.copy(accessory = ui.accessoryFor(it, ui.currentStep)) } ?: return
         val alignment = ArmAlignmentHelper.evaluate(frame, ex)
         val arms = frame.armPositions
 
@@ -1444,7 +1445,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderAccessoryButtonsIfChanged(activeAccessory: String) {
         val ui = app.repository.uiStateFlow.value
         val exId = ui.activeExercise?.id.orEmpty()
-        val targetAcc = ui.activeExercise?.accessory?.uppercase(Locale.US) ?: "HANDLES"
+        val targetAcc = ui.activeAccessory ?: "HANDLES"
         val norm = activeAccessory.uppercase(Locale.US)
         val isConfirmed = confirmedAccessoryExerciseId == exId && confirmedAccessoryName == targetAcc
         val cacheKey = "$exId|$targetAcc|$norm|$isConfirmed"
