@@ -242,7 +242,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         val prefsCard = createSurfaceCard()
         prefsCard.addView(makeCardHeading(
             "Personal Preferences — ${activeUser?.name ?: "Active Lifter"}",
-            "Units, theme, form demo video, VBT/symmetry telemetry, and accent color"
+            "Units, theme, form demo video, VBT/symmetry telemetry, auto-adjust weights, and accent color"
         ))
 
         // Toggle rows: Theme, Units, Form Demo Video, VBT & Symmetry
@@ -284,6 +284,18 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             repo.cycleTelemetryDisplayMode()
         }
         prefsCard.addView(vbtRow)
+
+        var localAutoAdjust = ui.autoAdjustWeights
+        val (autoAdjRow, autoAdjValTv) = makeLargeToggleRow(
+            "Auto-Adjust Weights",
+            if (localAutoAdjust) "On" else "Off"
+        )
+        autoAdjRow.setOnClickListener {
+            localAutoAdjust = !localAutoAdjust
+            autoAdjValTv.text = if (localAutoAdjust) "On" else "Off"
+            repo.setAutoAdjustWeights(localAutoAdjust)
+        }
+        prefsCard.addView(autoAdjRow)
 
         // Accent Color Swatches
         prefsCard.addView(makeSectionLabel("Accent Color"))

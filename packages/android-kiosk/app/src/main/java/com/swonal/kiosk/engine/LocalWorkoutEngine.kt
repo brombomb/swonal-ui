@@ -5,6 +5,7 @@ import com.swonal.kiosk.model.AppStateResponse
 import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.AuthStatus
 import com.swonal.kiosk.model.Exercise
+import com.swonal.kiosk.model.ExercisePref
 import com.swonal.kiosk.model.OverloadSuggestion
 import com.swonal.kiosk.model.PartnerRotation
 import com.swonal.kiosk.model.PersonalRecord
@@ -391,7 +392,10 @@ class LocalWorkoutEngine(
         var rotation: PartnerRotation? = null
         val curState = getSessionState()
         if (curState.partnerModeEnabled && curState.partnerUserIds.size >= 2) {
-            val nextIdx = (curState.activePartnerIndex + 1) % curState.partnerUserIds.size
+            // Rotate to the partner after whoever actually lifted (the profile may have been switched mid-set)
+            val lifterIdx = curState.partnerUserIds.indexOf(effectiveUserId)
+            val baseIdx = if (lifterIdx >= 0) lifterIdx else curState.activePartnerIndex
+            val nextIdx = (baseIdx + 1) % curState.partnerUserIds.size
             val nextUserId = curState.partnerUserIds[nextIdx]
             updateSessionState { copy(activePartnerIndex = nextIdx, activeUserId = nextUserId) }
             db.setSetting(SETTING_ACTIVE_USER_ID, nextUserId)
@@ -449,6 +453,42 @@ class LocalWorkoutEngine(
     }
 
     suspend fun getPrs(userId: String): List<PersonalRecord> = db.listPrs(userId)
+
+    /** Remembered settings for one scope: Free Lift (default) or a routine rep goal ([ExercisePref.routineScope]). */
+    suspend fun getExercisePref(
+        userId: String,
+        exerciseId: String,
+        scope: String = ExercisePref.SCOPE_FREE_LIFT
+    ): ExercisePref? = db.getExercisePref(userId, exerciseId, scope)
+
+    /** The lifter's most recent remembered settings for an exercise in any scope (e.g. its last attachment). */
+    suspend fun getMostRecentExercisePref(userId: String, exerciseId: String): ExercisePref? =
+        db.getMostRecentExercisePref(userId, exerciseId)
+
+    /** Per-lifter "Auto-Adjust Weights" preference (default OFF). */
+    suspend fun getAutoAdjustWeights(userId: String): Boolean =
+        db.getSetting(autoAdjustSettingKey(userId)) == "true"
+
+    suspend fun setAutoAdjustWeights(userId: String, enabled: Boolean) {
+        db.setSetting(autoAdjustSettingKey(userId), if (enabled) "true" else "false")
+    }
+
+    private fun autoAdjustSettingKey(userId: String) = "$SETTING_AUTO_ADJUST_WEIGHTS_PREFIX$userId"
+
+    suspend fun getLatestExercisePref(userId: String): ExercisePref? =
+        db.getLatestExercisePref(userId)
+
+    suspend fun saveExercisePref(pref: ExercisePref): ExercisePref =
+        db.upsertExercisePref(
+            pref.copy(
+                weightLb = pref.weightLb.coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB),
+                mode = pref.mode.lowercase(Locale.US),
+                modifierPct = Units.effectiveModifierPct(pref.mode, pref.modifierPct),
+                accessory = pref.accessory.uppercase(Locale.US),
+                lastReps = pref.lastReps?.coerceIn(0, 500),
+                lastTargetReps = pref.lastTargetReps?.coerceIn(1, 500)
+            )
+        )
 
     suspend fun getOverloadSuggestion(userId: String, exerciseId: String): OverloadSuggestion {
         val recentSets = db.getRecentSetLogsForExercise(userId, exerciseId, limit = 4)
@@ -693,6 +733,7 @@ class LocalWorkoutEngine(
 
     companion object {
         const val SETTING_ACTIVE_USER_ID = "active_user_id"
+        const val SETTING_AUTO_ADJUST_WEIGHTS_PREFIX = "auto_adjust_weights:"
         const val SETTING_AUTH_HASH = "auth_passcode_hash"
         const val SETTING_AUTH_TRUST_LOCALHOST = "auth_trust_localhost"
         const val SETTING_LOCAL_API_TOKEN = "local_api_token"

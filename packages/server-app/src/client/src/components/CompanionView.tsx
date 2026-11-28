@@ -1840,14 +1840,23 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                   min={activeUnit === 'KG' ? 2.5 : 5}
                                   max={activeUnit === 'KG' ? 91 : 200}
                                   step={activeUnit === 'KG' ? 0.5 : 5}
-                                  value={shownItemWeight}
+                                  // AUTO steps (kiosk Auto-Adjust Weights) have no fixed weight: show AUTO, and
+                                  // typing a weight turns the step into a fixed weight
+                                  value={item.autoWeight ? '' : shownItemWeight}
+                                  placeholder={item.autoWeight ? 'AUTO' : undefined}
+                                  title={
+                                    item.autoWeight
+                                      ? 'AUTO: the kiosk picks each lifter\'s weight. Enter a weight to make it fixed.'
+                                      : undefined
+                                  }
                                   onChange={(e) => {
+                                    if (e.target.value === '') return;
                                     const val = Number(e.target.value);
                                     const lb =
                                       activeUnit === 'KG'
                                         ? Math.min(200, Math.max(5, Math.round(val * KG_TO_LB * 2) / 2))
                                         : Math.min(200, Math.max(5, val));
-                                    updateBlockItem(bIdx, iIdx, { targetWeightLb: lb });
+                                    updateBlockItem(bIdx, iIdx, { targetWeightLb: lb, autoWeight: false });
                                   }}
                                   className="elevated-pill px-2 py-1.5 rounded-lg font-mono"
                                 />

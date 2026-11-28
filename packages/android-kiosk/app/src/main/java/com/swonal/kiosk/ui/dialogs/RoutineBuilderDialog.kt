@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.swonal.kiosk.R
+import com.swonal.kiosk.model.AutoAdjust
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.Units
 import com.swonal.kiosk.model.WorkoutBlock
@@ -41,7 +42,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
         var targetReps: Int = 10,
         var targetWeightDisplay: Double = 45.0,
         var mode: String = "standard",
-        var modifierPct: Int = 0
+        var modifierPct: Int = 0,
+        var autoWeight: Boolean = false
     )
 
     private data class DraftBlock(
@@ -87,7 +89,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                             targetReps = item.targetReps,
                             targetWeightDisplay = Units.formatDisplayWeight(item.targetWeightLb, unit),
                             mode = item.mode,
-                            modifierPct = item.modifierPct
+                            modifierPct = item.modifierPct,
+                            autoWeight = item.autoWeight
                         )
                     }.toMutableList()
                 )
@@ -102,7 +105,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     mutableListOf(
                         DraftItem(
                             exerciseId = firstEx,
-                            targetWeightDisplay = Units.formatDisplayWeight(45.0, unit)
+                            targetWeightDisplay = Units.formatDisplayWeight(AutoAdjust.FIXED_DEFAULT_WEIGHT_LB, unit),
+                            autoWeight = repo.uiStateFlow.value.autoAdjustWeights
                         )
                     )
                 } else {
@@ -166,7 +170,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     mutableListOf(
                         DraftItem(
                             exerciseId = defaultEx,
-                            targetWeightDisplay = Units.formatDisplayWeight(45.0, unit)
+                            targetWeightDisplay = Units.formatDisplayWeight(AutoAdjust.FIXED_DEFAULT_WEIGHT_LB, unit),
+                            autoWeight = repo.uiStateFlow.value.autoAdjustWeights
                         )
                     )
                 } else {
@@ -380,10 +385,23 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(0, dp(32), 1f).apply { marginEnd = dp(4) }
                 })
-                paramsRow.addView(makeStepperButton("${formatWeight(item.targetWeightDisplay)} $unit") {
+                val weightLabel = if (item.autoWeight) "AUTO" else "${formatWeight(item.targetWeightDisplay)} $unit"
+                paramsRow.addView(makeStepperButton(weightLabel) {
                     val maxDisp = Units.formatDisplayWeight(Units.MAX_WEIGHT_LB, unit)
                     val step = if (unit == "KG") 2.5 else 5.0
-                    item.targetWeightDisplay = if (item.targetWeightDisplay + step > maxDisp) step else item.targetWeightDisplay + step
+                    // Auto-Adjust ON: AUTO -> 20 lb -> +5 ... -> max -> AUTO. OFF: numbers only (wraps to 5 lb).
+                    val offerAuto = repo.uiStateFlow.value.autoAdjustWeights
+                    when {
+                        item.autoWeight -> {
+                            item.autoWeight = false
+                            val firstLb = if (offerAuto) AutoAdjust.AUTO_FIRST_TIME_WEIGHT_LB else AutoAdjust.FIXED_DEFAULT_WEIGHT_LB
+                            item.targetWeightDisplay = Units.formatDisplayWeight(firstLb, unit)
+                        }
+                        item.targetWeightDisplay + step > maxDisp -> {
+                            if (offerAuto) item.autoWeight = true else item.targetWeightDisplay = step
+                        }
+                        else -> item.targetWeightDisplay += step
+                    }
                     renderBlocks()
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(0, dp(32), 1.2f).apply { marginEnd = dp(4) }
@@ -425,7 +443,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     pickExercise { chosenId ->
                         blk.items += DraftItem(
                             exerciseId = chosenId,
-                            targetWeightDisplay = Units.formatDisplayWeight(45.0, unit)
+                            targetWeightDisplay = Units.formatDisplayWeight(AutoAdjust.FIXED_DEFAULT_WEIGHT_LB, unit),
+                            autoWeight = repo.uiStateFlow.value.autoAdjustWeights
                         )
                         renderBlocks()
                     }
@@ -532,7 +551,14 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     targetReps = item.targetReps.coerceIn(1, 200),
                     mode = item.mode,
                     modifierPct = preservedModifier,
-                    targetWeightLb = item.targetWeightDisplay
+                    // AUTO items store 45 lb as the first-time weight for lifters with Auto-Adjust OFF
+                    // (and for clients that don't know the flag); converted to canonical lb on save.
+                    targetWeightLb = if (item.autoWeight) {
+                        Units.formatDisplayWeight(AutoAdjust.FIXED_DEFAULT_WEIGHT_LB, unit, exact = true)
+                    } else {
+                        item.targetWeightDisplay
+                    },
+                    autoWeight = item.autoWeight
                 )
             }
             if (validItems.isEmpty()) null else WorkoutBlock(blk.blockType, blk.restSeconds, validItems)

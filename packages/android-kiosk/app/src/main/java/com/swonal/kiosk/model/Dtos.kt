@@ -129,7 +129,10 @@ data class WorkoutBlockItem(
     val targetReps: Int = 10,
     val mode: String = "standard",
     val modifierPct: Int = 0,
-    val targetWeightLb: Double = 25.0
+    /** Starting weight for a lifter's first time on this exercise (remembered weight is used after). */
+    val targetWeightLb: Double = 25.0,
+    /** "Auto": Swonal picks the first-time starting weight for lifters with Auto-Adjust Weights ON. */
+    val autoWeight: Boolean = false
 )
 
 @Serializable
@@ -163,7 +166,8 @@ data class RoutineStep(
     val targetWeightLb: Double,
     val mode: String,
     val modifierPct: Int,
-    val restSeconds: Int
+    val restSeconds: Int,
+    val autoWeight: Boolean = false
 )
 
 @Serializable
@@ -252,6 +256,37 @@ data class SetLogResponse(
     val totalVolume: Double = 0.0,
     val partnerRotation: PartnerRotation? = null
 )
+
+/**
+ * Last-used settings for one lifter on one exercise (weight, mode, accessory, and rep outcome), kept
+ * separately per [scope]: Free Lift, and each routine rep goal. That way a heavy Free Lift single, or the
+ * top set of a 5-rep step, never becomes the weight of a 12-rep step on the same move.
+ */
+@Serializable
+data class ExercisePref(
+    val userId: String,
+    val exerciseId: String,
+    val weightLb: Double,
+    val mode: String = "standard",
+    val modifierPct: Int = 0,
+    val accessory: String = "HANDLES",
+    val lastReps: Int? = null,
+    /** Rep goal of the last set when it was done inside a routine; null for Free Lift sets. */
+    val lastTargetReps: Int? = null,
+    val updatedAt: String = "",
+    /** [SCOPE_FREE_LIFT], or [routineScope] of the step's rep goal. */
+    val scope: String = SCOPE_FREE_LIFT
+) {
+    companion object {
+        const val SCOPE_FREE_LIFT = "free"
+
+        fun routineScope(targetReps: Int): String = "routine:$targetReps"
+
+        /** Scope a set belongs to: its routine rep goal, else Free Lift. */
+        fun scopeFor(routineTargetReps: Int?): String =
+            if (routineTargetReps != null) routineScope(routineTargetReps) else SCOPE_FREE_LIFT
+    }
+}
 
 @Serializable
 data class PersonalRecord(
