@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.SeekBar
@@ -30,7 +31,10 @@ object KioskPopups {
         onOpenMenu: () -> Unit,
         onOpenWebPath: (path: String, title: String) -> Unit,
         onCheckUpdates: () -> Unit,
-        onOpenBugReport: () -> Unit
+        onOpenBugReport: () -> Unit,
+        onSleep: () -> Unit,
+        onRestart: () -> Unit,
+        onShutDown: () -> Unit
     ) {
         val d = context.resources.displayMetrics.density
         fun dp(v: Int) = (v * d).toInt()
@@ -117,6 +121,8 @@ object KioskPopups {
             onOpenBugReport()
         }
 
+        addPowerSection(context, root, palette, d, { popup.dismiss() }, onSleep, onRestart, onShutDown)
+
         popup = PopupWindow(root, dp(264), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 16f * d
@@ -128,6 +134,173 @@ object KioskPopups {
         }
         popup.showAsDropDown(anchor, -dp(194), dp(8))
     }
+
+    private class PowerTile(
+        val view: LinearLayout,
+        val icon: ImageView,
+        val label: TextView,
+        val idleLabel: String,
+        val idleIconTint: Int,
+        val confirmHint: String?
+    )
+
+    /**
+     * POWER section at the bottom of Quick Preferences: Sleep · Restart · Shut Down.
+     * Sleep is instant (a touch wakes it). Restart and Shut Down need a second tap within
+     * [POWER_CONFIRM_WINDOW_MS] so a stray touch can never take the Tonal down.
+     */
+    private fun addPowerSection(
+        context: Context,
+        root: LinearLayout,
+        palette: SwonalPalette,
+        d: Float,
+        dismiss: () -> Unit,
+        onSleep: () -> Unit,
+        onRestart: () -> Unit,
+        onShutDown: () -> Unit
+    ) {
+        fun dp(v: Int) = (v * d).toInt()
+
+        root.addView(View(context).apply {
+            setBackgroundColor(palette.borderSubtle)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(1).coerceAtLeast(1)
+            ).apply {
+                topMargin = dp(12)
+                bottomMargin = dp(10)
+            }
+        })
+        root.addView(TextView(context).apply {
+            text = "POWER"
+            textSize = 10.5f
+            letterSpacing = 0.08f
+            typeface = SwonalFonts.interExtraBold(context)
+            setTextColor(palette.textMuted)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        })
+
+        val tilesRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62))
+        }
+        val hint = TextView(context).apply {
+            textSize = 10.5f
+            typeface = SwonalFonts.interSemiBold(context)
+            setTextColor(palette.textMuted)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+
+        var armed: PowerTile? = null
+        var armGeneration = 0
+
+        fun style(tile: PowerTile, confirming: Boolean) {
+            if (confirming) {
+                tile.view.background = GradientDrawable().apply {
+                    setColor(palette.criticalBg)
+                    cornerRadius = 10f * d
+                    setStroke(dp(1).coerceAtLeast(1), palette.criticalBorder)
+                }
+                tile.label.text = "${tile.idleLabel}?"
+                tile.label.setTextColor(palette.criticalText)
+                tile.icon.setColorFilter(palette.criticalText)
+            } else {
+                tile.view.background = palette.elevatedPillDrawable(d, 10f)
+                tile.label.text = tile.idleLabel
+                tile.label.setTextColor(palette.textPrimary)
+                tile.icon.setColorFilter(tile.idleIconTint)
+            }
+        }
+
+        fun disarm() {
+            armed?.let { style(it, false) }
+            armed = null
+            armGeneration++
+            hint.visibility = View.GONE
+        }
+
+        fun addTile(
+            label: String,
+            iconRes: Int,
+            iconTint: Int,
+            confirmHint: String?,
+            isLast: Boolean,
+            onConfirmed: () -> Unit
+        ) {
+            val icon = ImageView(context).apply {
+                setImageResource(iconRes)
+                layoutParams = LinearLayout.LayoutParams(dp(18), dp(18)).apply { bottomMargin = dp(5) }
+            }
+            val labelView = TextView(context).apply {
+                textSize = 11f
+                typeface = SwonalFonts.interBold(context)
+                gravity = Gravity.CENTER
+                maxLines = 1
+            }
+            val view = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                contentDescription = label
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                    if (!isLast) marginEnd = dp(6)
+                }
+                addView(icon)
+                addView(labelView)
+            }
+            val tile = PowerTile(view, icon, labelView, label, iconTint, confirmHint)
+            style(tile, confirming = false)
+            view.setOnClickListener {
+                if (tile.confirmHint == null || armed === tile) {
+                    disarm()
+                    dismiss()
+                    onConfirmed()
+                    return@setOnClickListener
+                }
+                disarm()
+                armed = tile
+                style(tile, confirming = true)
+                hint.text = tile.confirmHint
+                hint.visibility = View.VISIBLE
+                val generation = armGeneration
+                view.postDelayed({ if (armGeneration == generation) disarm() }, POWER_CONFIRM_WINDOW_MS)
+            }
+            PressFeedback.attachSingle(view)
+            tilesRow.addView(view)
+        }
+
+        addTile("Sleep", com.swonal.kiosk.R.drawable.ic_moon, palette.accentInk, null, isLast = false) {
+            onSleep()
+        }
+        addTile(
+            "Restart",
+            com.swonal.kiosk.R.drawable.ic_rotate_cw,
+            palette.accentInk,
+            "Tap Restart again to confirm",
+            isLast = false
+        ) { onRestart() }
+        addTile(
+            "Shut Down",
+            com.swonal.kiosk.R.drawable.ic_power,
+            palette.criticalText,
+            "Tap Shut Down again to confirm.\nUse the power button to turn Tonal back on.",
+            isLast = true
+        ) { onShutDown() }
+
+        root.addView(tilesRow)
+        root.addView(hint)
+    }
+
+    private const val POWER_CONFIRM_WINDOW_MS = 4_000L
 
     fun showArmPositionGuide(
         context: Context,

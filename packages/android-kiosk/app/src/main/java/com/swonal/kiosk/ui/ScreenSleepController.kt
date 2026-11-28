@@ -45,6 +45,9 @@ import kotlinx.coroutines.launch
  * Because the kiosk never leaves the foreground, the UI heartbeat stays alive. Any activity
  * while blanked (Companion command, voice, cable or arm movement) or a blocking condition
  * (e.g. weight engaged from a phone) wakes the screen within one tick.
+ *
+ * [sleepNow] (Quick Preferences → Power → Sleep) blanks the screen the same way on demand,
+ * whatever the timeout setting is, and wakes on the same touch / activity / blocking rules.
  */
 class ScreenSleepController(private val activity: AppCompatActivity) {
 
@@ -61,6 +64,25 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
     private var lastArmPositions: ArmPositions? = null
     private var lastTickMs: Long? = null
     private var screenWasOn = true
+
+    /** [IdleActivityTracker.clock] time when [sleepNow] blanked the screen, or null when not manually asleep. */
+    private var manualSleepStartedMs: Long? = null
+
+    /**
+     * Blanks the screen right away (touch anywhere to wake). Refuses while weight is engaged,
+     * a rest timer is running, or an update is installing, and returns false in that case.
+     */
+    fun sleepNow(): Boolean {
+        if (activity.isFinishing || activity.isDestroyed) return false
+        if (isBlocked()) return false
+        dismissWarning()
+        if (blankOverlay == null) blankScreen()
+        if (blankOverlay == null) return false
+        // The tap on "Sleep" was the last activity; anything noted after this point wakes up.
+        IdleActivityTracker.noteActivity()
+        manualSleepStartedMs = IdleActivityTracker.clock()
+        return true
+    }
 
     fun attach() {
         activity.lifecycleScope.launch {
@@ -110,12 +132,28 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
             lastTickMs = now
         }
 
-        val repo = app.repository
         trackCableMovement()
 
-        val blocked = repo.isWeightCurrentlyEngaged() ||
-            repo.uiStateFlow.value.restSecondsRemaining > 0 ||
-            AppUpdateManager.isUpdateInProgress.get()
+        val blocked = isBlocked()
+
+        val manualStart = manualSleepStartedMs
+        if (manualStart != null) {
+            if (blankOverlay == null) {
+                manualSleepStartedMs = null
+            } else if (
+                ScreenSleepPolicy.shouldWakeFromManualSleep(
+                    sleepStartedMs = manualStart,
+                    nowMs = IdleActivityTracker.clock(),
+                    idleMs = IdleActivityTracker.idleMs(),
+                    blocked = blocked
+                )
+            ) {
+                wake()
+            } else {
+                // Manually asleep: the timeout setting (maybe Off) must not wake the screen.
+                return
+            }
+        }
 
         val decision = ScreenSleepPolicy.decide(
             timeoutMinutes = app.prefs.screenSleepTimeoutMinutes,
@@ -174,6 +212,13 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         lastArmPositions = arms
     }
 
+    private fun isBlocked(): Boolean {
+        val repo = app.repository
+        return repo.isWeightCurrentlyEngaged() ||
+            repo.uiStateFlow.value.restSecondsRemaining > 0 ||
+            AppUpdateManager.isUpdateInProgress.get()
+    }
+
     private fun showWarning(secondsLeft: Int) {
         if (activity.isFinishing || activity.isDestroyed) return
         val existing = warningDialog
@@ -214,6 +259,7 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
 
     /** Removes the blank overlay (restoring brightness) and restarts the idle countdown. */
     private fun wake() {
+        manualSleepStartedMs = null
         val overlay = blankOverlay ?: return
         blankOverlay = null
         runCatching { if (overlay.isShowing) overlay.dismiss() }

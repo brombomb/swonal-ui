@@ -68,6 +68,19 @@ object ScreenSleepPolicy {
         }
     }
 
+    /**
+     * "Sleep now" from the Quick Preferences power row works whatever the timeout setting is,
+     * so it can't use [decide]. Wake when something important starts (weight engaged from a
+     * phone, a rest timer, an update) or when any activity has been noted since the screen
+     * blanked: `nowMs - idleMs` is the time of the last noted activity.
+     */
+    fun shouldWakeFromManualSleep(
+        sleepStartedMs: Long,
+        nowMs: Long,
+        idleMs: Long,
+        blocked: Boolean
+    ): Boolean = blocked || (nowMs - idleMs) > sleepStartedMs
+
     /** True when the time since the previous tick is too long to trust the idle clock. */
     fun isTickGap(previousTickMs: Long?, nowMs: Long): Boolean =
         previousTickMs != null && (nowMs - previousTickMs) >= TICK_GAP_RESET_MS

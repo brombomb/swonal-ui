@@ -120,6 +120,8 @@ class MainActivity : AppCompatActivity() {
     private var lastFatigueAlert: Boolean? = null
     private var lastHardwareStatusKey: String = ""
     private var lastPartnerKey: String = ""
+    private lateinit var screenSleepController: ScreenSleepController
+    private var powerActionInFlight = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         app = application as SwonalApp
-        ScreenSleepController(this).attach()
+        screenSleepController = ScreenSleepController(this).also { it.attach() }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         binding = ActivityKioskBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -546,7 +548,18 @@ class MainActivity : AppCompatActivity() {
                 },
                 onOpenBugReport = {
                     showDialogOnce("bug_report") { com.swonal.kiosk.ui.dialogs.BugReportDialog() }
-                }
+                },
+                onSleep = {
+                    if (!screenSleepController.sleepNow()) {
+                        Toast.makeText(
+                            this,
+                            "Can't sleep while weight is engaged, a rest timer is running, or an update is installing",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                onRestart = { runPowerAction(com.swonal.kiosk.util.DevicePower.Action.RESTART) },
+                onShutDown = { runPowerAction(com.swonal.kiosk.util.DevicePower.Action.SHUT_DOWN) }
             )
         }
         binding.btnHardwareStatus.setOnClickListener {
@@ -1881,6 +1894,37 @@ class MainActivity : AppCompatActivity() {
     private fun openServerWebPath(path: String, title: String = "Swonal") {
         val url = "${app.repository.uiStateFlow.value.serverUrl.trimEnd('/')}$path"
         InAppWebLauncher.open(this, url, title, currentPalette)
+    }
+
+    /** Restart / Shut Down from Quick Preferences: always disengage resistance before the device goes down. */
+    private fun runPowerAction(action: com.swonal.kiosk.util.DevicePower.Action) {
+        if (powerActionInFlight) return
+        powerActionInFlight = true
+        val repo = app.repository
+        lifecycleScope.launch {
+            try {
+                if (repo.isWeightCurrentlyEngaged() && !repo.disableWeightAndAwait()) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Couldn't confirm weight is off, so Tonal won't ${action.failureVerb}. Press WEIGHT OFF and try again.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+                Toast.makeText(this@MainActivity, action.progressMessage, Toast.LENGTH_LONG).show()
+                val res = com.swonal.kiosk.util.DevicePower.perform(action)
+                if (!res.isSuccess) {
+                    val reason = res.stderr.ifBlank { "root access denied" }
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Couldn't ${action.failureVerb}: $reason",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } finally {
+                powerActionInFlight = false
+            }
+        }
     }
 
     private fun showDialogOnce(tag: String, factory: () -> androidx.fragment.app.DialogFragment) {
