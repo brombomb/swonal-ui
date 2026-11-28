@@ -1341,6 +1341,12 @@ class MainActivity : AppCompatActivity() {
         val ex = ui.activeExercise ?: return
         val alignment = ArmAlignmentHelper.evaluate(frame, ex)
         val arms = frame.armPositions
+        val leftUnlocked = arms.rotation.leftUnlocked || arms.height.leftUnlocked || arms.angle.leftUnlocked
+        val rightUnlocked = arms.rotation.rightUnlocked || arms.height.rightUnlocked || arms.angle.rightUnlocked
+        val armsSymmetric = !leftUnlocked && !rightUnlocked &&
+            arms.height.left == arms.height.right &&
+            arms.rotation.left == arms.rotation.right &&
+            arms.angle.left == arms.angle.right
 
         // Reset chime transition state & attachment confirmation whenever the active exercise changes
         if (lastArmExerciseId != ex.id) {
@@ -1361,7 +1367,7 @@ class MainActivity : AppCompatActivity() {
         val key = "${ArmPositionSets.targetCoords(ex)}:${ex.unilateral}|" +
             "${arms.height.left}:${arms.rotation.left}:${arms.angle.left}:${alignment.leftUnlocked}|" +
             "${arms.height.right}:${arms.rotation.right}:${arms.angle.right}:${alignment.rightUnlocked}|" +
-            "${alignment.status}"
+            "${alignment.status}|$armsSymmetric"
         if (key == lastArmSyncKey) return
         lastArmSyncKey = key
 
@@ -1383,17 +1389,22 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Row 1: Target
+        // Row 1: Target + Live L/R Symmetry Badge
         appendColored(
             String.format(
                 Locale.US,
-                "Target  H%-2s R%s  A%s\n",
+                "Target  H%-2s R%s  A%s ",
                 ArmPositionSets.formatHeight(ex),
                 ArmPositionSets.formatRotation(ex),
                 ArmPositionSets.formatAngle(ex)
             ),
             p.textMuted
         )
+        when {
+            leftUnlocked || rightUnlocked -> appendColored("UNLOCK\n", colorYellow)
+            armsSymmetric -> appendColored("SYM ✓\n", colorGreen)
+            else -> appendColored("ASYM !\n", colorRed)
+        }
 
         // Helper for Left / Right rows with per-value Yellow (moving) / Green (matched) / Red (mismatched)
         fun appendArmRow(label: String, h: Int, r: Int, a: Int, moving: Boolean, newline: Boolean) {
