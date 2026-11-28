@@ -6,6 +6,7 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import com.swonal.kiosk.model.Exercise
 import com.swonal.kiosk.model.PersonalRecord
+import com.swonal.kiosk.model.QueuedWorkoutPayload
 import com.swonal.kiosk.model.SessionTemplateSummary
 import com.swonal.kiosk.model.SetLog
 import com.swonal.kiosk.model.SetLogExerciseSummary
@@ -713,7 +714,14 @@ class SwonalDatabase(
         next
     }
 
-    suspend fun deleteExerciseIfUnused(exerciseId: String): Result<Unit> = withTx { c ->
+    /**
+     * Soft-deletes the exercise unless logged sets, a live routine or the queued workout
+     * use it. [queuedWorkout] is read inside the transaction (it lives in memory).
+     */
+    suspend fun deleteExerciseIfUnused(
+        exerciseId: String,
+        queuedWorkout: () -> QueuedWorkoutPayload? = { null }
+    ): Result<Unit> = withTx { c ->
         val usage = c.prepare("SELECT COUNT(*) FROM set_logs WHERE exercise_id = ?").useStmt { s ->
             s.bindText(1, exerciseId)
             if (s.step()) s.getLong(0) else 0L
@@ -723,7 +731,7 @@ class SwonalDatabase(
         }
         // Routines reference exercises by id; deleting one would silently drop that step.
         val usedBy = listTemplatesUnlocked(c)
-            .filter { t -> t.blocks.any { b -> b.items.any { it.exerciseId == exerciseId } } }
+            .filter { t -> templateUsesExercise(t, exerciseId) }
             .map { it.name }
             .sorted()
         if (usedBy.isNotEmpty()) {
@@ -731,6 +739,15 @@ class SwonalDatabase(
             val (noun, ref) = if (usedBy.size == 1) "routine" to "that routine" else "routines" to "those routines"
             return@withTx Result.failure(
                 IllegalStateException("Cannot delete exercise: used by $noun $names. Remove it from $ref first.")
+            )
+        }
+        // A queued workout carries its own copy of the blocks, so it can still use the
+        // exercise after its routine is edited or deleted.
+        val queued = queuedWorkout()
+        if (queued != null && queued.blocks.any { b -> b.items.any { it.exerciseId == exerciseId } }) {
+            val name = queued.templateName.takeIf { it.isNotBlank() }?.let { " \"$it\"" }.orEmpty()
+            return@withTx Result.failure(
+                IllegalStateException("Cannot delete exercise: used by the queued workout$name. Start or dismiss it first.")
             )
         }
         val nowMs = System.currentTimeMillis()
@@ -1346,6 +1363,18 @@ class SwonalDatabase(
         notes = getNullableText(s, 8),
         mediaUrl = getNullableText(s, 9)
     )
+
+    /**
+     * Whether a routine uses the exercise. readTemplateFromRow turns unreadable blocks
+     * into an empty list, so if the raw JSON mentions the id but doesn't decode, count
+     * it as a use (fail closed) rather than letting the delete through.
+     */
+    private fun templateUsesExercise(t: WorkoutTemplate, exerciseId: String): Boolean {
+        if (!t.blocksJson.contains(exerciseId)) return false
+        val blocks = runCatching { SwonalJson.decodeFromString<List<WorkoutBlock>>(t.blocksJson) }.getOrNull()
+            ?: return true
+        return blocks.any { b -> b.items.any { it.exerciseId == exerciseId } }
+    }
 
     private fun readTemplateFromRow(s: SQLiteStatement): WorkoutTemplate {
         val blocksJson = s.getText(4)
