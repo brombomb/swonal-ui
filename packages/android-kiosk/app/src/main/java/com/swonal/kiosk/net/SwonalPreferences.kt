@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.swonal.kiosk.util.ScreenSleepPolicy
 import com.swonal.kiosk.util.SecretCipher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.security.KeyStore
@@ -162,6 +163,13 @@ class SwonalPreferences(context: Context) {
             prefs.edit().putBoolean(KEY_SOUND_MUTED, value).apply()
         }
 
+    /** "Sleep screen after inactivity" in minutes; 0 = Off (default). See [ScreenSleepPolicy]. */
+    var screenSleepTimeoutMinutes: Int
+        get() = ScreenSleepPolicy.normalizeTimeout(prefs.getInt(KEY_SCREEN_SLEEP_TIMEOUT_MIN, 0))
+        set(value) {
+            prefs.edit().putInt(KEY_SCREEN_SLEEP_TIMEOUT_MIN, ScreenSleepPolicy.normalizeTimeout(value)).apply()
+        }
+
     var developerMode: Boolean
         get() = prefs.getBoolean(KEY_DEV_MODE, false)
         set(value) {
@@ -272,6 +280,7 @@ class SwonalPreferences(context: Context) {
         private const val KEY_CACHED_EXERCISES = "cached_exercises_json"
         private const val KEY_BUG_REPORT_WEBHOOK_URL = "bug_report_webhook_url"
         private const val KEY_LOCAL_HTTPS_ENABLED = "local_https_enabled"
+        private const val KEY_SCREEN_SLEEP_TIMEOUT_MIN = "screen_sleep_timeout_min"
 
         fun normalizeBaseUrl(raw: String, fallback: String = DEFAULT_SERVER_URL): String {
             val trimmed = raw.trim().removeSuffix("/")

@@ -121,6 +121,10 @@ object KioskPopups {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 16f * d
             isOutsideTouchable = true
+            setTouchInterceptor { _, _ ->
+                com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
+                false
+            }
         }
         popup.showAsDropDown(anchor, -dp(194), dp(8))
     }
@@ -203,6 +207,10 @@ object KioskPopups {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 16f * d
             isOutsideTouchable = true
+            setTouchInterceptor { _, _ ->
+                com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
+                false
+            }
         }
         popup.showAsDropDown(anchor, -dp(250), dp(6))
     }
@@ -457,6 +465,10 @@ object KioskPopups {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 18f * d
             isOutsideTouchable = true
+            setTouchInterceptor { _, _ ->
+                com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
+                false
+            }
         }
         // Open directly above the speaker pill so it stays inside the viewport
         val loc = IntArray(2)
