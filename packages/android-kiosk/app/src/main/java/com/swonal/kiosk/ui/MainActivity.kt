@@ -60,6 +60,7 @@ import com.swonal.kiosk.ui.dialogs.DiagnosticsDialog
 import com.swonal.kiosk.ui.dialogs.MusicPickerDialog
 import com.swonal.kiosk.ui.dialogs.PostWorkoutSummaryDialog
 import com.swonal.kiosk.ui.dialogs.ProfileStyleDialog
+import com.swonal.kiosk.ui.dialogs.RepCountDialog
 import com.swonal.kiosk.ui.dialogs.SwocialDialog
 import com.swonal.kiosk.ui.dialogs.WeightKeypadDialog
 import com.swonal.kiosk.ui.dialogs.WorkoutLibraryDialog
@@ -842,6 +843,9 @@ class MainActivity : AppCompatActivity() {
                             }
                             is KioskEffect.ShowMessage -> {
                                 Toast.makeText(this@MainActivity, effect.message, Toast.LENGTH_SHORT).show()
+                            }
+                            is KioskEffect.ConfirmReps -> {
+                                showDialogOnce("rep_count") { RepCountDialog.newInstance(effect.suggestedReps) }
                             }
                         }
                     }

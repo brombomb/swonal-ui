@@ -151,6 +151,8 @@ sealed interface KioskEffect {
     data class PlayCue(val cue: SwonalSoundEngine.Cue) : KioskEffect
     data class ShowWorkoutSummary(val session: WorkoutSession, val prHits: List<PrHit>) : KioskEffect
     data class ShowMessage(val message: String) : KioskEffect
+    /** "Complete & Log Set" with nothing counted: ask how many reps to log (issue #16). */
+    data class ConfirmReps(val suggestedReps: Int) : KioskEffect
 }
 
 class SwonalRepository(
@@ -1741,6 +1743,15 @@ class SwonalRepository(
             val telemetry = _telemetryFlow.value
             val step = ui.currentStep
 
+            val reps = when (val decision = SetRepsPolicy.decide(repsOverride, telemetry.repCount, step?.targetReps)) {
+                is SetRepsPolicy.Decision.Log -> decision.reps
+                is SetRepsPolicy.Decision.Confirm -> {
+                    // Nothing counted and no explicit count: never log a guessed rep count; ask instead.
+                    _effectsFlow.tryEmit(KioskEffect.ConfirmReps(decision.suggestedReps))
+                    return
+                }
+            }
+
             var sessionId = ui.sessionState.activeSessionId
             if (sessionId == null) {
                 val created = runCatching { localEngine.createSession(user.id, null) }.getOrNull() ?: return
@@ -1750,7 +1761,6 @@ class SwonalRepository(
                 }
             }
 
-            val reps = repsOverride ?: if (telemetry.repCount > 0) telemetry.repCount else (step?.targetReps ?: 10)
             val restSec = step?.restSeconds ?: 60
             val setNumber = step?.setNumber ?: 1
 
