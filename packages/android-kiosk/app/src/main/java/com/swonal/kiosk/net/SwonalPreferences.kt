@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.swonal.kiosk.receiver.DaemonPresence
+import com.swonal.kiosk.receiver.MotorBootOutcome
 import com.swonal.kiosk.util.ScreenSleepPolicy
 import com.swonal.kiosk.util.SecretCipher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -170,6 +172,49 @@ class SwonalPreferences(context: Context) {
             prefs.edit().putInt(KEY_SCREEN_SLEEP_TIMEOUT_MIN, ScreenSleepPolicy.normalizeTimeout(value)).apply()
         }
 
+    /**
+     * "Take over motor on boot" (default on). On: at boot, if the Swonal daemon is installed,
+     * disable the stock motor service and make /dev/ttyACM0 root-only. Off: re-enable the stock
+     * motor service at boot. Read by [com.swonal.kiosk.receiver.BootReceiver] before any UI.
+     */
+    var takeOverMotorOnBoot: Boolean
+        get() = prefs.getBoolean(KEY_BOOT_TAKE_OVER_MOTOR, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_BOOT_TAKE_OVER_MOTOR, value).apply()
+        }
+
+    /** "Keep Wi-Fi ADB enabled on boot" (default on). Off: the boot hook leaves the adb props alone. */
+    var keepWifiAdbOnBoot: Boolean
+        get() = prefs.getBoolean(KEY_BOOT_KEEP_WIFI_ADB, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_BOOT_KEEP_WIFI_ADB, value).apply()
+        }
+
+    /** What the last boot did with the motor; null if the boot hook has not run since this was added. */
+    val lastBootMotorOutcome: MotorBootOutcome?
+        get() = MotorBootOutcome.fromWire(prefs.getString(KEY_LAST_BOOT_MOTOR_OUTCOME, null))
+
+    val lastBootDaemonPresence: DaemonPresence?
+        get() = DaemonPresence.fromWire(prefs.getString(KEY_LAST_BOOT_DAEMON_PRESENCE, null))
+
+    var bootMotorNoticeDismissed: Boolean
+        get() = prefs.getBoolean(KEY_BOOT_MOTOR_NOTICE_DISMISSED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_BOOT_MOTOR_NOTICE_DISMISSED, value).apply()
+        }
+
+    /**
+     * Records the boot hook's result and re-shows its notice. Uses commit() because it runs on the
+     * boot receiver's background thread just before the receiver finishes.
+     */
+    fun recordBootMotorOutcome(outcome: MotorBootOutcome, daemon: DaemonPresence) {
+        prefs.edit()
+            .putString(KEY_LAST_BOOT_MOTOR_OUTCOME, outcome.wireValue)
+            .putString(KEY_LAST_BOOT_DAEMON_PRESENCE, daemon.wireValue)
+            .putBoolean(KEY_BOOT_MOTOR_NOTICE_DISMISSED, false)
+            .commit()
+    }
+
     var developerMode: Boolean
         get() = prefs.getBoolean(KEY_DEV_MODE, false)
         set(value) {
@@ -281,6 +326,11 @@ class SwonalPreferences(context: Context) {
         private const val KEY_BUG_REPORT_WEBHOOK_URL = "bug_report_webhook_url"
         private const val KEY_LOCAL_HTTPS_ENABLED = "local_https_enabled"
         private const val KEY_SCREEN_SLEEP_TIMEOUT_MIN = "screen_sleep_timeout_min"
+        private const val KEY_BOOT_TAKE_OVER_MOTOR = "boot_take_over_motor"
+        private const val KEY_BOOT_KEEP_WIFI_ADB = "boot_keep_wifi_adb"
+        private const val KEY_LAST_BOOT_MOTOR_OUTCOME = "last_boot_motor_outcome"
+        private const val KEY_LAST_BOOT_DAEMON_PRESENCE = "last_boot_daemon_presence"
+        private const val KEY_BOOT_MOTOR_NOTICE_DISMISSED = "boot_motor_notice_dismissed"
 
         fun normalizeBaseUrl(raw: String, fallback: String = DEFAULT_SERVER_URL): String {
             val trimmed = raw.trim().removeSuffix("/")
