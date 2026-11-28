@@ -2,6 +2,19 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.3.0](https://github.com/brombomb/swonal-ui/compare/v2.2.0...v2.3.0) (2026-11-28)
+
+
+### New Features
+
+* **android:** optional screen sleep after inactivity ([#26](https://github.com/brombomb/swonal-ui/issues/26)) ([62fa37f](https://github.com/brombomb/swonal-ui/commit/62fa37f0495ef2772cf87dcc4b07fb2492348f29))
+* **routines:** add Copy Block to the Kiosk and Companion routine builders ([#27](https://github.com/brombomb/swonal-ui/issues/27)) ([8d5604e](https://github.com/brombomb/swonal-ui/commit/8d5604eb1d0c267eeb6a7400014a8f0b7c990704))
+
+
+### Bug Fixes
+
+* **android:** only highlight the selected attachment button ([#28](https://github.com/brombomb/swonal-ui/issues/28)) ([60c2c24](https://github.com/brombomb/swonal-ui/commit/60c2c249451d9e480d5b51254e3002bc1a5b5402))
+
 ## [2.2.0](https://github.com/brombomb/swonal-ui/compare/v2.1.4...v2.2.0) (2026-11-28)
 
 
