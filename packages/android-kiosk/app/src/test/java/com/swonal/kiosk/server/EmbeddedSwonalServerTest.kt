@@ -3,7 +3,9 @@ package com.swonal.kiosk.server
 import android.content.Context
 import android.content.SharedPreferences
 import com.swonal.kiosk.db.RestoreBundleDto
+import com.swonal.kiosk.db.upsertFriendActivity
 import com.swonal.kiosk.model.SwonalJson
+import com.swonal.kiosk.util.IsoTime
 import com.swonal.kiosk.net.LocalDaemonFailSafeClient
 import com.swonal.kiosk.net.SwonalPreferences
 import com.swonal.kiosk.net.SwonalRepository
@@ -225,6 +227,40 @@ class EmbeddedSwonalServerTest {
                 assertEquals(200, r.code)
                 val u = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
                 assertEquals("Jordan Chunked", u["name"]!!.jsonPrimitive.content)
+            }
+
+            // 3c. Shared routines match exercises by name; unknown ones get the
+            //     server app's 400 body: error + unknownExerciseIds + missingExercises.
+            val refusedEventId = "e".repeat(64)
+            val matchedEventId = "f".repeat(64)
+            runBlocking {
+                repo.localDb.upsertFriendActivity(
+                    "cd".repeat(32), "Remote Friend", refusedEventId, 30102, IsoTime.nowIso(),
+                    """{"type":"routine_share","name":"Remote","blocks":[{"items":[{"exerciseId":"remote-bench"},{"exerciseId":"remote-gone"}]}],""" +
+                        """"exercises":[{"id":"remote-bench","name":" bench press "},{"id":"remote-gone","name":"Zercher Moonwalk"}]}"""
+                )
+                repo.localDb.upsertFriendActivity(
+                    "cd".repeat(32), "Remote Friend", matchedEventId, 30102, IsoTime.nowIso(),
+                    """{"type":"routine_share","name":"Remote","blocks":[{"items":[{"exerciseId":"remote-bench"}]}],"exercises":[{"id":"remote-bench","name":"BENCH PRESS"}]}"""
+                )
+            }
+            http.newCall(
+                Request.Builder().url("$baseUrl/api/friends/import-routine/u-alex/$refusedEventId").post("".toRequestBody(jsonType)).build()
+            ).execute().use { r ->
+                assertEquals(400, r.code)
+                val body = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+                assertEquals(listOf("remote-gone"), body["unknownExerciseIds"]!!.jsonArray.map { it.jsonPrimitive.content })
+                val missing = body["missingExercises"]!!.jsonArray.single().jsonObject
+                assertEquals("Zercher Moonwalk", missing["name"]!!.jsonPrimitive.content)
+                assertTrue(body["error"]!!.jsonPrimitive.content.contains("Zercher Moonwalk (remote-gone)"))
+            }
+            http.newCall(
+                Request.Builder().url("$baseUrl/api/friends/import-routine/u-alex/$matchedEventId").post("".toRequestBody(jsonType)).build()
+            ).execute().use { r ->
+                assertEquals(201, r.code)
+                val tpl = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+                val item = tpl["blocks"]!!.jsonArray[0].jsonObject["items"]!!.jsonArray[0].jsonObject
+                assertEquals("ex-bench", item["exerciseId"]!!.jsonPrimitive.content)
             }
 
             // 4. Create session, log set, export CSV

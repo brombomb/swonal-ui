@@ -1,6 +1,7 @@
 package com.swonal.kiosk.server
 
 import com.swonal.kiosk.model.SwonalJson
+import com.swonal.kiosk.model.UnknownExerciseException
 import com.swonal.kiosk.net.SwonalRepository
 import com.swonal.kiosk.util.CryptoCompat
 import com.swonal.kiosk.util.IdleActivityTracker
@@ -160,6 +161,9 @@ class EmbeddedSwonalServer(
             }
         } catch (tooBig: PayloadTooLargeException) {
             jsonError(Response.Status.PAYLOAD_TOO_LARGE, tooBig.message ?: "Payload too large")
+        } catch (unknown: UnknownExerciseException) {
+            // Same body as the server app: error + unknownExerciseIds + missingExercises.
+            jsonResponse(Response.Status.BAD_REQUEST, SwonalJson.encodeToString(JsonObject.serializer(), unknown.toJson()))
         } catch (arg: IllegalArgumentException) {
             jsonError(Response.Status.BAD_REQUEST, arg.message ?: "Bad request")
         } catch (t: Throwable) {
