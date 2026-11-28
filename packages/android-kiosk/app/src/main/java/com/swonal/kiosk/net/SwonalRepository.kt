@@ -132,6 +132,18 @@ data class KioskUiState(
             return exercises.firstOrNull()
         }
 
+    /**
+     * The exercise id the current routine step (or free-lift selection) points at when that exercise
+     * isn't in the library, e.g. it was deleted or the routine came from another install. Null while
+     * the library is still empty (loading) or when the exercise exists.
+     */
+    val missingExerciseId: String?
+        get() {
+            if (exercises.isEmpty()) return null
+            val targetId = currentStep?.exerciseId ?: activeExerciseId ?: return null
+            return targetId.takeIf { id -> exercises.none { it.id == id } }
+        }
+
     val nextExercise: Exercise?
         get() = nextStep?.let { step -> exercises.firstOrNull { it.id == step.exerciseId } }
 
@@ -150,6 +162,12 @@ data class KioskUiState(
     val hardwareConnected: Boolean
         get() = localFailSafeConnected || (wsConnected && daemonConnected)
 }
+
+/** Shown in the exercise header when [KioskUiState.missingExerciseId] is set. */
+const val MISSING_EXERCISE_TITLE = "Exercise not found"
+const val MISSING_EXERCISE_HINT = "This movement was deleted or isn't on this Tonal. Skip this step or edit the routine."
+const val MISSING_EXERCISE_NOT_LOGGED = "Set not logged: this movement was deleted or isn't on this Tonal."
+const val NO_EXERCISE_NOT_LOGGED = "Set not logged: select a movement first."
 
 sealed interface KioskEffect {
     data class PlayCue(val cue: SwonalSoundEngine.Cue) : KioskEffect
@@ -1741,7 +1759,12 @@ class SwonalRepository(
         try {
             val ui = _uiStateFlow.value
             val user = ui.activeUser ?: return
-            val exercise = ui.activeExercise ?: return
+            val exercise = ui.activeExercise ?: run {
+                // Say why instead of silently doing nothing (never log against a substitute exercise).
+                val msg = if (ui.missingExerciseId != null) MISSING_EXERCISE_NOT_LOGGED else NO_EXERCISE_NOT_LOGGED
+                _effectsFlow.tryEmit(KioskEffect.ShowMessage(msg))
+                return
+            }
             val telemetry = _telemetryFlow.value
             val step = ui.currentStep
 
