@@ -30,7 +30,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { prisma } from './db';
 import { seedDatabase } from '../../prisma/seed';
 import { createSwonalMcpServer, clearPendingQueuedWorkout, getPendingQueuedWorkout } from './mcp/mcpServer';
-import { UnknownExerciseError } from './services/exerciseValidation';
+import { UnknownExerciseError, unknownExerciseErrorBody } from './services/exerciseValidation';
 import { musicRegistry } from './music/Registry';
 import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
@@ -772,7 +772,7 @@ export async function createSwonalServer(
       return;
     }
     if (err instanceof UnknownExerciseError) {
-      res.status(400).json({ error: err.message, unknownExerciseIds: err.exerciseIds });
+      res.status(400).json(unknownExerciseErrorBody(err));
       return;
     }
     const message = err instanceof Error ? err.message : 'Internal server error';
