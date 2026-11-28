@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
  *   - Tab 0: Profiles (Active lifter Units, Theme, Form Demo Video, VBT & Symmetry, Accent swatches, Household roster)
  *   - Tab 1: AI Coach (Local Offline or BYOK OpenAI / Anthropic / Gemini / Ollama + Vosk info)
  *   - Tab 2: Network & TLS (Embedded :53013 HTTP, opt-in :53443 HTTPS + /api/tls/ca.crt)
- *   - Tab 3: Admin & System (Latest main release check, embedded Hardware Diagnostics & Motor Controls,
+ *   - Tab 3: Admin & System (Latest main release check, Boot & Motor Handoff, embedded Hardware Diagnostics & Motor Controls,
  *            embedded Cloud & Home Server Sync, embedded Exercise Catalog, embedded Send Bug Report)
  */
 open class AppSettingsDialog : BaseSwonalDialog() {
@@ -854,16 +854,18 @@ open class AppSettingsDialog : BaseSwonalDialog() {
     // TAB 3: ADMIN & SYSTEM (ALL EMBEDDED INLINE — NO MODAL JUMPS!)
     //   1. App Version & Latest GitHub Release (main)
     //   2. Display & Screen Sleep
-    //   3. Embedded Hardware Diagnostics & Motor Controls
-    //   4. Embedded Cloud & Home Server Sync
-    //   5. Embedded Exercise Catalog
-    //   6. Embedded Send Bug Report
+    //   3. Boot & Motor Handoff (take over motor / keep Wi-Fi ADB on boot)
+    //   4. Embedded Hardware Diagnostics & Motor Controls
+    //   5. Embedded Cloud & Home Server Sync
+    //   6. Embedded Exercise Catalog
+    //   7. Embedded Send Bug Report
     // -------------------------------------------------------------------------
 
     private fun renderAdminSystemTab() {
         repo.refreshDiagnostics()
         renderVersionUpdateCard()
         renderScreenSleepCard()
+        renderBootHandoffCard()
         renderEmbeddedHardwareDiagnosticsCard()
         renderEmbeddedCloudSyncCard()
         renderEmbeddedExerciseCatalogCard()
@@ -966,6 +968,73 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             valueTv.text = ScreenSleepPolicy.label(minutes)
         }
         card.addView(row)
+        bodyContainer.addView(card)
+    }
+
+    private fun renderBootHandoffCard() {
+        val p = palette
+        val card = createSurfaceCard()
+        card.addView(makeCardHeading(
+            "Boot & Motor Handoff",
+            "What the kiosk does as root each time the Tonal starts. Changes take effect at the next reboot."
+        ))
+
+        fun onOff(value: Boolean) = if (value) "On" else "Off"
+        fun addDescription(text: String) {
+            card.addView(TextView(requireContext()).apply {
+                this.text = text
+                textSize = 13f
+                setTextColor(p.textMuted)
+                setLineSpacing(dpf(3f), 1f)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(14) }
+            })
+        }
+
+        var takeOver = app.prefs.takeOverMotorOnBoot
+        val (motorRow, motorValueTv) = makeLargeToggleRow("Take over motor on boot", onOff(takeOver))
+        motorRow.setOnClickListener {
+            takeOver = !takeOver
+            app.prefs.takeOverMotorOnBoot = takeOver
+            motorValueTv.text = onOff(takeOver)
+        }
+        card.addView(motorRow)
+        addDescription(
+            "On: if the Swonal daemon is installed, disable the stock motor service (com.riptlabs.mcb.service) " +
+                "and make /dev/ttyACM0 root-only so the daemon drives the motor. Without the daemon, stock Tonal is left alone. " +
+                "Off: re-enable the stock motor service and leave /dev/ttyACM0 as it is, giving the motor back to stock Tonal. " +
+                "The daemon's own boot scripts also claim the motor while the daemon is installed."
+        )
+
+        var keepAdb = app.prefs.keepWifiAdbOnBoot
+        val (adbRow, adbValueTv) = makeLargeToggleRow("Keep Wi-Fi ADB enabled on boot", onOff(keepAdb))
+        adbRow.setOnClickListener {
+            keepAdb = !keepAdb
+            app.prefs.keepWifiAdbOnBoot = keepAdb
+            adbValueTv.text = onOff(keepAdb)
+        }
+        card.addView(adbRow)
+        addDescription(
+            "On: turn on ADB over Wi-Fi (port 5555) at every boot for cable-free recovery and updates. " +
+                "Off: the kiosk stops re-enabling ADB at boot but never turns it off (so you can't be locked out). " +
+                "The port setting persists and the daemon's boot scripts also set it, so Wi-Fi ADB usually stays on. See SECURITY.md."
+        )
+
+        val outcome = app.prefs.lastBootMotorOutcome
+        val lastBoot = when (outcome) {
+            null -> "Not recorded yet (reboot once)"
+            com.swonal.kiosk.receiver.MotorBootOutcome.TAKEN_OVER -> "Motor handed to the Swonal daemon"
+            else -> com.swonal.kiosk.receiver.BootPlanner.notice(outcome, app.prefs.lastBootDaemonPresence)?.title
+                ?: outcome.wireValue
+        }
+        card.addView(TextView(requireContext()).apply {
+            text = "Last boot: $lastBoot"
+            textSize = 13f
+            typeface = SwonalFonts.monoBold(requireContext())
+            setTextColor(p.textPrimary)
+        })
         bodyContainer.addView(card)
     }
 
