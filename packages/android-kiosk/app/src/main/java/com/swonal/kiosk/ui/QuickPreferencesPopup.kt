@@ -235,7 +235,26 @@ object KioskPopups {
         var lastPanelKey = ""
         var lastBannerState = -1
         fun updateLivePanel() {
-            val frame = liveTelemetryProvider?.invoke() ?: telemetry ?: com.swonal.kiosk.model.TelemetryFrame()
+            val frame = liveTelemetryProvider?.invoke() ?: telemetry
+            if (frame == null) {
+                val panelKey = "${exercise?.id}|UNAVAILABLE"
+                if (panelKey == lastPanelKey) return
+                lastPanelKey = panelKey
+                if (lastBannerState != -2) {
+                    lastBannerState = -2
+                    symBanner.text = "ARM SENSORS UNAVAILABLE"
+                    symBanner.setTextColor(palette.warningText)
+                    symBanner.background = palette.warningPillDrawable(d, 8f, interactive = false)
+                }
+                liveBox.text = buildString {
+                    if (exercise != null) {
+                        append("Target: ${com.swonal.kiosk.model.ArmPositionSets.targetCoords(exercise)}\n")
+                    }
+                    append("Waiting for live arm sensor telemetry...")
+                }
+                return
+            }
+
             val arms = frame.armPositions
             val leftLocked = !(arms.rotation.leftUnlocked || arms.height.leftUnlocked || arms.angle.leftUnlocked)
             val rightLocked = !(arms.rotation.rightUnlocked || arms.height.rightUnlocked || arms.angle.rightUnlocked)
