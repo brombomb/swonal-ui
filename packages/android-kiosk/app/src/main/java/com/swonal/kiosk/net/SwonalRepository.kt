@@ -459,6 +459,20 @@ class SwonalRepository(
     private var restTimerJob: Job? = null
     @Volatile
     private var musicPollJob: Job? = null
+    private data class AutoLogSnapshot(
+        val token: Long,
+        val reps: Int,
+        val weightLb: Double,
+        val profileMode: String,
+        val modifierPct: Int,
+        val userId: String?,
+        val exerciseId: String?
+    )
+
+    private val autoLogLock = Any()
+    private var autoLogGeneration: Long = 0L
+    private var autoLogSnapshot: AutoLogSnapshot? = null
+
     @Volatile
     private var prBannerJob: Job? = null
     @Volatile
@@ -554,6 +568,13 @@ class SwonalRepository(
 
             managedJobs += scope.launch {
                 localEngine.sessionStateFlow.collect { sState ->
+                    val prevState = _uiStateFlow.value.sessionState
+                    if (sState.activeUserId != prevState.activeUserId ||
+                        (prevState.activeSessionId != null && sState.activeSessionId != prevState.activeSessionId)
+                    ) {
+                        suppressedAutoLogRepCount = 0
+                        cancelAutoLogCountdown()
+                    }
                     _uiStateFlow.update { it.copy(sessionState = sState) }
                     emitRawLocalBroadcast(
                         SwonalJson.encodeToString(
@@ -1163,7 +1184,7 @@ class SwonalRepository(
     }
 
     private fun handleTelemetryFrame(frame: TelemetryFrame, source: TelemetrySource) {
-        var shouldStartAutoLogReps: Int? = null
+        var pendingSnapshot: AutoLogSnapshot? = null
         var shouldCancelAutoLog = false
 
         synchronized(telemetryLock) {
@@ -1181,6 +1202,9 @@ class SwonalRepository(
             }
             if (frame.repCount == 0) {
                 suppressedAutoLogRepCount = 0
+                if (autoLogJob?.isActive == true || _uiStateFlow.value.autoLogPendingReps > 0) {
+                    shouldCancelAutoLog = true
+                }
             }
 
             // Suppress edge-triggered cues & auto-log when transitioning between server WS & local fail-safe
@@ -1196,7 +1220,15 @@ class SwonalRepository(
                         ui.autoSetDetectSeconds > 0 &&
                         !logSetInFlight.get()
                     ) {
-                        shouldStartAutoLogReps = frame.repCount
+                        pendingSnapshot = AutoLogSnapshot(
+                            token = 0L,
+                            reps = frame.repCount,
+                            weightLb = frame.targetWeightLb,
+                            profileMode = frame.profileMode,
+                            modifierPct = frame.modifierPct,
+                            userId = ui.activeUser?.id,
+                            exerciseId = ui.activeExercise?.id
+                        )
                     }
                 }
                 if (frame.repCount > oldReps) {
@@ -1211,45 +1243,58 @@ class SwonalRepository(
         if (shouldCancelAutoLog) {
             cancelAutoLogCountdown(suppressCurrentReps = false)
         }
-        val repsToLog = shouldStartAutoLogReps
-        if (repsToLog != null) {
+        val snapshotToStart = pendingSnapshot
+        if (snapshotToStart != null) {
             val totalMs = _uiStateFlow.value.autoSetDetectSeconds * 1000L
             if (totalMs > 0L) {
-                startAutoLogCountdown(repsToLog, totalMs)
+                startAutoLogCountdown(snapshotToStart, totalMs)
             }
         }
     }
 
-    private fun startAutoLogCountdown(reps: Int, totalMs: Long) {
-        autoLogJob?.cancel()
-        _uiStateFlow.update {
-            it.copy(
-                autoLogRemainingMs = totalMs,
-                autoLogTotalMs = totalMs,
-                autoLogPendingReps = reps
-            )
-        }
-        autoLogJob = scope.launch {
-            try {
+    private fun startAutoLogCountdown(baseSnapshot: AutoLogSnapshot, totalMs: Long) {
+        val myToken: Long
+        synchronized(autoLogLock) {
+            autoLogJob?.cancel()
+            myToken = ++autoLogGeneration
+            autoLogSnapshot = baseSnapshot.copy(token = myToken)
+            _uiStateFlow.update {
+                it.copy(
+                    autoLogRemainingMs = totalMs,
+                    autoLogTotalMs = totalMs,
+                    autoLogPendingReps = baseSnapshot.reps
+                )
+            }
+            autoLogJob = scope.launch {
                 val startMs = System.nanoTime() / 1_000_000L
                 val endMs = startMs + totalMs
                 while (isActive) {
                     val nowMs = System.nanoTime() / 1_000_000L
                     val rem = (endMs - nowMs).coerceAtLeast(0L)
-                    _uiStateFlow.update { it.copy(autoLogRemainingMs = rem) }
+                    synchronized(autoLogLock) {
+                        if (autoLogSnapshot?.token != myToken) return@launch
+                        _uiStateFlow.update { it.copy(autoLogRemainingMs = rem) }
+                    }
                     if (rem <= 0L) break
                     delay(100L)
                 }
-                val pending = _uiStateFlow.value.autoLogPendingReps
-                _uiStateFlow.update {
-                    it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
-                }
-                if (pending > 0 && !isWeightCurrentlyEngaged()) {
-                    logCompletedSetInternal(pending)
-                }
-            } finally {
-                if (autoLogJob === this.coroutineContext[Job]) {
+                val expiredSnapshot = synchronized(autoLogLock) {
+                    val cur = autoLogSnapshot
+                    if (cur == null || cur.token != myToken) return@launch
+                    autoLogSnapshot = null
                     autoLogJob = null
+                    _uiStateFlow.update {
+                        it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
+                    }
+                    cur
+                }
+                if (expiredSnapshot.reps > 0 &&
+                    _uiStateFlow.value.autoSetDetectSeconds > 0 &&
+                    !isWeightCurrentlyEngaged()
+                ) {
+                    // Launch in a separate coroutine so cancelAutoLogCountdown() inside logCompletedSetInternal
+                    // can never self-cancel the persistence path.
+                    scope.launch { logCompletedSetInternal(expiredSnapshot.reps, expiredSnapshot) }
                 }
             }
         }
@@ -1260,27 +1305,43 @@ class SwonalRepository(
     }
 
     fun cancelAutoLogCountdown(suppressCurrentReps: Boolean = false) {
-        if (suppressCurrentReps) {
-            suppressedAutoLogRepCount = maxOf(
-                suppressedAutoLogRepCount,
-                _telemetryFlow.value.repCount,
-                _uiStateFlow.value.autoLogPendingReps
-            )
-        }
-        autoLogJob?.cancel()
-        autoLogJob = null
-        if (_uiStateFlow.value.autoLogRemainingMs > 0L || _uiStateFlow.value.autoLogPendingReps > 0) {
-            _uiStateFlow.update {
-                it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
+        synchronized(autoLogLock) {
+            if (suppressCurrentReps) {
+                suppressedAutoLogRepCount = maxOf(
+                    suppressedAutoLogRepCount,
+                    _telemetryFlow.value.repCount,
+                    autoLogSnapshot?.reps ?: 0,
+                    _uiStateFlow.value.autoLogPendingReps
+                )
+            }
+            autoLogGeneration++
+            autoLogSnapshot = null
+            autoLogJob?.cancel()
+            autoLogJob = null
+            if (_uiStateFlow.value.autoLogRemainingMs > 0L || _uiStateFlow.value.autoLogPendingReps > 0) {
+                _uiStateFlow.update {
+                    it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
+                }
             }
         }
     }
 
     fun confirmAutoLogNow() {
-        val pending = _uiStateFlow.value.autoLogPendingReps
-        cancelAutoLogCountdown()
-        if (pending > 0) {
-            logCompletedSet(pending)
+        val snap = synchronized(autoLogLock) {
+            val cur = autoLogSnapshot
+            autoLogGeneration++
+            autoLogSnapshot = null
+            autoLogJob?.cancel()
+            autoLogJob = null
+            if (_uiStateFlow.value.autoLogRemainingMs > 0L || _uiStateFlow.value.autoLogPendingReps > 0) {
+                _uiStateFlow.update {
+                    it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
+                }
+            }
+            cur
+        }
+        if (snap != null && snap.reps > 0) {
+            scope.launch { logCompletedSetInternal(snap.reps, snap) }
         } else {
             logCompletedSet()
         }
@@ -1648,6 +1709,9 @@ class SwonalRepository(
         val safe = seconds.coerceIn(0, 30)
         prefs.autoSetDetectSeconds = safe
         _uiStateFlow.update { it.copy(autoSetDetectSeconds = safe) }
+        if (safe == 0) {
+            cancelAutoLogCountdown(suppressCurrentReps = false)
+        }
     }
 
     fun cycleAutoSetDetectSeconds() {
@@ -1842,7 +1906,10 @@ class SwonalRepository(
         scope.launch { logCompletedSetInternal(repsOverride) }
     }
 
-    private suspend fun logCompletedSetInternal(repsOverride: Int? = null) {
+    private suspend fun logCompletedSetInternal(
+        repsOverride: Int? = null,
+        snapshot: AutoLogSnapshot? = null
+    ) {
         suppressedAutoLogRepCount = 0
         cancelAutoLogCountdown()
         if (!logSetInFlight.compareAndSet(false, true)) return
@@ -1850,6 +1917,12 @@ class SwonalRepository(
             val ui = _uiStateFlow.value
             val user = ui.activeUser ?: return
             val exercise = ui.activeExercise ?: return
+            if (snapshot != null &&
+                ((snapshot.userId != null && snapshot.userId != user.id) ||
+                    (snapshot.exerciseId != null && snapshot.exerciseId != exercise.id))
+            ) {
+                return
+            }
             val telemetry = _telemetryFlow.value
             val step = ui.currentStep
 
@@ -1862,9 +1935,12 @@ class SwonalRepository(
                 }
             }
 
-            val reps = repsOverride ?: if (telemetry.repCount > 0) telemetry.repCount else (step?.targetReps ?: 10)
+            val reps = repsOverride ?: snapshot?.reps ?: if (telemetry.repCount > 0) telemetry.repCount else (step?.targetReps ?: 10)
             val restSec = step?.restSeconds ?: 60
             val setNumber = step?.setNumber ?: 1
+            val logMode = snapshot?.profileMode ?: telemetry.profileMode
+            val logModPct = snapshot?.modifierPct ?: telemetry.modifierPct
+            val logWeightLb = snapshot?.weightLb ?: telemetry.targetWeightLb
 
             val resp = runCatching {
                 localEngine.logSet(
@@ -1872,9 +1948,9 @@ class SwonalRepository(
                     userId = user.id,
                     exerciseId = exercise.id,
                     setNumber = setNumber,
-                    mode = telemetry.profileMode,
-                    modifierPct = telemetry.modifierPct,
-                    weightLb = telemetry.targetWeightLb,
+                    mode = logMode,
+                    modifierPct = logModPct,
+                    weightLb = logWeightLb,
                     repsCompleted = reps,
                     restSeconds = restSec
                 )
