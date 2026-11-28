@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://www.coderabbit.ai/integrations/schema.v3.json
+
+version: 3
+language: "en-US"
+inheritance: true
+
+reviews:
+  behavior:
+    profile: "chill"
+    path_filters:
+      - "!CHANGELOG.md"
+      - "!**/package-lock.json"
+      - "!**/gradle/wrapper/**"
+    auto_approvals:
+      # Override org auto-approvals: this repo drives 200 lb motorized Tonal hardware,
+      # so human maintainer review is always required before approval.
+      enabled: false
+      approve_on_skipped_review: false
+      max_merge_risk: "low"
+      max_security_risk: "low"
+    code_guidelines:
+      enabled: true
+      filePatterns:
+        - "agent.md"
+        - "CONTRIBUTING.md"
+  auto_review:
+    enabled: true
+    drafts: false
+    incremental_review: true
+    pause_after_reviewed_commits: 5
+  output:
+    walkthrough:
+      collapse: true

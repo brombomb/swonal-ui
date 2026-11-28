@@ -127,6 +127,46 @@ class LocalWorkoutEngineTest {
     }
 
     @Test
+    fun `a set with 0 reps is logged but never becomes a PR`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val withPr = engine.getPrs(alex.id).map { it.exerciseId }.toSet()
+        val fresh = state.exercises.first { it.id !in withPr }
+        val bench = state.exercises.first { it.name == "Bench Press" }
+        val benchPrBefore = engine.getPrs(alex.id).first { it.exerciseId == bench.id }
+        val session = engine.createSession(alex.id, templateId = null)
+
+        // First-ever set for this exercise, 0 reps: no PR row is created
+        val first = engine.logSet(
+            sessionId = session.id, userId = alex.id, exerciseId = fresh.id,
+            setNumber = 1, weightLb = 150.0, repsCompleted = 0, restSeconds = 0
+        )
+        assertFalse(first.newPr)
+        assertTrue(engine.getPrs(alex.id).none { it.exerciseId == fresh.id })
+        assertEquals(0, first.setLog.repsCompleted)
+        assertEquals(0.0, first.totalVolume, 0.01)
+
+        // 0 reps above the existing PR weight leaves the PR untouched
+        val heavy = engine.logSet(
+            sessionId = session.id, userId = alex.id, exerciseId = bench.id,
+            setNumber = 1, weightLb = benchPrBefore.maxWeightLb + 50.0, repsCompleted = 0, restSeconds = 0
+        )
+        assertFalse(heavy.newPr)
+        val benchPrAfter = engine.getPrs(alex.id).first { it.exerciseId == bench.id }
+        assertEquals(benchPrBefore.maxWeightLb, benchPrAfter.maxWeightLb, 0.001)
+        assertEquals(benchPrBefore.oneRepMaxEst, benchPrAfter.oneRepMaxEst, 0.001)
+
+        // A real set on the fresh exercise still sets its first PR
+        val real = engine.logSet(
+            sessionId = session.id, userId = alex.id, exerciseId = fresh.id,
+            setNumber = 2, weightLb = 40.0, repsCompleted = 8, restSeconds = 0
+        )
+        assertTrue(real.newPr)
+        assertEquals(40.0, engine.getPrs(alex.id).first { it.exerciseId == fresh.id }.maxWeightLb, 0.001)
+    }
+
+    @Test
     fun `escapes CSV formulas, converts KG routine weights on create, and vacuums SQLite backup`() = runBlocking {
         engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
         val alex = engine.listUsers()[0]
