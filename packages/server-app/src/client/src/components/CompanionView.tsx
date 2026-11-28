@@ -679,7 +679,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       next.splice(idx + 1, 0, { ...src, items: src.items.map((item) => ({ ...item })) });
       return next;
     });
-    showToast(`Copied as Block ${idx + 2}`);
+    showToast('Block copied below');
   };
 
   const removeBlock = (idx: number) => {
