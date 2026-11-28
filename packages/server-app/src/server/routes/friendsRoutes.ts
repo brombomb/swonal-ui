@@ -11,6 +11,7 @@ import {
   importRoutine,
   publishReaction,
 } from '../services/nostrFriendsService';
+import { UnknownExerciseError } from '../services/exerciseValidation';
 
 function paramStr(val: string | string[] | undefined): string {
   if (Array.isArray(val)) return val[0] || '';
@@ -143,6 +144,10 @@ export function createFriendsRouter(): Router {
         scheduleDays,
       });
     } catch (err: any) {
+      if (err instanceof UnknownExerciseError) {
+        res.status(400).json({ error: err.message, unknownExerciseIds: err.exerciseIds });
+        return;
+      }
       res.status(400).json({ error: err.message || 'Failed to import routine' });
     }
   });

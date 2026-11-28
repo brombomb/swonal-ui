@@ -21,6 +21,7 @@ describe('Workout templates reject unknown exercise ids', () => {
   let baseUrl: string;
   let validExerciseId: string;
   const createdTemplateIds: string[] = [];
+  const createdActivityIds: string[] = [];
 
   beforeAll(async () => {
     srv = await createSwonalServer({ port: 0, connectDaemonWs: false });
@@ -30,6 +31,7 @@ describe('Workout templates reject unknown exercise ids', () => {
   });
 
   afterAll(async () => {
+    await prisma.friendActivity.deleteMany({ where: { eventId: { in: createdActivityIds } } });
     if (createdTemplateIds.length > 0) {
       await prisma.workoutTemplate.deleteMany({ where: { id: { in: createdTemplateIds } } });
     }
@@ -103,5 +105,60 @@ describe('Workout templates reject unknown exercise ids', () => {
     } finally {
       await prisma.exercise.delete({ where: { id: doomed.id } });
     }
+  });
+
+  describe('Nostr routine import', () => {
+    async function cacheSharedRoutine(blocks: unknown[]) {
+      const eventId = randomUUID().replace(/-/g, '');
+      await prisma.friendActivity.create({
+        data: {
+          eventId,
+          friendPubkeyHex: 'ab'.repeat(32),
+          friendDisplayName: 'Test Friend',
+          kind: 30102,
+          createdAt: new Date(),
+          contentJson: JSON.stringify({ type: 'routine_share', name: 'Shared', blocks }),
+        },
+      });
+      createdActivityIds.push(eventId);
+      return eventId;
+    }
+
+    function importIt(eventId: string) {
+      return fetch(`${baseUrl}/api/friends/import-routine/${DEFAULT_USERS.USER_ONE_ID}/${eventId}`, {
+        method: 'POST',
+      });
+    }
+
+    it('rejects a shared routine with unknown exercise ids and stores nothing', async () => {
+      const bogus = randomUUID();
+      const eventId = await cacheSharedRoutine([block(validExerciseId), block(bogus)]);
+      const before = await prisma.workoutTemplate.count();
+
+      const res = await importIt(eventId);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string; unknownExerciseIds: string[] };
+      expect(body.unknownExerciseIds).toEqual([bogus]);
+      expect(body.error).toContain("aren't in your library");
+      expect(await prisma.workoutTemplate.count()).toBe(before);
+    });
+
+    it('rejects shared steps that carry no exercise id', async () => {
+      const eventId = await cacheSharedRoutine([
+        { blockType: 'STRAIGHT_SET', restSeconds: 60, items: [{ sets: 3, targetReps: 10 }] },
+      ]);
+      const res = await importIt(eventId);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { unknownExerciseIds: string[] };
+      expect(body.unknownExerciseIds).toEqual(['']);
+    });
+
+    it('still imports a shared routine whose exercises all exist', async () => {
+      const eventId = await cacheSharedRoutine([block(validExerciseId)]);
+      const res = await importIt(eventId);
+      expect(res.status).toBe(200);
+      const created = (await res.json()) as { id: string };
+      createdTemplateIds.push(created.id);
+    });
   });
 });

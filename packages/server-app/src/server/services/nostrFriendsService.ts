@@ -10,6 +10,7 @@ import {
 import { SimplePool, useWebSocketImplementation as usePoolWebSocket } from 'nostr-tools/pool';
 import { useWebSocketImplementation as useRelayWebSocket } from 'nostr-tools/relay';
 import { prisma } from '../db';
+import { assertExercisesExist } from './exerciseValidation';
 
 // Use the `ws` package instead of Node 22's built-in undici WebSocket, which can trigger
 // infinite `onerror -> close -> onerror` recursion inside nostr-tools when a relay rejects a connection.
@@ -514,6 +515,19 @@ export async function importRoutine(
     typeof parsed.blocks === 'string'
       ? parsed.blocks
       : JSON.stringify(parsed.blocks ?? []);
+
+  // A shared routine comes from another install: its exercise ids may not exist here. Refuse it
+  // rather than store steps that would later run (and log sets) against the wrong movement.
+  let blocks: unknown;
+  try {
+    blocks = JSON.parse(blocksJson);
+  } catch {
+    throw new Error('Corrupt routine payload in activity record');
+  }
+  await assertExercisesExist(
+    blocks,
+    "Can't import this routine: it uses exercises that aren't in your library"
+  );
 
   const newTemplate = await prisma.workoutTemplate.create({
     data: {
