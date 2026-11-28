@@ -53,7 +53,7 @@ python3 mtk.py rl ~/tonal-backup
   2. Record checksums (`cd ~/tonal-backup && sha256sum -- *.bin > SHA256SUMS`), copy the entire `~/tonal-backup` folder (plus `userdata.bin`) to a second safe drive, and run `sha256sum -c SHA256SUMS` on the copy before continuing.  
   3. Prove reads are repeatable: read `boot` once more to a different path (`python3 mtk.py r boot ~/boot-check.bin`) and confirm its SHA-256 matches `boot.bin`.  
 * **`userdata` is encrypted** (Android full-disk encryption), so `userdata.bin` looks like random data with no filesystem signature. That is expected. Its key lives in the crypto footer in the `metadata` partition: keep `metadata.bin` with it, and only ever restore the two together, to the same Tonal.  
-* **Optional:** the eMMC boot areas (MediaTek preloader) are not part of `rl`. Read them with `python3 mtk.py rf ~/tonal-boot-areas/boot1.bin --parttype boot1` (and the same with `boot2`). Keep them, but **never write them back**.
+* **Optional:** the eMMC boot areas (MediaTek preloader) are not part of `rl`. Read them with `mkdir -p ~/tonal-boot-areas` and then `python3 mtk.py rf ~/tonal-boot-areas/boot1.bin --parttype boot1` (and the same with `boot2`). Keep them, but **never write them back**.
 
 ## **4\. Patch `boot.bin` with Magisk v27.0**
 
@@ -70,7 +70,7 @@ python3 mtk.py w boot ~/magisk_patched.img
 
 ## **5\. Boot Up, Unlock Kiosk Mode & Enable Persistent ADB**
 
-* Unplug your laptop's micro-USB cable from the Tonal board, plug the Tonal AC cord back in, and flip the power switch on. (If your board needed the Tonal switched on for BROM: switch it off after the flash, then back on with no `mtkclient` command waiting, and it boots normally.)  
+* If you used the AC-on flow (Safety Warning 3), **flip the power switch off and unplug the AC cord before opening the service door.** Unplug your laptop's micro-USB cable from the Tonal board, close and secure the service door, then plug the Tonal AC cord back in and flip the power switch on. With no `mtkclient` command waiting, the Tonal boots normally.  
 * Once booted, reconnect your laptop via USB and run the `tonal-freedom` post-root unlock script (or via `adb shell`) to install the **Magisk v27.0 APK**, strip Tonal's device-owner kiosk lock, and enable **ADB over Wi-Fi** on port `5555`:
 
 ```
