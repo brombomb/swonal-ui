@@ -4,6 +4,7 @@ import { prisma } from '../db';
 import { formatWeight, toCanonicalLb, WeightUnit } from '../utils/units';
 import { toApiExercise } from '../utils/armPositions';
 import { QueuedWorkoutPayload, sessionCoordinator } from '../services/sessionState';
+import { assertExercisesExist } from '../services/exerciseValidation';
 
 export const WorkoutItemSchema = z.object({
   exerciseId: z.string().uuid(),
@@ -233,6 +234,7 @@ export async function createCustomWorkoutTemplate(params: {
 }) {
   const user = await prisma.user.findUnique({ where: { id: params.userId } });
   if (!user) throw new Error(`User not found: ${params.userId}`);
+  await assertExercisesExist(params.blocks);
   const effectiveUnit: WeightUnit =
     params.unit ?? (user.weightUnit === 'KG' ? 'KG' : 'LB');
 
@@ -262,6 +264,7 @@ export async function updateCustomWorkoutTemplate(params: {
     include: { user: true },
   });
   if (!existing) throw new Error(`Workout template not found: ${params.templateId}`);
+  if (params.blocks) await assertExercisesExist(params.blocks);
 
   const effectiveUnit: WeightUnit =
     params.unit ?? (existing.user.weightUnit === 'KG' ? 'KG' : 'LB');
@@ -305,12 +308,19 @@ export async function queueWorkoutForSession(params: {
       throw new Error(`Workout template not found: ${params.templateId}`);
     }
 
+    const blocks = JSON.parse(template.blocksJson);
+    // The template may predate validation, or one of its exercises was deleted since it was saved.
+    // Refuse before it reaches the Tonal rather than leave a step with no exercise mid-workout.
+    await assertExercisesExist(
+      blocks,
+      "Can't queue this routine: edit it first, these exercises are missing or deleted"
+    );
     const payload: QueuedWorkoutPayload = {
       userId: params.userId,
       templateId: template.id,
       templateName: template.name,
       description: template.description,
-      blocks: JSON.parse(template.blocksJson),
+      blocks,
       queuedAt: new Date().toISOString(),
     };
     await prisma.appSetting.upsert({

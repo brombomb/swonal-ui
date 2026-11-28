@@ -11,6 +11,8 @@ import com.swonal.kiosk.db.saveNostrIdentity
 import com.swonal.kiosk.db.updateFriendLastSeen
 import com.swonal.kiosk.db.upsertFriend
 import com.swonal.kiosk.db.upsertFriendActivity
+import com.swonal.kiosk.model.SharedExerciseRef
+import com.swonal.kiosk.model.SharedRoutineExercises
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.model.WorkoutSession
@@ -25,6 +27,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -198,13 +201,16 @@ class LocalNostrSwocialEngine(
     suspend fun publishRoutine(userId: String, template: WorkoutTemplate): NostrSignedEvent {
         val ident = getOrCreateIdentity(userId)
         val privHex = db.getNostrCredentials(userId)?.privKeyHex ?: error("Missing Nostr private key")
+        // Exercise ids are per install: names let another install match them (see SharedExerciseRef).
+        val exerciseRefs = db.getSharedExerciseRefs(SharedRoutineExercises.exerciseIds(template.blocks))
         val payload = buildJsonObject {
             put("type", "routine_share")
             put("templateId", template.id)
             put("name", template.name)
             put("description", template.description.orEmpty())
             put("authorName", ident.userName)
-            put("blocks", SwonalJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(WorkoutBlock.serializer()), template.blocks))
+            put("blocks", SwonalJson.encodeToJsonElement(ListSerializer(WorkoutBlock.serializer()), template.blocks))
+            put("exercises", SwonalJson.encodeToJsonElement(ListSerializer(SharedExerciseRef.serializer()), exerciseRefs))
             put("sharedAt", IsoTime.nowIso())
         }
         val tags = listOf(
@@ -240,11 +246,17 @@ class LocalNostrSwocialEngine(
             ?: "Shared peer-to-peer via Nostr by $friendAuthor"
         val blocksEl = parsed["blocks"]
         val blocks = when {
-            blocksEl is JsonArray -> runCatching { SwonalJson.decodeFromJsonElement<List<WorkoutBlock>>(blocksEl) }.getOrDefault(emptyList())
-            blocksEl != null -> runCatching { SwonalJson.decodeFromString<List<WorkoutBlock>>(blocksEl.jsonPrimitive.content) }.getOrDefault(emptyList())
+            blocksEl is JsonArray -> runCatching { SwonalJson.decodeFromJsonElement<List<WorkoutBlock>>(blocksEl) }.getOrNull()
+            blocksEl != null -> runCatching { SwonalJson.decodeFromString<List<WorkoutBlock>>(blocksEl.jsonPrimitive.content) }.getOrNull()
             else -> emptyList()
-        }
-        return db.createTemplate(userId, name, desc, blocks)
+        } ?: throw IllegalArgumentException("Corrupt routine payload in activity record")
+        // A shared routine usually comes from another install, whose exercise ids don't exist here.
+        // Match them by the names the payload carries; refuse (UnknownExerciseException -> HTTP 400)
+        // if any can't be matched, rather than store steps that would run against the wrong movement.
+        return db.createTemplate(
+            userId, name, desc, blocks,
+            sharedExercises = SharedRoutineExercises.parseRefs(parsed["exercises"])
+        )
     }
 
     suspend fun publishReaction(

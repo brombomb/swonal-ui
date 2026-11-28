@@ -284,7 +284,20 @@ export function useSwonalState() {
 
   const activeExercise = useMemo(() => {
     const targetId = currentStep?.exerciseId || selectedExerciseId;
-    return exercises.find((e) => e.id === targetId) ?? exercises[0] ?? null;
+    if (targetId) {
+      // Never substitute another exercise for a missing/deleted one: sets would be logged against
+      // the wrong movement. Returning null blocks logging until a valid exercise is chosen.
+      return exercises.find((e) => e.id === targetId) ?? null;
+    }
+    return exercises[0] ?? null;
+  }, [exercises, currentStep, selectedExerciseId]);
+
+  // The step's (or selection's) exercise id when it isn't in the library (deleted, or a routine from
+  // another install). Null while exercises are still loading.
+  const missingExerciseId = useMemo(() => {
+    const targetId = currentStep?.exerciseId || selectedExerciseId;
+    if (!targetId || exercises.length === 0) return null;
+    return exercises.some((e) => e.id === targetId) ? null : targetId;
   }, [exercises, currentStep, selectedExerciseId]);
 
   const activeExercisePr = useMemo(() => {
@@ -1406,6 +1419,7 @@ export function useSwonalState() {
     showDemoPip,
     setShowDemoPip,
     activeExercise,
+    missingExerciseId,
     activeExercisePr,
     overloadSuggestion,
     vbtMetrics,

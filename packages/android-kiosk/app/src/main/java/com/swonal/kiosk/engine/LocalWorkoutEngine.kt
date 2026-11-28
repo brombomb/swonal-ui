@@ -12,6 +12,7 @@ import com.swonal.kiosk.model.QueuedWorkoutPayload
 import com.swonal.kiosk.model.SetLogResponse
 import com.swonal.kiosk.model.SharedSessionState
 import com.swonal.kiosk.model.SwonalJson
+import com.swonal.kiosk.model.UnknownExerciseException
 import com.swonal.kiosk.model.Units
 import com.swonal.kiosk.model.User
 import com.swonal.kiosk.model.WorkoutBlock
@@ -292,7 +293,12 @@ class LocalWorkoutEngine(
         val user = db.getUserById(userId) ?: throw IllegalArgumentException("User not found: $userId")
         val effectiveUnit = unit ?: user.weightUnit
         val normalizedBlocks = normalizeBlocksToCanonicalLb(blocks, effectiveUnit)
-        return db.createTemplate(userId, name.trim(), description?.trim(), normalizedBlocks, scheduleDays)
+        // Rejects missing/deleted exercises (IllegalArgumentException -> HTTP 400 in the embedded
+        // API). Without this the kiosk later ran another exercise and logged sets/PRs against it.
+        return db.createTemplate(
+            userId, name.trim(), description?.trim(), normalizedBlocks, scheduleDays,
+            requireKnownExercises = true
+        )
     }
 
     suspend fun updateTemplate(
@@ -310,13 +316,19 @@ class LocalWorkoutEngine(
             require(it.isNotEmpty()) { "Workout routine must have at least one block" }
             normalizeBlocksToCanonicalLb(it, effectiveUnit)
         }
-        return db.updateTemplate(templateId, name?.trim(), description?.trim(), normalizedBlocks, scheduleDays)
+        return db.updateTemplate(
+            templateId, name?.trim(), description?.trim(), normalizedBlocks, scheduleDays,
+            requireKnownExercises = true
+        )
     }
 
     suspend fun deleteTemplate(templateId: String): Boolean = db.deleteTemplate(templateId)
 
     suspend fun queueTemplate(templateId: String, userIdOverride: String? = null): QueuedWorkoutPayload? {
         val template = db.getTemplateById(templateId) ?: return null
+        // The routine may predate validation, or one of its exercises was deleted since it was saved.
+        // Refuse (UnknownExerciseException -> HTTP 400) before it reaches the Tonal, like the server.
+        db.requireKnownExercises(template.blocks, UnknownExerciseException.QUEUE_PREFIX)
         val uid = userIdOverride?.takeIf { it.isNotBlank() } ?: template.userId
         val payload = QueuedWorkoutPayload(
             userId = uid,

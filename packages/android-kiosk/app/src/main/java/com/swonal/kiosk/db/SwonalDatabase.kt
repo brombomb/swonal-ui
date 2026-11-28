@@ -6,11 +6,16 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.Exercise
+import com.swonal.kiosk.model.ExerciseName
+import com.swonal.kiosk.model.MissingExercise
 import com.swonal.kiosk.model.PersonalRecord
 import com.swonal.kiosk.model.SessionTemplateSummary
 import com.swonal.kiosk.model.SetLog
 import com.swonal.kiosk.model.SetLogExerciseSummary
+import com.swonal.kiosk.model.SharedExerciseRef
+import com.swonal.kiosk.model.SharedRoutineExercises
 import com.swonal.kiosk.model.SwonalJson
+import com.swonal.kiosk.model.UnknownExerciseException
 import com.swonal.kiosk.model.User
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.model.WorkoutSession
@@ -808,12 +813,17 @@ class SwonalDatabase(
         description: String?,
         blocks: List<WorkoutBlock>,
         scheduleDays: List<Int> = emptyList(),
-        idOverride: String? = null
+        idOverride: String? = null,
+        requireKnownExercises: Boolean = false,
+        sharedExercises: Map<String, SharedExerciseRef>? = null
     ): WorkoutTemplate = withTx { c ->
+        // A shared routine: match its exercises to this library (or refuse) in the same transaction.
+        val finalBlocks = if (sharedExercises != null) resolveSharedExercisesUnlocked(c, blocks, sharedExercises) else blocks
+        if (requireKnownExercises) requireKnownExercisesUnlocked(c, finalBlocks)
         val id = idOverride ?: UUID.randomUUID().toString()
         val nowMs = System.currentTimeMillis()
         val nowIso = IsoTime.formatUtc(nowMs)
-        val blocksJson = SwonalJson.encodeToString(blocks)
+        val blocksJson = SwonalJson.encodeToString(finalBlocks)
         val cleanDays = scheduleDays.filter { it in 0..6 }.distinct().sorted()
         val daysJson = SwonalJson.encodeToString(cleanDays)
         c.prepare(
@@ -834,7 +844,7 @@ class SwonalDatabase(
             s.bindLong(9, nowMs)
             s.step()
         }
-        WorkoutTemplate(id, userId, name, description, blocksJson, blocks, cleanDays, nowIso, nowIso)
+        WorkoutTemplate(id, userId, name, description, blocksJson, finalBlocks, cleanDays, nowIso, nowIso)
     }
 
     suspend fun updateTemplate(
@@ -842,8 +852,10 @@ class SwonalDatabase(
         name: String? = null,
         description: String? = null,
         blocks: List<WorkoutBlock>? = null,
-        scheduleDays: List<Int>? = null
+        scheduleDays: List<Int>? = null,
+        requireKnownExercises: Boolean = false
     ): WorkoutTemplate? = withTx { c ->
+        if (requireKnownExercises && blocks != null) requireKnownExercisesUnlocked(c, blocks)
         val existing = c.prepare(
             "SELECT id, user_id, name, description, blocks_json, schedule_days_json, created_at, updated_at FROM workout_templates WHERE id = ? AND deleted_at_ms IS NULL"
         ).useStmt { s ->
@@ -883,6 +895,83 @@ class SwonalDatabase(
             s.step()
         }
         updated
+    }
+
+    /**
+     * Throws [UnknownExerciseException] (an IllegalArgumentException) if any block item references
+     * a missing or soft-deleted exercise. One `IN (...)` query, run inside the caller's write
+     * transaction so an exercise can't be deleted between the check and the insert/update.
+     */
+    internal fun requireKnownExercisesUnlocked(
+        c: SQLiteConnection,
+        blocks: List<WorkoutBlock>,
+        prefix: String = UnknownExerciseException.DEFAULT_PREFIX
+    ) {
+        val missing = unknownExerciseIdsUnlocked(c, SharedRoutineExercises.exerciseIds(blocks))
+        if (missing.isNotEmpty()) throw UnknownExerciseException(missing.map { MissingExercise(it) }, prefix)
+    }
+
+    /** Same check outside a write, e.g. before queueing a stored routine. */
+    suspend fun requireKnownExercises(blocks: List<WorkoutBlock>, prefix: String) = withDb { c ->
+        requireKnownExercisesUnlocked(c, blocks, prefix)
+    }
+
+    private fun unknownExerciseIdsUnlocked(c: SQLiteConnection, ids: List<String>): List<String> {
+        if (ids.isEmpty()) return emptyList()
+        val found = HashSet<String>()
+        val placeholders = ids.joinToString(",") { "?" }
+        c.prepare("SELECT id FROM exercises WHERE id IN ($placeholders) AND deleted_at_ms IS NULL").useStmt { s ->
+            ids.forEachIndexed { idx, id -> s.bindText(idx + 1, id) }
+            while (s.step()) found += s.getText(0)
+        }
+        return ids.filterNot { it in found }
+    }
+
+    /**
+     * Resolves a shared routine's exercises against this library (rules on [SharedExerciseRef]):
+     * known id, else name match, else [UnknownExerciseException] listing name and id. Returns the
+     * blocks with matched ids rewritten.
+     */
+    internal fun resolveSharedExercisesUnlocked(
+        c: SQLiteConnection,
+        blocks: List<WorkoutBlock>,
+        refs: Map<String, SharedExerciseRef>
+    ): List<WorkoutBlock> {
+        val unknown = unknownExerciseIdsUnlocked(c, SharedRoutineExercises.exerciseIds(blocks))
+        if (unknown.isEmpty()) return blocks
+        val library = if (unknown.any { it in refs }) {
+            c.prepare("SELECT id, name FROM exercises WHERE deleted_at_ms IS NULL").useStmt { s ->
+                val out = ArrayList<ExerciseName>()
+                while (s.step()) out += ExerciseName(s.getText(0), s.getText(1))
+                out
+            }
+        } else {
+            emptyList()
+        }
+        val remap = HashMap<String, String>()
+        val missing = ArrayList<MissingExercise>()
+        for (id in unknown) {
+            val ref = refs[id]
+            val match = ref?.let { SharedRoutineExercises.pickByName(library, it.name) }
+            if (match != null) remap[id] = match.id else missing += MissingExercise(id, ref?.name)
+        }
+        if (missing.isNotEmpty()) throw UnknownExerciseException(missing, UnknownExerciseException.IMPORT_PREFIX)
+        return SharedRoutineExercises.rewriteIds(blocks, remap)
+    }
+
+    /** Share-payload entries for these ids, in the given order; deleted exercises included (names still help). */
+    suspend fun getSharedExerciseRefs(ids: List<String>): List<SharedExerciseRef> = withDb { c ->
+        if (ids.isEmpty()) return@withDb emptyList()
+        val byId = HashMap<String, SharedExerciseRef>()
+        val placeholders = ids.joinToString(",") { "?" }
+        c.prepare("SELECT id, name, muscle_group, accessory FROM exercises WHERE id IN ($placeholders)").useStmt { s ->
+            ids.forEachIndexed { idx, id -> s.bindText(idx + 1, id) }
+            while (s.step()) {
+                val ref = SharedExerciseRef(s.getText(0), s.getText(1), s.getText(2), s.getText(3))
+                byId[ref.id] = ref
+            }
+        }
+        ids.mapNotNull { byId[it] }
     }
 
     suspend fun deleteTemplate(templateId: String): Boolean = withTx { c ->

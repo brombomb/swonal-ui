@@ -10,6 +10,11 @@ import {
 import { SimplePool, useWebSocketImplementation as usePoolWebSocket } from 'nostr-tools/pool';
 import { useWebSocketImplementation as useRelayWebSocket } from 'nostr-tools/relay';
 import { prisma } from '../db';
+import {
+  parseSharedExerciseRefs,
+  resolveSharedRoutineExercises,
+  sharedExerciseRefs,
+} from './sharedRoutineExercises';
 
 // Use the `ws` package instead of Node 22's built-in undici WebSocket, which can trigger
 // infinite `onerror -> close -> onerror` recursion inside nostr-tools when a relay rejects a connection.
@@ -448,6 +453,8 @@ export async function publishRoutine(
     description: template.description ?? '',
     authorName: name,
     blocks,
+    // Exercise ids are per install: names let another install match them (see sharedRoutineExercises).
+    exercises: await sharedExerciseRefs(blocks),
     sharedAt: new Date().toISOString(),
   };
 
@@ -510,10 +517,26 @@ export async function importRoutine(
     : `Shared Routine (from ${friendAuthor})`;
   const description =
     parsed.description || `Shared peer-to-peer via Nostr by ${friendAuthor}`;
-  const blocksJson =
+  let blocksJson =
     typeof parsed.blocks === 'string'
       ? parsed.blocks
       : JSON.stringify(parsed.blocks ?? []);
+
+  // A shared routine usually comes from another install, whose exercise ids don't exist here.
+  // Match them by the names the payload carries; refuse the import if any can't be matched,
+  // rather than store steps that would later run (and log sets) against the wrong movement.
+  let blocks: unknown;
+  try {
+    blocks = JSON.parse(blocksJson);
+  } catch {
+    throw new Error('Corrupt routine payload in activity record');
+  }
+  const resolved = await resolveSharedRoutineExercises(
+    blocks,
+    parseSharedExerciseRefs(parsed.exercises),
+    "Can't import this routine: it uses exercises that aren't in your library"
+  );
+  if (resolved.remapped) blocksJson = JSON.stringify(resolved.blocks);
 
   const newTemplate = await prisma.workoutTemplate.create({
     data: {

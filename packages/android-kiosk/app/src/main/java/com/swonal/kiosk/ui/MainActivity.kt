@@ -47,6 +47,8 @@ import com.swonal.kiosk.model.Units
 import com.swonal.kiosk.model.VbtMetrics
 import com.swonal.kiosk.net.KioskEffect
 import com.swonal.kiosk.net.KioskUiState
+import com.swonal.kiosk.net.MISSING_EXERCISE_HINT
+import com.swonal.kiosk.net.MISSING_EXERCISE_TITLE
 import com.swonal.kiosk.net.SwonalRepository
 import com.swonal.kiosk.net.TelemetryDisplayMode
 import com.swonal.kiosk.theme.SwonalFonts
@@ -1116,9 +1118,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             "FREE LIFT MODE"
         }
+        val exerciseMissing = ex == null && ui.missingExerciseId != null
         binding.tvMuscleGroup.text = ex?.muscleGroup ?: ""
-        binding.tvExerciseTitle.text = ex?.name ?: "Select Movement"
-        binding.tvExerciseSubtitle.text = if (step != null) {
+        binding.tvExerciseTitle.text = ex?.name ?: if (exerciseMissing) MISSING_EXERCISE_TITLE else "Select Movement"
+        binding.tvExerciseSubtitle.text = if (exerciseMissing) {
+            MISSING_EXERCISE_HINT
+        } else if (step != null) {
             "Set ${step.setNumber} of ${step.totalSetsInItem} • Target ${step.targetReps} reps"
         } else {
             ex?.notes ?: "Tap weight gauge or use handle click to engage"

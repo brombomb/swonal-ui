@@ -1,6 +1,7 @@
 package com.swonal.kiosk.engine
 
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.model.UnknownExerciseException
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.model.WorkoutBlockItem
 import com.swonal.kiosk.util.Base64Compat
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -235,5 +237,88 @@ class LocalWorkoutEngineTest {
         val nowMs = 1763980000123L
         val iso = IsoTime.formatUtc(nowMs)
         assertEquals(nowMs, IsoTime.parseUtcMs(iso))
+    }
+
+    private fun singleItemBlock(exerciseId: String) = listOf(
+        WorkoutBlock(
+            blockType = "STRAIGHT_SET",
+            restSeconds = 60,
+            items = listOf(WorkoutBlockItem(exerciseId = exerciseId, sets = 2, targetReps = 10, targetWeightLb = 30.0))
+        )
+    )
+
+    @Test
+    fun `rejects routines that reference unknown or deleted exercises`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val valid = engine.getAppState(daemonConnected = true).exercises.first()
+        val bogus = "00000000-0000-4000-8000-000000000000"
+
+        val createErr = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { engine.createTemplate(alex.id, "Typo", null, singleItemBlock(valid.id) + singleItemBlock(bogus)) }
+        }
+        assertTrue(createErr.message!!.contains(bogus))
+
+        val tpl = engine.createTemplate(alex.id, "Valid", null, singleItemBlock(valid.id))
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { engine.updateTemplate(tpl.id, blocks = singleItemBlock(bogus)) }
+        }
+        val unchanged = engine.listTemplates(alex.id).first { it.id == tpl.id }
+        assertEquals(valid.id, unchanged.blocks[0].items[0].exerciseId)
+
+        val doomed = engine.createExercise(name = "Soon deleted", muscleGroup = "Test", accessory = "HANDLES")
+        assertTrue(engine.deleteExercise(doomed.id).isSuccess)
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { engine.createTemplate(alex.id, "Uses deleted", null, singleItemBlock(doomed.id)) }
+        }
+    }
+
+    @Test
+    fun `queueTemplate refuses a routine whose exercise was deleted, and queues nothing`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val valid = engine.getAppState(daemonConnected = true).exercises.first()
+        val doomed = engine.createExercise(name = "Queued then deleted", muscleGroup = "Test", accessory = "HANDLES")
+        assertTrue(engine.deleteExercise(doomed.id).isSuccess)
+        // Saved without validation (as sync/restore and older versions did), so it still points at
+        // the deleted exercise.
+        val tpl = db.createTemplate(alex.id, "Stale routine", null, singleItemBlock(valid.id) + singleItemBlock(doomed.id))
+        engine.clearQueuedWorkout()
+
+        val err = assertThrows(UnknownExerciseException::class.java) {
+            runBlocking { engine.queueTemplate(tpl.id, alex.id) }
+        }
+        assertEquals(listOf(doomed.id), err.exerciseIds)
+        assertEquals("${UnknownExerciseException.QUEUE_PREFIX}: ${doomed.id}", err.message)
+        assertNull(engine.getSessionState().queuedWorkout)
+
+        // A routine whose exercises all exist still queues.
+        val ok = engine.createTemplate(alex.id, "Fine routine", null, singleItemBlock(valid.id))
+        assertEquals(ok.id, engine.queueTemplate(ok.id, alex.id)?.templateId)
+        assertEquals(ok.id, engine.getSessionState().queuedWorkout?.templateId)
+    }
+
+    @Test
+    fun `database checks routine exercises in one query inside the write transaction`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val valid = engine.getAppState(daemonConnected = true).exercises.take(2)
+        val bogus = "00000000-0000-4000-8000-00000000beef"
+        val before = db.listTemplates(alex.id).size
+
+        // Several ids (valid, repeated, unknown) -> only the unknown one is reported, nothing is written.
+        val blocks = singleItemBlock(valid[0].id) + singleItemBlock(valid[1].id) +
+            singleItemBlock(valid[0].id) + singleItemBlock(bogus)
+        val err = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { db.createTemplate(alex.id, "Mixed", null, blocks, requireKnownExercises = true) }
+        }
+        assertEquals("Unknown exercise id(s): $bogus", err.message)
+        assertEquals(before, db.listTemplates(alex.id).size)
+
+        // Sync/restore callers keep the old lenient behaviour (flag off by default).
+        val lenient = db.createTemplate(alex.id, "Lenient", null, singleItemBlock(bogus))
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { db.updateTemplate(lenient.id, blocks = singleItemBlock(bogus), requireKnownExercises = true) }
+        }
     }
 }
