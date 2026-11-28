@@ -194,16 +194,114 @@ object KioskPopups {
         ).forEach { line ->
             root.addView(TextView(context).apply {
                 text = line
-                textSize = 11.5f
-                setTextColor(palette.textPrimary)
+                textSize = 11f
+                setTextColor(palette.textMuted)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(3); bottomMargin = dp(3) }
+                ).apply { topMargin = dp(2); bottomMargin = dp(2) }
             })
         }
 
-        popup = PopupWindow(root, dp(304), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+        // Live Arm Symmetry & Position Panel (refreshed every 250ms while open)
+        val symBanner = TextView(context).apply {
+            textSize = 11.5f
+            typeface = SwonalFonts.interExtraBold(context)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6); bottomMargin = dp(6) }
+        }
+        root.addView(symBanner)
+
+        val liveBox = TextView(context).apply {
+            textSize = 11.5f
+            typeface = SwonalFonts.monoBold(context)
+            setTextColor(palette.textPrimary)
+            background = palette.elevatedPillDrawable(d, 10f, interactive = false)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        root.addView(liveBox)
+
+        fun rotLabel(r: Int): String = if (r == 1) "R1(Stow)" else "R$r"
+        fun angLabel(a: Int): String = if (a == 0) "A0(Fold)" else "A$a"
+
+        var lastPanelKey = ""
+        var lastBannerState = -1
+        fun updateLivePanel() {
+            val frame = liveTelemetryProvider?.invoke() ?: telemetry ?: com.swonal.kiosk.model.TelemetryFrame()
+            val arms = frame.armPositions
+            val leftLocked = !(arms.rotation.leftUnlocked || arms.height.leftUnlocked || arms.angle.leftUnlocked)
+            val rightLocked = !(arms.rotation.rightUnlocked || arms.height.rightUnlocked || arms.angle.rightUnlocked)
+            val hMatch = arms.height.left == arms.height.right
+            val rMatch = arms.rotation.left == arms.rotation.right
+            val aMatch = arms.angle.left == arms.angle.right
+            val symmetric = leftLocked && rightLocked && hMatch && rMatch && aMatch
+
+            val panelKey = "${exercise?.id}|${arms.height.left}:${arms.rotation.left}:${arms.angle.left}:$leftLocked|" +
+                "${arms.height.right}:${arms.rotation.right}:${arms.angle.right}:$rightLocked"
+            if (panelKey == lastPanelKey) return
+            lastPanelKey = panelKey
+
+            val bannerState = when {
+                !leftLocked || !rightLocked -> 0
+                symmetric -> 1
+                else -> 2
+            }
+            if (bannerState != lastBannerState) {
+                lastBannerState = bannerState
+                when (bannerState) {
+                    0 -> {
+                        symBanner.text = "ARM LOCK PIN OPEN — LOCK BEFORE LIFTING"
+                        symBanner.setTextColor(palette.warningText)
+                        symBanner.background = palette.warningPillDrawable(d, 8f, interactive = false)
+                    }
+                    1 -> {
+                        symBanner.text = "ARMS SYMMETRIC (L = R)"
+                        symBanner.setTextColor(palette.successText)
+                        symBanner.background = palette.successPillDrawable(d, 8f, interactive = false)
+                    }
+                    else -> {
+                        symBanner.text = "ARMS UNEVEN — ADJUST TO MATCH"
+                        symBanner.setTextColor(palette.criticalText)
+                        symBanner.background = palette.criticalBannerDrawable(d, 8f)
+                    }
+                }
+            }
+
+            liveBox.text = buildString {
+                if (exercise != null) {
+                    append("Target: ${com.swonal.kiosk.model.ArmPositionSets.targetCoords(exercise)}\n")
+                }
+                append("Left:   H${arms.height.left}  ${rotLabel(arms.rotation.left)}  ${angLabel(arms.angle.left)}")
+                if (!leftLocked) append(" [UNLOCKED]")
+                append('\n')
+                append("Right:  H${arms.height.right}  ${rotLabel(arms.rotation.right)}  ${angLabel(arms.angle.right)}")
+                if (!rightLocked) append(" [UNLOCKED]")
+                append('\n')
+                append(
+                    "Match:  H:${if (hMatch) "✓" else "≠"}  R:${if (rMatch) "✓" else "≠"}  A:${if (aMatch) "✓" else "≠"}"
+                )
+            }
+        }
+
+        updateLivePanel()
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val refresher = object : Runnable {
+            override fun run() {
+                updateLivePanel()
+                handler.postDelayed(this, 250L)
+            }
+        }
+        handler.postDelayed(refresher, 250L)
+
+        popup = PopupWindow(root, dp(324), ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 16f * d
             isOutsideTouchable = true
@@ -212,7 +310,19 @@ object KioskPopups {
                 false
             }
         }
-        popup.showAsDropDown(anchor, -dp(250), dp(6))
+        val attachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) {
+                handler.removeCallbacks(refresher)
+                if (popup.isShowing) popup.dismiss()
+            }
+        }
+        anchor.addOnAttachStateChangeListener(attachListener)
+        popup.setOnDismissListener {
+            handler.removeCallbacks(refresher)
+            anchor.removeOnAttachStateChangeListener(attachListener)
+        }
+        popup.showAsDropDown(anchor, -dp(260), dp(6))
     }
 
     private fun makePopupButton(
