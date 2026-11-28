@@ -1,19 +1,21 @@
 package com.swonal.kiosk.ui
 
+import android.annotation.SuppressLint
 import android.app.Dialog
 import android.content.Context
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.PowerManager
 import android.os.SystemClock
-import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -25,7 +27,6 @@ import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.theme.SwonalPalette
 import com.swonal.kiosk.theme.SwonalThemeTokens
 import com.swonal.kiosk.util.IdleActivityTracker
-import com.swonal.kiosk.util.RootShell
 import com.swonal.kiosk.util.ScreenSleepPolicy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -36,8 +37,14 @@ import kotlinx.coroutines.launch
  *
  * While the host activity is started, ticks once a second and asks [ScreenSleepPolicy]
  * whether to warn or sleep. Never sleeps while weight is engaged, a rest timer is running,
- * or an app update is installing. Sleep is requested over root with KEYCODE_SLEEP (223),
- * which only turns the screen off (unlike POWER, it never toggles the screen back on).
+ * or an app update is installing.
+ *
+ * "Sleep" blanks the screen instead of turning the display off: a black full-screen overlay
+ * with the backlight forced to its minimum. The display stays on, so a touch anywhere wakes
+ * it (a real screen-off on Android 6 disables the touchscreen and needs the power button).
+ * Because the kiosk never leaves the foreground, the UI heartbeat stays alive. Any activity
+ * while blanked (Companion command, voice, cable or arm movement) or a blocking condition
+ * (e.g. weight engaged from a phone) wakes the screen within one tick.
  */
 class ScreenSleepController(private val activity: AppCompatActivity) {
 
@@ -48,12 +55,12 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         activity.getSystemService(Context.POWER_SERVICE) as PowerManager
 
     private var warningDialog: ScreenSleepWarningDialog? = null
+    private var blankOverlay: ScreenBlankOverlay? = null
     private var cableBaselineLeft: Double? = null
     private var cableBaselineRight: Double? = null
     private var lastArmPositions: ArmPositions? = null
     private var lastTickMs: Long? = null
     private var screenWasOn = true
-    private var sleepInFlight = false
 
     fun attach() {
         activity.lifecycleScope.launch {
@@ -67,6 +74,7 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
                     }
                 } finally {
                     dismissWarning()
+                    wake()
                 }
             }
         }
@@ -88,7 +96,7 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         lastTickMs = now
 
         if (!isScreenOn()) {
-            // Screen already off (power button or our own sleep): nothing to do.
+            // Display turned off with the power button: nothing to do until it's back on.
             screenWasOn = false
             dismissWarning()
             return
@@ -96,7 +104,7 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         if (!screenWasOn || gap) {
             // Just woke up (or the CPU was suspended between ticks). elapsedRealtime kept counting
             // through deep sleep, so the idle clock is stale: start a fresh countdown instead of
-            // sleeping again immediately.
+            // blanking again immediately.
             screenWasOn = true
             resetIdleState()
             lastTickMs = now
@@ -109,11 +117,16 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
             repo.uiStateFlow.value.restSecondsRemaining > 0 ||
             AppUpdateManager.isUpdateInProgress.get()
 
-        when (val decision = ScreenSleepPolicy.decide(
+        val decision = ScreenSleepPolicy.decide(
             timeoutMinutes = app.prefs.screenSleepTimeoutMinutes,
             idleMs = IdleActivityTracker.idleMs(),
             blocked = blocked
-        )) {
+        )
+        // While blanked, anything other than "still asleep" (fresh activity, a blocking
+        // condition such as weight engaged from a phone, or the setting turned off) wakes up.
+        if (blankOverlay != null && decision != ScreenSleepPolicy.Decision.Sleep) wake()
+
+        when (decision) {
             ScreenSleepPolicy.Decision.Disabled,
             ScreenSleepPolicy.Decision.Awake -> dismissWarning()
             ScreenSleepPolicy.Decision.Blocked -> {
@@ -122,12 +135,13 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
             }
             is ScreenSleepPolicy.Decision.Warning -> showWarning(decision.secondsLeft)
             ScreenSleepPolicy.Decision.Sleep -> {
+                if (blankOverlay != null) return
                 val warned = warningDialog?.isShowing == true
                 dismissWarning()
                 if (warned) {
-                    requestSleep()
+                    blankScreen()
                 } else {
-                    // Never turn the screen off without the countdown having been on screen
+                    // Never blank the screen without the countdown having been on screen
                     // (e.g. the dialog failed to show, or the main thread stalled through it).
                     IdleActivityTracker.noteActivity()
                 }
@@ -188,46 +202,26 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         runCatching { if (dlg.isShowing) dlg.dismiss() }
     }
 
-    private fun requestSleep() {
-        if (sleepInFlight) return
-        sleepInFlight = true
-        activity.lifecycleScope.launch {
-            try {
-                // Deliberately no KEYCODE_POWER fallback: POWER toggles, so a slow screen-off
-                // could race it and turn the screen straight back on.
-                val result = RootShell.run("input keyevent $KEYCODE_SLEEP")
-                if (!result.isSuccess) {
-                    Log.w(TAG, "KEYCODE_SLEEP failed (${result.exitCode}): ${result.stderr}")
-                }
-                delay(SLEEP_VERIFY_DELAY_MS)
-                if (isScreenOn()) {
-                    Log.w(TAG, "Screen still on after KEYCODE_SLEEP (root unavailable?)")
-                    if (!failureToastShown && !activity.isFinishing && !activity.isDestroyed) {
-                        failureToastShown = true
-                        Toast.makeText(
-                            activity,
-                            "Screen sleep failed: root access is required",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            } finally {
-                // Success or failure, restart the countdown instead of retrying every second.
-                IdleActivityTracker.noteActivity()
-                sleepInFlight = false
-            }
+    private fun blankScreen() {
+        if (blankOverlay != null || activity.isFinishing || activity.isDestroyed) return
+        val overlay = ScreenBlankOverlay(activity) { wake() }
+        blankOverlay = overlay
+        if (runCatching { overlay.show() }.isFailure) {
+            blankOverlay = null
+            IdleActivityTracker.noteActivity()
         }
     }
 
-    private companion object {
-        /** One toast per app process is enough to explain a missing root grant. */
-        @Volatile
-        var failureToastShown = false
+    /** Removes the blank overlay (restoring brightness) and restarts the idle countdown. */
+    private fun wake() {
+        val overlay = blankOverlay ?: return
+        blankOverlay = null
+        runCatching { if (overlay.isShowing) overlay.dismiss() }
+        IdleActivityTracker.noteActivity()
+    }
 
-        const val TAG = "ScreenSleep"
+    private companion object {
         const val TICK_MS = 1_000L
-        const val SLEEP_VERIFY_DELAY_MS = 1_500L
-        const val KEYCODE_SLEEP = 223
     }
 }
 
@@ -302,5 +296,40 @@ private class ScreenSleepWarningDialog(
 
     fun update(secondsLeft: Int) {
         countdownTv.text = secondsLeft.toString()
+    }
+}
+
+/**
+ * The "asleep" screen: solid black, backlight at its minimum, display still on so touch works.
+ * The first touch wakes it and is swallowed, so it never presses whatever is underneath.
+ * Not focusable, so it never steals focus or breaks the kiosk's immersive mode.
+ */
+@SuppressLint("ClickableViewAccessibility")
+private class ScreenBlankOverlay(
+    context: Context,
+    private val onWake: () -> Unit
+) : Dialog(context, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen) {
+
+    init {
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val root = View(context).apply {
+            setBackgroundColor(Color.BLACK)
+            setOnTouchListener { _, ev ->
+                if (ev.actionMasked == MotionEvent.ACTION_DOWN) onWake()
+                true
+            }
+        }
+        setContentView(root)
+        setCancelable(false)
+        window?.apply {
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            addFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+            attributes = attributes.apply {
+                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF
+            }
+        }
     }
 }

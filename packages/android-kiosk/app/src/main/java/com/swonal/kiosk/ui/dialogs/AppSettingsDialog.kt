@@ -950,8 +950,9 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         val card = createSurfaceCard()
         card.addView(makeCardHeading(
             "Display & Screen Sleep",
-            "Turn the screen off after a period of inactivity. A 30-second countdown appears first — " +
-                "tap anywhere to stay awake. Never sleeps while weight is engaged or a rest timer is running."
+            "Blank the screen after a period of inactivity. A 30-second countdown appears first — " +
+                "tap anywhere to stay awake. Tap the dark screen to wake it. " +
+                "Never sleeps while weight is engaged or a rest timer is running."
         ))
         var minutes = app.prefs.screenSleepTimeoutMinutes
         val (row, valueTv) = makeLargeToggleRow(

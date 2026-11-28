@@ -37,7 +37,7 @@ object ScreenSleepPolicy {
         /** Inside the warning window; [secondsLeft] is always >= 1. */
         data class Warning(val secondsLeft: Int) : Decision()
 
-        /** Timeout reached: turn the screen off. */
+        /** Timeout reached: blank the screen (a touch wakes it). */
         object Sleep : Decision()
     }
 
