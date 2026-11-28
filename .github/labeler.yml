@@ -1,0 +1,26 @@
+daemon:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/tonal-daemon/**
+
+server-app:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/server-app/**
+
+android-kiosk:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/android-kiosk/**
+
+installer:
+  - changed-files:
+      - any-glob-to-any-file:
+          - scripts/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.md'
+          - '**/*.md'
+          - docs/**
