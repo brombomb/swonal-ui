@@ -3,10 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_USERS } from '../prisma/seed';
 import { prisma } from '../src/server/db';
 import { createSwonalServer, SwonalServerHandle } from '../src/server/index';
-import {
-  createCustomWorkoutTemplate,
-  UnknownExerciseError,
-} from '../src/server/mcp/mcpServer';
+import { createCustomWorkoutTemplate } from '../src/server/mcp/mcpServer';
+import { UnknownExerciseError } from '../src/server/services/exerciseValidation';
 
 function block(exerciseId: string) {
   return {

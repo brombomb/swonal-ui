@@ -29,12 +29,8 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { prisma } from './db';
 import { seedDatabase } from '../../prisma/seed';
-import {
-  createSwonalMcpServer,
-  clearPendingQueuedWorkout,
-  getPendingQueuedWorkout,
-  UnknownExerciseError,
-} from './mcp/mcpServer';
+import { createSwonalMcpServer, clearPendingQueuedWorkout, getPendingQueuedWorkout } from './mcp/mcpServer';
+import { UnknownExerciseError } from './services/exerciseValidation';
 import { musicRegistry } from './music/Registry';
 import { createApiRouter } from './routes/apiRoutes';
 import { createDaemonRouter } from './routes/daemonRoutes';
