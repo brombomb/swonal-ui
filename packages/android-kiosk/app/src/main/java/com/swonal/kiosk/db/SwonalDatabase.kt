@@ -1115,11 +1115,13 @@ class SwonalDatabase(
             s.step()
         }
 
-        // Evaluate Personal Record
+        // Evaluate Personal Record (a set with no completed reps can't set a record)
         val existingPr = getPrForExerciseUnlocked(c, effectiveUserId, exerciseId)
-        val isNewPr = existingPr == null ||
-            weightLb > existingPr.maxWeightLb ||
-            oneRepMaxEst > existingPr.oneRepMaxEst
+        val isNewPr = repsCompleted >= 1 && (
+            existingPr == null ||
+                weightLb > existingPr.maxWeightLb ||
+                oneRepMaxEst > existingPr.oneRepMaxEst
+            )
 
         if (isNewPr) {
             val nextMaxW = maxOf(weightLb, existingPr?.maxWeightLb ?: 0.0)

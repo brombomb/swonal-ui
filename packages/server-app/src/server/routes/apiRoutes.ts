@@ -613,7 +613,7 @@ const PUBLIC_USER_SELECT = {
         data: { totalVolume: { increment: volumeLb } },
       });
 
-      // Evaluate PR
+      // Evaluate PR (a set with no completed reps can't set a record)
       let newPr = false;
       const oneRepMaxEst = estimateOneRepMaxLb(parsed.weightLb, parsed.repsCompleted);
       const existingPr = await prisma.personalRecord.findUnique({
@@ -626,9 +626,10 @@ const PUBLIC_USER_SELECT = {
       });
 
       if (
-        !existingPr ||
-        parsed.weightLb > existingPr.maxWeightLb ||
-        oneRepMaxEst > existingPr.oneRepMaxEst
+        parsed.repsCompleted >= 1 &&
+        (!existingPr ||
+          parsed.weightLb > existingPr.maxWeightLb ||
+          oneRepMaxEst > existingPr.oneRepMaxEst)
       ) {
         newPr = true;
         await prisma.personalRecord.upsert({
