@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.3.2](https://github.com/brombomb/swonal-ui/compare/v2.3.1...v2.3.2) (2026-11-28)
+
+
+### Bug Fixes
+
+* **daemon,server-app,kiosk:** real Tonal V1 arm-position scales, allowed position sets, one-arm alignment ([#25](https://github.com/brombomb/swonal-ui/issues/25)) ([c4783ad](https://github.com/brombomb/swonal-ui/commit/c4783ad893f1ea460f989a43c82451ff053305d7))
+
 ## [2.3.1](https://github.com/brombomb/swonal-ui/compare/v2.3.0...v2.3.1) (2026-11-28)
 
 
