@@ -11,6 +11,8 @@ export const WorkoutItemSchema = z.object({
   mode: z.enum(['standard', 'eccentric', 'chains', 'spotter', 'burnout', 'smart_flex']).default('standard'),
   modifierPct: z.number().int().min(0).max(100).default(0),
   targetWeightLb: z.number().positive(),
+  // Kiosk "AUTO" starting weight (Auto-Adjust Weights); kept so web edits don't turn AUTO steps into fixed weights.
+  autoWeight: z.boolean().optional().catch(undefined),
 });
 
 export const WorkoutBlockSchema = z.object({

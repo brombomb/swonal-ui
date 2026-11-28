@@ -564,7 +564,7 @@ class EmbeddedSwonalServer(
                     val mod = obj["modifier_pct"]?.jsonPrimitive?.intOrNull?.coerceIn(0, 100)
                     repo.setWeight(w, profile, mod, allowWhileEngaged = false)
                 }
-                "disable_weight" -> repo.disableWeight()
+                "disable_weight" -> repo.disableWeight(byApp = false)
                 "enable_weight" -> {
                     if (repo.isUiAliveForWatchdog() && repo.uiStateFlow.value.safetyEvent == null) {
                         repo.setWeightEnabled(true)
@@ -572,7 +572,7 @@ class EmbeddedSwonalServer(
                 }
                 "toggle_weight" -> {
                     if (repo.isWeightCurrentlyEngaged()) {
-                        repo.disableWeight()
+                        repo.disableWeight(byApp = false)
                     } else if (repo.isUiAliveForWatchdog() && repo.uiStateFlow.value.safetyEvent == null) {
                         repo.setWeightEnabled(true)
                     }

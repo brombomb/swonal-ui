@@ -508,6 +508,7 @@ class EmbeddedApiRouter(
             rpe = b["rpe"]?.jsonPrimitive?.doubleOrNull,
             restSeconds = b["restSeconds"]?.jsonPrimitive?.intOrNull ?: 60
         )
+        repo.onExternalSetLogged(res)
         repo.refreshAppState()
         repo.notifyDirtySync()
         return jsonOk(SwonalJson.encodeToString(res), Status.CREATED)

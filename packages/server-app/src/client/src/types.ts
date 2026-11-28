@@ -34,6 +34,8 @@ export interface WorkoutBlockItem {
   mode: DynamicMode;
   modifierPct: number;
   targetWeightLb: number;
+  /** Kiosk "AUTO" starting weight; the kiosk picks the lifter's first-time weight. */
+  autoWeight?: boolean;
 }
 
 export interface WorkoutBlock {

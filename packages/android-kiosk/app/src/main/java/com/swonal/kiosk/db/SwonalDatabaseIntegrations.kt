@@ -609,6 +609,30 @@ private fun SwonalDatabase.remapExerciseIdUnlocked(c: SQLiteConnection, oldId: S
         s.bindText(2, oldId)
         s.step()
     }
+    // Move remembered per-lifter settings to the canonical ID (keeping the newer row on collision)
+    // before the old exercise is deleted, which would otherwise cascade-delete them.
+    c.prepare(
+        """
+        DELETE FROM exercise_prefs WHERE exercise_id = ? AND user_id IN (
+            SELECT o.user_id FROM exercise_prefs o
+            WHERE o.exercise_id = ? AND o.updated_at_ms > exercise_prefs.updated_at_ms
+        )
+        """.trimIndent()
+    ).useStmt { s ->
+        s.bindText(1, newId)
+        s.bindText(2, oldId)
+        s.step()
+    }
+    c.prepare("DELETE FROM exercise_prefs WHERE exercise_id = ? AND user_id IN (SELECT user_id FROM exercise_prefs WHERE exercise_id = ?)").useStmt { s ->
+        s.bindText(1, oldId)
+        s.bindText(2, newId)
+        s.step()
+    }
+    c.prepare("UPDATE exercise_prefs SET exercise_id = ? WHERE exercise_id = ?").useStmt { s ->
+        s.bindText(1, newId)
+        s.bindText(2, oldId)
+        s.step()
+    }
     c.prepare("DELETE FROM exercises WHERE id = ?").useStmt { s ->
         s.bindText(1, oldId)
         s.step()

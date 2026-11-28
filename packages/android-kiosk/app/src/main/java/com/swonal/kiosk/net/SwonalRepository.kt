@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -77,6 +79,10 @@ data class KioskUiState(
     val telemetryDisplayMode: TelemetryDisplayMode = TelemetryDisplayMode.ALWAYS,
     val soundMuted: Boolean = false,
     val developerMode: Boolean = false,
+    /** Active lifter's "Auto-Adjust Weights" preference: rep-goal driven ±5/10% between routine sets. */
+    val autoAdjustWeights: Boolean = false,
+    /** Accessory the lifter last used per exercise (overrides the catalog default in the attachment prompt). */
+    val rememberedAccessoryByExercise: Map<String, String> = emptyMap(),
     val musicProviders: List<MusicProviderInfo> = emptyList(),
     val musicState: MusicPlaybackState = MusicPlaybackState(),
     val musicDevices: List<MusicDevice> = emptyList(),
@@ -436,6 +442,220 @@ class SwonalRepository(
     private var activeTelemetrySource = TelemetrySource.NONE
     private var lastAutoLoggedStepKey: String? = null
 
+    /** Accessory most recently sent to the motor (catalog default or lifter's confirmed choice). */
+    @Volatile
+    private var lastSentAccessory: String? = null
+
+    /** Held weight while engaged + which lifter the current set belongs to. */
+    private val heldWeight = HeldWeightTracker()
+
+    /**
+     * Settings for a routine step: the lifter's remembered settings for this exercise (already adjusted
+     * after their last set when Auto-Adjust is ON). The routine's own weight is only the starting weight
+     * for a lifter's first time on the exercise.
+     */
+    private suspend fun resolveRoutineStepSettings(
+        userId: String?,
+        step: RoutineStep,
+        exercise: Exercise?,
+        workInPartner: Boolean = false
+    ): ExerciseSettings {
+        if (userId == null) return ExerciseSettingsPolicy.forRoutineStep(step, exercise, null, false, null)
+        awaitPendingRemember()
+        val pref = runCatching { localEngine.getExercisePref(userId, step.exerciseId) }.getOrNull()
+        val autoAdjust = runCatching { localEngine.getAutoAdjustWeights(userId) }.getOrDefault(false)
+        val prMax = if (pref == null && (workInPartner || (step.autoWeight && autoAdjust))) {
+            runCatching { localEngine.getPrs(userId) }.getOrNull()
+                ?.firstOrNull { it.exerciseId == step.exerciseId }?.maxWeightLb
+        } else null
+        return ExerciseSettingsPolicy.forRoutineStep(step, exercise, pref, autoAdjust, prMax, workInPartner)
+    }
+
+    /** Free Lift: restore exactly what the lifter last used on this exercise (never adjusted). */
+    private suspend fun resolveFreeLiftSettings(userId: String?, exercise: Exercise, fallbackWeightLb: Double?): ExerciseSettings {
+        awaitPendingRemember()
+        val pref = userId?.let { uid -> runCatching { localEngine.getExercisePref(uid, exercise.id) }.getOrNull() }
+        return ExerciseSettingsPolicy.forFreeLift(exercise, pref, fallbackWeightLb, _telemetryFlow.value.profileMode)
+    }
+
+    /**
+     * Loads settings onto the motor. The weight is never changed while engaged: it is held and applied
+     * the moment the weight is released. Returns true when the weight was deferred that way.
+     */
+    private fun applyExerciseSettings(exerciseId: String, settings: ExerciseSettings, applyWeight: Boolean = true): Boolean {
+        if (_uiStateFlow.value.authRequired) return false
+        val weightLb = if (applyWeight) settings.weightLb else null
+        val target = HeldWeightTracker.Held(
+            weightLb, settings.mode, settings.modifierPct, settings.accessory,
+            exerciseId = exerciseId,
+            rememberedAccessory = settings.remembered && settings.accessory != null
+        )
+        if (weightLb == null && settings.accessory == null) return false
+        if (isWeightCurrentlyEngaged()) {
+            // Never change weight or attachment mid-lift (the BAR attachment drives the bar-tilt cutout)
+            heldWeight.hold(target)
+            return weightLb != null
+        }
+        heldWeight.clear()
+        if (!applyHeldSettings(target)) {
+            // Engaged in the meantime (or the other telemetry source still says so): load it on release
+            heldWeight.hold(target)
+            return weightLb != null
+        }
+        return false
+    }
+
+    /** Sends held/target settings to the motor; false if the weight is (still) engaged. */
+    private fun applyHeldSettings(target: HeldWeightTracker.Held): Boolean {
+        if (isWeightCurrentlyEngaged()) return false
+        // The attachment prompt follows what is actually loaded, not what is still waiting for release
+        target.exerciseId?.let { exId ->
+            _uiStateFlow.update {
+                val map = if (target.rememberedAccessory && target.accessory != null) {
+                    it.rememberedAccessoryByExercise + (exId to target.accessory)
+                } else {
+                    it.rememberedAccessoryByExercise - exId
+                }
+                it.copy(rememberedAccessoryByExercise = map)
+            }
+        }
+        target.accessory?.let { setAccessory(it, byLifter = false) }
+        val weightLb = target.weightLb ?: return true
+        return setWeight(weightLb, target.mode, target.modifierPct, allowWhileEngaged = false)
+    }
+
+    /** Loads held settings once a frame shows the weight off; kept for later frames until the motor takes them. */
+    private fun applyHeldWeightIfReleased(weightEnabled: Boolean) {
+        val held = heldWeight.heldToApply(weightEnabled) ?: return
+        if (applyHeldSettings(held)) {
+            heldWeight.confirmApplied(held)
+        }
+    }
+
+    /** The weight the motor will actually take for [settings] (dynamic modes can lower the ceiling). */
+    private fun loadedWeightLb(settings: ExerciseSettings): Double? {
+        val w = settings.weightLb ?: return null
+        val current = _telemetryFlow.value
+        val mode = settings.mode ?: current.profileMode
+        return Units.clampWeightForDynamicMode(w, mode, Units.effectiveModifierPct(mode, settings.modifierPct ?: current.modifierPct))
+    }
+
+    private fun showMessage(text: String?) {
+        if (!text.isNullOrBlank()) _effectsFlow.tryEmit(KioskEffect.ShowMessage(text))
+    }
+
+    private val launchSettingsRestored = AtomicBoolean(false)
+
+    /** Set once bootstrap finished and the kiosk is unlocked, so launch restore never races the auth check. */
+    @Volatile
+    private var launchRestoreReady = false
+
+    /**
+     * On app launch (once the motor is reachable and the kiosk is unlocked), reopen Free Lift on the
+     * exercise the active lifter used last and restore its remembered weight/mode/accessory. Skipped
+     * once the lifter picks an exercise, starts a routine, or switches profile themselves.
+     */
+    private suspend fun maybeRestoreSettingsOnLaunch() {
+        val ui = _uiStateFlow.value
+        if (!launchRestoreReady || launchSettingsRestored.get() || ui.authRequired) return
+        if (ui.routineSteps.isNotEmpty() || isWeightCurrentlyEngaged()) return
+        if (!localDaemon.connected.value && !canSendMotorViaServer()) return
+        val uid = ui.activeUser?.id ?: return
+        if (!launchSettingsRestored.compareAndSet(false, true)) return
+        val latest = runCatching { localEngine.getLatestExercisePref(uid) }.getOrNull()
+        val exercise = latest?.let { p -> ui.exercises.firstOrNull { it.id == p.exerciseId } }
+            ?: ui.activeExercise
+            ?: return
+        _uiStateFlow.update { it.copy(activeExerciseId = exercise.id) }
+        val settings = resolveFreeLiftSettings(uid, exercise, fallbackWeightLb = null)
+        if (settings.remembered) applyExerciseSettings(exercise.id, settings)
+        refreshOverload(uid, exercise.id)
+    }
+
+    /** Remembers a finished set's settings (adjusted weight when Auto-Adjust is ON); returns the change. */
+    private suspend fun rememberFinishedSet(
+        lifter: User,
+        set: HeldWeightTracker.FinishedSet,
+        safetyCutout: Boolean = false
+    ): WeightChange? {
+        val autoAdjust = runCatching { localEngine.getAutoAdjustWeights(lifter.id) }.getOrDefault(false)
+        val outcome = ExerciseSettingsPolicy.afterSet(
+            userId = lifter.id,
+            exerciseId = set.exerciseId,
+            weightLb = set.weightLb,
+            mode = set.mode,
+            modifierPct = set.modifierPct,
+            accessory = set.accessory,
+            reps = set.reps,
+            routineTargetReps = set.routineTargetReps,
+            autoAdjustOn = autoAdjust,
+            unit = lifter.weightUnit,
+            safetyCutout = safetyCutout
+        )
+        runCatching { localEngine.saveExercisePref(outcome.pref) }
+        return outcome.change
+    }
+
+    /** Saving the last released set; loading settings waits for it so Next right after release sees it. */
+    @Volatile
+    private var rememberJob: Job? = null
+
+    private suspend fun awaitPendingRemember() {
+        rememberJob?.join()
+    }
+
+    /** True when the step after the current one (if any) is the same exercise, i.e. "next set". */
+    private fun nextStepIsSameExercise(ui: KioskUiState, exerciseId: String): Boolean =
+        ui.routineSteps.isEmpty() || ui.nextStep?.exerciseId == exerciseId
+
+    /**
+     * The weight was released with reps: the set is finished. Remember exactly what was lifted, for whoever
+     * engaged the weight, before any held settings load. Doesn't log the set or move the routine on.
+     */
+    private fun onSetFinished(frame: TelemetryFrame, autoLogging: Boolean) {
+        val ui = _uiStateFlow.value
+        // The set belongs to the exercise / rep goal on screen when the weight was engaged: switching
+        // exercise or step disengages *after* the switch, so the current screen may already be the next one.
+        val ctx = heldWeight.currentContext
+        val exercise = ctx?.exerciseId?.let { id -> ui.exercises.firstOrNull { it.id == id } }
+            ?: ui.activeExercise
+            ?: return
+        val routineTargetReps = if (ctx?.exerciseId != null) {
+            ctx.routineTargetReps
+        } else {
+            ui.currentStep?.takeIf { it.exerciseId == exercise.id }?.targetReps
+        }
+        val lifterId = heldWeight.lifterForSet(ui.activeUser?.id) ?: return
+        val lifter = ui.users.firstOrNull { it.id == lifterId } ?: return
+        val set = HeldWeightTracker.FinishedSet(
+            lifterId = lifterId,
+            exerciseId = exercise.id,
+            weightLb = frame.targetWeightLb,
+            mode = frame.profileMode,
+            modifierPct = frame.modifierPct,
+            accessory = lastSentAccessory ?: exercise.accessory,
+            reps = frame.repCount,
+            routineTargetReps = routineTargetReps,
+            appReleased = heldWeight.takeAppRelease()
+        )
+        heldWeight.onReleased(set)
+        rememberJob = scope.launch {
+            // A safety cutout disengages the motor and reports why; give that report a moment to arrive
+            delay(SAFETY_EVENT_GRACE_MS)
+            val cutout = _uiStateFlow.value.safetyEvent != null || set.appReleased
+            val change = rememberFinishedSet(lifter, set, cutout) ?: return@launch
+            // An auto-logged set shows its message when it's logged (with what loads next)
+            if (!autoLogging) {
+                showMessage(
+                    ExerciseSettingsPolicy.changeMessage(
+                        change, lifter.weightUnit, exercise.name,
+                        exercise.id == ui.activeExercise?.id && nextStepIsSameExercise(ui, exercise.id)
+                    )
+                )
+            }
+        }
+    }
+
     private val started = AtomicBoolean(false)
     private val logSetInFlight = AtomicBoolean(false)
     private val lastEnableTapMs = AtomicLong(0L)
@@ -481,6 +701,7 @@ class SwonalRepository(
                         if (health != null) {
                             _uiStateFlow.update { it.copy(isMockMode = health.mockMode) }
                         }
+                        maybeRestoreSettingsOnLaunch()
                     }
                 }
             }
@@ -541,6 +762,20 @@ class SwonalRepository(
             managedJobs += scope.launch {
                 localDaemon.localErrors.collect { errMsg ->
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage(errMsg))
+                }
+            }
+
+            managedJobs += scope.launch {
+                // Per-lifter preferences follow the active lifter however it changes (profile switch,
+                // Work-In rotation, Companion, server sync)
+                _uiStateFlow.map { it.activeUser?.id }.distinctUntilChanged().collect { uid ->
+                    if (uid != null) {
+                        runCatching { localEngine.getAutoAdjustWeights(uid) }.onSuccess { enabled ->
+                            if (_uiStateFlow.value.activeUser?.id == uid) {
+                                _uiStateFlow.update { it.copy(autoAdjustWeights = enabled) }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -697,6 +932,8 @@ class SwonalRepository(
         }
 
         refreshAuxiliaryState()
+        launchRestoreReady = true
+        maybeRestoreSettingsOnLaunch()
 
         // 2. Start or stop optional background Home / Cloud Server sync without blocking offline lifting
         cloudSyncManager.startOrReconfigure()
@@ -716,6 +953,8 @@ class SwonalRepository(
                         if (ok) {
                             _uiStateFlow.update { it.copy(authChecking = false, authRequired = false, authError = null) }
                             refreshAppState()
+                            launchRestoreReady = true
+                            maybeRestoreSettingsOnLaunch()
                         } else {
                             _uiStateFlow.update {
                                 it.copy(authChecking = false, authRequired = true, authError = "Invalid passcode")
@@ -856,6 +1095,11 @@ class SwonalRepository(
     }
 
     private suspend fun refreshUserScopedData(userId: String) {
+        runCatching { localEngine.getAutoAdjustWeights(userId) }.onSuccess { enabled ->
+            if (_uiStateFlow.value.activeUser?.id == userId) {
+                _uiStateFlow.update { it.copy(autoAdjustWeights = enabled) }
+            }
+        }
         runCatching { localEngine.getPrs(userId) }.onSuccess { prs ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(prs = prs) }
@@ -1010,6 +1254,7 @@ class SwonalRepository(
                 scope.launch {
                     refreshAppState()
                     refreshDaemonHealth()
+                    maybeRestoreSettingsOnLaunch()
                 }
             }
 
@@ -1156,6 +1401,8 @@ class SwonalRepository(
 
     private fun handleTelemetryFrame(frame: TelemetryFrame, source: TelemetrySource) {
         var shouldAutoLogReps: Int? = null
+        var autoLogStepKey: String? = null
+        var setFinished = false
 
         synchronized(telemetryLock) {
             val sourceSwitched = (activeTelemetrySource != TelemetrySource.NONE && activeTelemetrySource != source)
@@ -1171,6 +1418,13 @@ class SwonalRepository(
             // so a stale cached frame on reconnect can never jump resistance mid-lift.
             if (!sourceSwitched) {
                 if (!wasEnabled && frame.weightEnabled) {
+                    val engagedUi = _uiStateFlow.value
+                    val engagedExercise = engagedUi.activeExercise
+                    heldWeight.onEngaged(
+                        engagedUi.activeUser?.id,
+                        engagedExercise?.id,
+                        engagedUi.currentStep?.takeIf { it.exerciseId == engagedExercise?.id }?.targetReps
+                    )
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.WEIGHT_ENGAGE))
                 } else if (wasEnabled && !frame.weightEnabled) {
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.WEIGHT_DISENGAGE))
@@ -1179,8 +1433,10 @@ class SwonalRepository(
                     val stepKey = "${ui.sessionState.activeSessionId}:${ui.currentStepIdx}:${step?.exerciseId}"
                     if (step != null && frame.repCount >= step.targetReps && stepKey != lastAutoLoggedStepKey) {
                         lastAutoLoggedStepKey = stepKey
+                        autoLogStepKey = stepKey
                         shouldAutoLogReps = frame.repCount
                     }
+                    if (frame.repCount > 0) setFinished = true
                 }
                 if (frame.repCount > oldReps) {
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.REP_COMPLETE))
@@ -1192,9 +1448,24 @@ class SwonalRepository(
         }
 
         val repsToLog = shouldAutoLogReps
+        // Capture the finished set before any held settings load below
+        if (setFinished) onSetFinished(frame, autoLogging = repsToLog != null)
         if (repsToLog != null) {
-            scope.launch { logCompletedSetInternal(repsToLog) }
+            scope.launch {
+                delay(SAFETY_EVENT_GRACE_MS)
+                // Skip if the set was logged by hand (Complete Set) or the step changed during the wait
+                val ui = _uiStateFlow.value
+                val keyNow = "${ui.sessionState.activeSessionId}:${ui.currentStepIdx}:${ui.currentStep?.exerciseId}"
+                val stillPending = ui.activeExercise?.let { heldWeight.finishedSetFor(it.id) } != null
+                if (keyNow == autoLogStepKey && stillPending) {
+                    logCompletedSetInternal(repsToLog, autoLogged = true)
+                }
+            }
         }
+
+        // Load any weight that was held back while engaged, on any frame showing the weight off (not just
+        // the release edge, which is suppressed on telemetry source switches)
+        applyHeldWeightIfReleased(frame.weightEnabled || isWeightCurrentlyEngaged())
     }
 
     private fun handleSafetyEvent(event: SafetyEvent) {
@@ -1262,7 +1533,7 @@ class SwonalRepository(
      */
     fun toggleWeight() {
         if (isWeightCurrentlyEngaged()) {
-            disableWeight()
+            disableWeight(byApp = false)
             return
         }
 
@@ -1295,7 +1566,13 @@ class SwonalRepository(
     }
 
     /** Always allowed (even while locked or backgrounded): disengages via local fail-safe + server WS in parallel. */
-    fun disableWeight() {
+    /**
+     * @param byApp true when Swonal itself turns the weight off (leaving the screen, switching exercise
+     *   mid-lift, watchdog, dialogs); false for the lifter's own toggle. App releases are remembered but
+     *   never auto-adjusted.
+     */
+    fun disableWeight(byApp: Boolean = true) {
+        if (byApp && isWeightCurrentlyEngaged()) heldWeight.markAppRelease()
         scope.launch(Dispatchers.IO) {
             localDaemon.emergencyDisableWeight()
         }
@@ -1304,7 +1581,7 @@ class SwonalRepository(
 
     fun setWeightEnabled(enabled: Boolean) {
         if (!enabled) {
-            disableWeight()
+            disableWeight(byApp = false)
             return
         }
         if (!isUiAliveForWatchdog()) {
@@ -1316,7 +1593,8 @@ class SwonalRepository(
         }
     }
 
-    suspend fun disableWeightAndAwait(): Boolean {
+    suspend fun disableWeightAndAwait(byApp: Boolean = true): Boolean {
+        if (byApp && isWeightCurrentlyEngaged()) heldWeight.markAppRelease()
         sendWs(buildJsonObject { put("type", "disable_weight") })
         val localOk = localDaemon.emergencyDisableWeight()
         // Wait briefly for telemetry to confirm weight is off
@@ -1332,9 +1610,11 @@ class SwonalRepository(
         profileMode: String? = null,
         modifierPct: Int? = null,
         allowWhileEngaged: Boolean = true
-    ) {
-        if (_uiStateFlow.value.authRequired) return
-        if (!allowWhileEngaged && isWeightCurrentlyEngaged()) return
+    ): Boolean {
+        if (_uiStateFlow.value.authRequired) return false
+        if (!allowWhileEngaged && isWeightCurrentlyEngaged()) return false
+        // A lifter's own change (keypad, +/-, mode) wins over a weight waiting for release
+        if (allowWhileEngaged) heldWeight.clear()
 
         val current = _telemetryFlow.value
         val mode = profileMode ?: current.profileMode
@@ -1361,6 +1641,7 @@ class SwonalRepository(
             }
             sendWs(payload)
         }
+        return true
     }
 
     fun stepWeight(deltaDisplay: Double) {
@@ -1377,8 +1658,11 @@ class SwonalRepository(
         setWeight(_telemetryFlow.value.targetWeightLb, mode, defaultPct, allowWhileEngaged = true)
     }
 
-    fun setAccessory(accessory: String) {
+    /** @param byLifter true for the lifter's own pick (attachment buttons, Companion): cancels a held attachment. */
+    fun setAccessory(accessory: String, byLifter: Boolean = true) {
         if (_uiStateFlow.value.authRequired) return
+        if (byLifter) heldWeight.clearHeldAccessory()
+        lastSentAccessory = accessory.uppercase(Locale.US)
         val sentLocal = if (localDaemon.connected.value) localDaemon.setAccessoryDirect(accessory) else false
         if (!sentLocal && canSendMotorViaServer()) {
             sendWs(
@@ -1414,6 +1698,9 @@ class SwonalRepository(
 
     fun switchUser(userId: String) {
         if (_uiStateFlow.value.authRequired) return
+        // Tapping the profile that's already active must not undo the lifter's unlogged changes
+        if (_uiStateFlow.value.sessionState.activeUserId == userId) return
+        launchSettingsRestored.set(true)
         scope.launch {
             val nextState = localEngine.setActiveUser(userId)
             _uiStateFlow.update { it.copy(sessionState = nextState) }
@@ -1426,15 +1713,45 @@ class SwonalRepository(
                 )
             }
             refreshUserScopedData(userId)
-            if (!isWeightCurrentlyEngaged()) {
-                val exId = _uiStateFlow.value.activeExercise?.id
-                val pr = _uiStateFlow.value.prs.firstOrNull { it.exerciseId == exId }
-                if (pr != null && pr.maxWeightLb > 0) {
-                    val suggested = (round((pr.maxWeightLb * 0.85) / 5.0) * 5.0)
-                        .coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
-                    setWeight(suggested, allowWhileEngaged = false)
-                }
-            }
+            val ui = _uiStateFlow.value
+            val pr = ui.prs.firstOrNull { it.exerciseId == ui.activeExercise?.id }
+            val suggested = if (pr != null && pr.maxWeightLb > 0) {
+                ExerciseSettingsPolicy.prBasedStartLb(pr.maxWeightLb)
+            } else null
+            applySettingsForLifter(userId, freeLiftFallbackLb = suggested, workInPartner = false)
+        }
+    }
+
+    /**
+     * Loads [userId]'s settings for what's on screen (current routine step, else the Free Lift exercise),
+     * holding them until release if the weight is on, with a message naming the lifter.
+     */
+    private suspend fun applySettingsForLifter(userId: String, freeLiftFallbackLb: Double?, workInPartner: Boolean) {
+        val ui = _uiStateFlow.value
+        val exercise = ui.activeExercise
+        val step = ui.currentStep
+        val settings = when {
+            step != null -> resolveRoutineStepSettings(userId, step, exercise, workInPartner)
+            exercise != null -> resolveFreeLiftSettings(userId, exercise, freeLiftFallbackLb)
+            else -> null
+        } ?: return
+        val deferred = applyExerciseSettings(step?.exerciseId ?: exercise!!.id, settings)
+        val shownLb = loadedWeightLb(settings)
+        if (deferred && shownLb != null) {
+            val lifter = ui.users.firstOrNull { it.id == userId }
+            showMessage(ExerciseSettingsPolicy.deferredMessage(shownLb, lifter?.weightUnit ?: ui.activeUnit, lifter?.name))
+        }
+    }
+
+    /**
+     * A set was logged outside the kiosk's own flow (Companion / API). The release already remembered it;
+     * start fresh for the next set and, in Work-In, load the next partner's remembered settings.
+     */
+    fun onExternalSetLogged(resp: SetLogResponse) {
+        heldWeight.onSetLogged()
+        val rotation = resp.partnerRotation ?: return
+        scope.launch {
+            applySettingsForLifter(rotation.rotatedToUserId, freeLiftFallbackLb = rotation.targetWeightLb, workInPartner = true)
         }
     }
 
@@ -1546,6 +1863,13 @@ class SwonalRepository(
         _uiStateFlow.update { it.copy(soundMuted = next) }
     }
 
+    fun setAutoAdjustWeights(enabled: Boolean) {
+        if (_uiStateFlow.value.authRequired) return
+        val uid = _uiStateFlow.value.activeUser?.id ?: return
+        _uiStateFlow.update { it.copy(autoAdjustWeights = enabled) }
+        scope.launch { runCatching { localEngine.setAutoAdjustWeights(uid, enabled) } }
+    }
+
     fun setDeveloperMode(enabled: Boolean) {
         prefs.developerMode = enabled
         _uiStateFlow.update { it.copy(developerMode = enabled) }
@@ -1636,6 +1960,9 @@ class SwonalRepository(
             return
         }
         val uid = preferredUserId ?: _uiStateFlow.value.activeUser?.id ?: return
+        launchSettingsRestored.set(true)
+        heldWeight.clear()
+        heldWeight.forgetFinishedSet()
         scope.launch {
             if (isWeightCurrentlyEngaged()) {
                 disableWeightAndAwait()
@@ -1656,8 +1983,7 @@ class SwonalRepository(
                     } else it.sessionState.copy(activeUserId = uid)
                 )
             }
-            if (ex0 != null) setAccessory(ex0.accessory)
-            setWeight(step0.targetWeightLb, step0.mode, step0.modifierPct, allowWhileEngaged = false)
+            applyExerciseSettings(step0.exerciseId, resolveRoutineStepSettings(uid, step0, ex0))
             resetReps()
             refreshOverload(uid, step0.exerciseId)
             notifyDirtySync()
@@ -1666,6 +1992,9 @@ class SwonalRepository(
 
     fun selectFreeExercise(exercise: Exercise) {
         if (_uiStateFlow.value.authRequired) return
+        launchSettingsRestored.set(true)
+        heldWeight.clear()
+        heldWeight.forgetFinishedSet()
         lastAutoLoggedStepKey = null
         val wasEngaged = isWeightCurrentlyEngaged()
         _uiStateFlow.update {
@@ -1676,7 +2005,6 @@ class SwonalRepository(
                 activeExerciseId = exercise.id
             )
         }
-        setAccessory(exercise.accessory)
         resetReps()
         val ui = _uiStateFlow.value
         val pr = ui.prs.firstOrNull { it.exerciseId == exercise.id }
@@ -1688,9 +2016,7 @@ class SwonalRepository(
             if (wasEngaged) {
                 disableWeightAndAwait()
             }
-            if (suggested != null) {
-                setWeight(suggested, allowWhileEngaged = false)
-            }
+            applyExerciseSettings(exercise.id, resolveFreeLiftSettings(ui.activeUser?.id, exercise, suggested))
             ui.activeUser?.id?.let { uid ->
                 refreshOverload(uid, exercise.id)
             }
@@ -1703,19 +2029,20 @@ class SwonalRepository(
         if (ui.routineSteps.isNotEmpty()) {
             val nextIdx = (ui.currentStepIdx + delta).coerceIn(0, ui.routineSteps.lastIndex)
             if (nextIdx == ui.currentStepIdx) return
+            heldWeight.clear()
+            heldWeight.forgetFinishedSet()
             val wasEngaged = isWeightCurrentlyEngaged()
             val step = ui.routineSteps[nextIdx]
             val ex = ui.exercises.firstOrNull { it.id == step.exerciseId }
             _uiStateFlow.update {
                 it.copy(currentStepIdx = nextIdx, activeExerciseId = step.exerciseId)
             }
-            if (ex != null) setAccessory(ex.accessory)
             resetReps()
             scope.launch {
                 if (wasEngaged) {
                     disableWeightAndAwait()
                 }
-                setWeight(step.targetWeightLb, step.mode, step.modifierPct, allowWhileEngaged = false)
+                applyExerciseSettings(step.exerciseId, resolveRoutineStepSettings(ui.activeUser?.id, step, ex))
                 ui.activeUser?.id?.let { uid ->
                     refreshOverload(uid, step.exerciseId)
                 }
@@ -1732,14 +2059,27 @@ class SwonalRepository(
         scope.launch { logCompletedSetInternal(repsOverride) }
     }
 
-    private suspend fun logCompletedSetInternal(repsOverride: Int? = null) {
+    private suspend fun logCompletedSetInternal(repsOverride: Int? = null, autoLogged: Boolean = false) {
         if (!logSetInFlight.compareAndSet(false, true)) return
         try {
             val ui = _uiStateFlow.value
-            val user = ui.activeUser ?: return
+            val activeUser = ui.activeUser ?: return
             val exercise = ui.activeExercise ?: return
-            val telemetry = _telemetryFlow.value
             val step = ui.currentStep
+            // What was actually lifted: live values while still engaged, else the set captured on release
+            // (a held weight for the next lifter/step may already have loaded since)
+            val engaged = isWeightCurrentlyEngaged()
+            val finishedSet = if (engaged) null else heldWeight.finishedSetFor(exercise.id)
+            val live = _telemetryFlow.value
+            // The set belongs to whoever engaged the weight, even if someone switched profile since
+            val user = (finishedSet?.lifterId ?: heldWeight.lifterForSet(activeUser.id))
+                ?.let { id -> ui.users.firstOrNull { it.id == id } }
+                ?: activeUser
+            val liftedLb = finishedSet?.weightLb ?: live.targetWeightLb
+            val liftedMode = finishedSet?.mode ?: live.profileMode
+            val liftedModifierPct = finishedSet?.modifierPct ?: live.modifierPct
+            val countedReps = finishedSet?.reps ?: live.repCount
+            val nextIsSameExercise = nextStepIsSameExercise(ui, exercise.id)
 
             var sessionId = ui.sessionState.activeSessionId
             if (sessionId == null) {
@@ -1750,7 +2090,7 @@ class SwonalRepository(
                 }
             }
 
-            val reps = repsOverride ?: if (telemetry.repCount > 0) telemetry.repCount else (step?.targetReps ?: 10)
+            val reps = repsOverride ?: if (countedReps > 0) countedReps else (step?.targetReps ?: 10)
             val restSec = step?.restSeconds ?: 60
             val setNumber = step?.setNumber ?: 1
 
@@ -1760,9 +2100,9 @@ class SwonalRepository(
                     userId = user.id,
                     exerciseId = exercise.id,
                     setNumber = setNumber,
-                    mode = telemetry.profileMode,
-                    modifierPct = telemetry.modifierPct,
-                    weightLb = telemetry.targetWeightLb,
+                    mode = liftedMode,
+                    modifierPct = liftedModifierPct,
+                    weightLb = liftedLb,
                     repsCompleted = reps,
                     restSeconds = restSec
                 )
@@ -1770,6 +2110,35 @@ class SwonalRepository(
                 _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to log set"))
                 return
             }
+
+            // Remember what was lifted. Released sets were already remembered on release (re-saved here with
+            // the logged rep count); a set logged without any detected lift (no motor data) isn't remembered.
+            val routineTargetReps = step?.takeIf { it.exerciseId == exercise.id }?.targetReps
+            // Let the release's own save (and its safety-cutout check) finish first
+            if (finishedSet != null) awaitPendingRemember()
+            // The motor turned itself off on a safety cutout (banner not yet acknowledged), or the app turned
+            // it off (left the screen, switched exercise mid-lift): don't adjust
+            val cutout = !engaged && (_uiStateFlow.value.safetyEvent != null || finishedSet?.appReleased == true)
+            val change: WeightChange? = when {
+                engaged -> rememberFinishedSet(
+                    user,
+                    HeldWeightTracker.FinishedSet(
+                        lifterId = user.id,
+                        exerciseId = exercise.id,
+                        weightLb = liftedLb,
+                        mode = liftedMode,
+                        modifierPct = liftedModifierPct,
+                        accessory = lastSentAccessory ?: exercise.accessory,
+                        reps = reps,
+                        routineTargetReps = routineTargetReps
+                    )
+                )
+                finishedSet != null -> rememberFinishedSet(user, finishedSet.copy(reps = reps), cutout)
+                else -> null
+            }
+            // A manual Complete Set after release already announced the change on release
+            val announceChange = engaged || autoLogged || finishedSet == null
+            var weightDeferred = false
 
             emitLocalBroadcast("set_logged") {
                 put("setLog", SwonalJson.encodeToJsonElement(SetLog.serializer(), resp.setLog))
@@ -1788,8 +2157,8 @@ class SwonalRepository(
             if (resp.newPr) {
                 _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.PERSONAL_RECORD))
                 duckMusicForCue(1800)
-                val est1Rm = Units.estimateEpley1Rm(telemetry.targetWeightLb, reps)
-                val hit = PrHit(exercise.name, est1Rm, telemetry.targetWeightLb, reps)
+                val est1Rm = Units.estimateEpley1Rm(liftedLb, reps)
+                val hit = PrHit(exercise.name, est1Rm, liftedLb, reps)
                 _uiStateFlow.update {
                     it.copy(
                         lastPrBanner = exercise.name,
@@ -1806,7 +2175,9 @@ class SwonalRepository(
                 duckMusicForCue(1200)
             }
 
-            val effectiveUid = resp.partnerRotation?.rotatedToUserId ?: user.id
+            heldWeight.onSetLogged()
+            // Next set: the rotated Work-In partner, else whoever is active now
+            val effectiveUid = resp.partnerRotation?.rotatedToUserId ?: activeUser.id
             runCatching { localEngine.getPrs(effectiveUid) }.onSuccess { prs ->
                 if (_uiStateFlow.value.activeUser?.id == effectiveUid) {
                     _uiStateFlow.update { it.copy(prs = prs) }
@@ -1820,6 +2191,8 @@ class SwonalRepository(
 
             // Advance routine step if active
             val updatedUi = _uiStateFlow.value
+            val rotation = resp.partnerRotation
+            var nextWeightLb: Double? = null
             if (updatedUi.routineSteps.isNotEmpty()) {
                 val nextIdx = updatedUi.currentStepIdx + 1
                 if (nextIdx < updatedUi.routineSteps.size) {
@@ -1828,14 +2201,46 @@ class SwonalRepository(
                     _uiStateFlow.update {
                         it.copy(currentStepIdx = nextIdx, activeExerciseId = nextStep.exerciseId)
                     }
-                    if (resp.partnerRotation == null) {
-                        if (nextEx != null) setAccessory(nextEx.accessory)
-                        setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct, allowWhileEngaged = false)
-                    }
+                    // Next lifter (same one, or the rotated Work-In partner) gets their own remembered settings
+                    val settings = resolveRoutineStepSettings(effectiveUid, nextStep, nextEx, workInPartner = rotation != null)
+                    nextWeightLb = loadedWeightLb(settings)
+                    weightDeferred = applyExerciseSettings(nextStep.exerciseId, settings)
                     refreshOverload(effectiveUid, nextStep.exerciseId)
                 } else {
-                    finishWorkoutInternal()
+                    // Last set logged while the lifter may still be holding the weight: finish the workout
+                    // but let them release it themselves instead of cutting resistance under load
+                    finishWorkoutInternal(disengage = false)
                 }
+            } else if (rotation != null) {
+                // Free Lift Work-In: partner's remembered weight for this exercise, else the PR-based target
+                val settings = resolveFreeLiftSettings(effectiveUid, exercise, rotation.targetWeightLb)
+                nextWeightLb = loadedWeightLb(settings)
+                weightDeferred = applyExerciseSettings(exercise.id, settings)
+            }
+
+            val nextUser = updatedUi.users.firstOrNull { it.id == effectiveUid }
+            val message = ExerciseSettingsPolicy.postSetMessage(
+                changeText = change?.takeIf { announceChange }?.let {
+                    ExerciseSettingsPolicy.changeMessage(it, user.weightUnit, exercise.name, nextIsSameExercise)
+                },
+                lifterName = user.name,
+                someoneElseNext = effectiveUid != user.id,
+                deferredWeightLb = nextWeightLb?.takeIf { weightDeferred },
+                deferredUnit = nextUser?.weightUnit ?: _uiStateFlow.value.activeUnit,
+                nextLifterName = nextUser?.name
+            )
+            showMessage(message)
+
+            // Logged while still engaged (Complete Set mid-lift): the next set starts now, on the new step, and
+            // still belongs to whoever is holding the weight (not a partner who was switched in meanwhile)
+            if (isWeightCurrentlyEngaged()) {
+                val nowUi = _uiStateFlow.value
+                val nowExercise = nowUi.activeExercise
+                heldWeight.onEngaged(
+                    user.id,
+                    nowExercise?.id,
+                    nowUi.currentStep?.takeIf { it.exerciseId == nowExercise?.id }?.targetReps
+                )
             }
         } finally {
             logSetInFlight.set(false)
@@ -1846,10 +2251,12 @@ class SwonalRepository(
         scope.launch { finishWorkoutInternal() }
     }
 
-    private suspend fun finishWorkoutInternal() {
+    private suspend fun finishWorkoutInternal(disengage: Boolean = true) {
         val sessionId = _uiStateFlow.value.sessionState.activeSessionId
         val prHits = _uiStateFlow.value.sessionPrHits
-        disableWeight()
+        heldWeight.clear()
+        heldWeight.forgetFinishedSet()
+        if (disengage) disableWeight()
         skipRestTimer()
         val completed = if (sessionId != null) {
             runCatching { localEngine.completeSession(sessionId) }.getOrNull()
@@ -2317,6 +2724,9 @@ class SwonalRepository(
     }
 
     companion object {
+        /** How long to wait after a release for a safety-cutout report that may arrive just after it. */
+        private const val SAFETY_EVENT_GRACE_MS = 500L
+
         const val MAX_COACH_DELTA_LB = 20.0
 
         fun findLibrespotDevice(devices: List<MusicDevice>): MusicDevice? {

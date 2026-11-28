@@ -196,4 +196,118 @@ class LocalWorkoutEngineTest {
         val iso = IsoTime.formatUtc(nowMs)
         assertEquals(nowMs, IsoTime.parseUtcMs(iso))
     }
+
+    @Test
+    fun `exercise prefs are stored per lifter and per exercise and upsert in place`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val taylor = state.users[1]
+        val bench = state.exercises[0]
+        val row = state.exercises[1]
+
+        assertNull(engine.getExercisePref(alex.id, bench.id))
+
+        engine.saveExercisePref(
+            com.swonal.kiosk.model.ExercisePref(
+                userId = alex.id, exerciseId = bench.id, weightLb = 60.0, mode = "CHAINS",
+                modifierPct = 30, accessory = "bar", lastReps = 9, lastTargetReps = 10
+            )
+        )
+        engine.saveExercisePref(
+            com.swonal.kiosk.model.ExercisePref(
+                userId = taylor.id, exerciseId = bench.id, weightLb = 35.0, lastReps = 12, lastTargetReps = null
+            )
+        )
+
+        val alexBench = engine.getExercisePref(alex.id, bench.id)
+        assertNotNull(alexBench)
+        assertEquals(60.0, alexBench!!.weightLb)
+        assertEquals("chains", alexBench.mode)
+        assertEquals(30, alexBench.modifierPct)
+        assertEquals("BAR", alexBench.accessory)
+        assertEquals(9, alexBench.lastReps)
+        assertEquals(10, alexBench.lastTargetReps)
+
+        val taylorBench = engine.getExercisePref(taylor.id, bench.id)
+        assertEquals(35.0, taylorBench!!.weightLb)
+        assertNull(taylorBench.lastTargetReps)
+        assertNull(engine.getExercisePref(alex.id, row.id))
+
+        // Upsert replaces the row for the same lifter+exercise
+        engine.saveExercisePref(alexBench.copy(weightLb = 57.0, mode = "standard", modifierPct = 0, lastTargetReps = null))
+        val updated = engine.getExercisePref(alex.id, bench.id)!!
+        assertEquals(57.0, updated.weightLb)
+        assertEquals("standard", updated.mode)
+        assertNull(updated.lastTargetReps)
+    }
+
+    @Test
+    fun `latest exercise pref returns the lifter's most recently used exercise`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val taylor = state.users[1]
+        assertNull(engine.getLatestExercisePref(alex.id))
+
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref(alex.id, state.exercises[0].id, weightLb = 40.0))
+        Thread.sleep(5)
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref(alex.id, state.exercises[1].id, weightLb = 30.0))
+        Thread.sleep(5)
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref(taylor.id, state.exercises[2].id, weightLb = 25.0))
+
+        assertEquals(state.exercises[1].id, engine.getLatestExercisePref(alex.id)?.exerciseId)
+        assertEquals(state.exercises[2].id, engine.getLatestExercisePref(taylor.id)?.exerciseId)
+
+        // Re-using an older exercise makes it the latest again
+        Thread.sleep(5)
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref(alex.id, state.exercises[0].id, weightLb = 42.0))
+        val latest = engine.getLatestExercisePref(alex.id)
+        assertEquals(state.exercises[0].id, latest?.exerciseId)
+        assertEquals(42.0, latest?.weightLb)
+    }
+
+    @Test
+    fun `auto-adjust weights preference is per lifter and defaults off`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val taylor = state.users[1]
+        assertFalse(engine.getAutoAdjustWeights(alex.id))
+        assertFalse(engine.getAutoAdjustWeights(taylor.id))
+
+        engine.setAutoAdjustWeights(alex.id, true)
+        assertTrue(engine.getAutoAdjustWeights(alex.id))
+        assertFalse(engine.getAutoAdjustWeights(taylor.id))
+
+        engine.setAutoAdjustWeights(alex.id, false)
+        assertFalse(engine.getAutoAdjustWeights(alex.id))
+    }
+
+    @Test
+    fun `Work-In rotates to the partner after whoever actually lifted`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val taylor = state.users[1]
+        val bench = state.exercises[0]
+        engine.setPartnerMode(true, listOf(alex.id, taylor.id))
+        engine.setActiveUser(alex.id)
+        val sess = engine.createSession(alex.id)
+
+        // Normal Work-In: Alex lifts and is active -> Taylor next
+        val first = engine.logSet(sess.id, alex.id, bench.id, 1, "standard", 0, 50.0, 10)
+        assertEquals(taylor.id, first.partnerRotation?.rotatedToUserId)
+        assertEquals(taylor.id, engine.getSessionState().activeUserId)
+
+        // Taylor's set -> Alex next
+        val second = engine.logSet(sess.id, taylor.id, bench.id, 1, "standard", 0, 35.0, 10)
+        assertEquals(alex.id, second.partnerRotation?.rotatedToUserId)
+
+        // Taylor's profile was switched in while Alex was still lifting: Alex's set still hands over to Taylor
+        engine.setActiveUser(taylor.id)
+        val third = engine.logSet(sess.id, alex.id, bench.id, 2, "standard", 0, 50.0, 10)
+        assertEquals(taylor.id, third.partnerRotation?.rotatedToUserId)
+        assertEquals(taylor.id, engine.getSessionState().activeUserId)
+    }
 }

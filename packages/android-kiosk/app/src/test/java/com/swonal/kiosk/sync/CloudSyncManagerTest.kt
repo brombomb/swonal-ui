@@ -270,6 +270,47 @@ class CloudSyncManagerTest {
     }
 
     @Test
+    fun `applyPulledSync exercise remap keeps remembered settings, newest row wins`() = runBlocking {
+        val db = SwonalDatabase(":memory:", PlaintextTestCipher)
+        val engine = LocalWorkoutEngine(db)
+        db.seedIfEmpty(
+            """
+            {
+              "users": [ { "id": "u-1", "name": "Alex", "weightUnit": "LB" }, { "id": "u-2", "name": "Taylor", "weightUnit": "LB" } ],
+              "exercises": [
+                { "id": "ex-local", "name": "Incline Press", "muscleGroup": "Chest", "accessory": "HANDLES" },
+                { "id": "ex-canonical-srv", "name": "Incline Press (old)", "muscleGroup": "Chest", "accessory": "HANDLES" }
+              ]
+            }
+            """.trimIndent(),
+            includeDemoUsersAndRoutines = true
+        )
+        // Taylor already has an older row on the canonical ID; Alex only has the local ID
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref("u-2", "ex-canonical-srv", weightLb = 30.0))
+        Thread.sleep(5)
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref("u-1", "ex-local", weightLb = 55.0, mode = "chains", modifierPct = 25, accessory = "BAR"))
+        engine.saveExercisePref(com.swonal.kiosk.model.ExercisePref("u-2", "ex-local", weightLb = 40.0))
+
+        val now = System.currentTimeMillis()
+        db.applyPulledSync(
+            SyncPullResponse(
+                serverTimeMs = now,
+                exercises = listOf(
+                    StoredExerciseSyncRecord(id = "ex-canonical-srv", name = "Incline Press", muscleGroup = "Chest", accessory = "HANDLES", updatedAtMs = now + 100)
+                )
+            )
+        )
+
+        val alex = engine.getExercisePref("u-1", "ex-canonical-srv")
+        assertNotNull(alex)
+        assertEquals(55.0, alex?.weightLb)
+        assertEquals("chains", alex?.mode)
+        assertEquals("BAR", alex?.accessory)
+        assertEquals(40.0, engine.getExercisePref("u-2", "ex-canonical-srv")?.weightLb) // newer local row wins
+        assertNull(engine.getExercisePref("u-1", "ex-local"))
+    }
+
+    @Test
     fun `initial server import replaces seeded demo users even when server timestamps are older and prunes ghost demo profiles`() = runBlocking {
         val db = SwonalDatabase(":memory:", PlaintextTestCipher)
         db.seedIfEmpty(

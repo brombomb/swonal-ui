@@ -1187,7 +1187,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val overload = ui.overloadSuggestion
-        if (overload != null && overload.ready) {
+        // Auto-Adjust Weights already handles progression; the older +5 lb hint could contradict it
+        if (overload != null && overload.ready && !ui.autoAdjustWeights) {
             binding.overloadReadyPill.visibility = View.VISIBLE
             val bump = Units.formatCompactWeight(overload.recommendedBumpLb, ui.activeUnit)
             binding.tvOverloadReady.text = "+$bump ${ui.activeUnit} Ready"
@@ -1437,7 +1438,8 @@ class MainActivity : AppCompatActivity() {
     private fun renderAccessoryButtonsIfChanged(activeAccessory: String) {
         val ui = app.repository.uiStateFlow.value
         val exId = ui.activeExercise?.id.orEmpty()
-        val targetAcc = ui.activeExercise?.accessory?.uppercase(Locale.US) ?: "HANDLES"
+        val targetAcc = (ui.rememberedAccessoryByExercise[exId] ?: ui.activeExercise?.accessory)
+            ?.uppercase(Locale.US) ?: "HANDLES"
         val norm = activeAccessory.uppercase(Locale.US)
         val isConfirmed = confirmedAccessoryExerciseId == exId && confirmedAccessoryName == targetAcc
         val cacheKey = "$exId|$targetAcc|$norm|$isConfirmed"

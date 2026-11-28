@@ -133,7 +133,8 @@ object Units {
                                 targetWeightLb = item.targetWeightLb,
                                 mode = item.mode,
                                 modifierPct = item.modifierPct,
-                                restSeconds = block.restSeconds
+                                restSeconds = block.restSeconds,
+                                autoWeight = item.autoWeight
                             )
                         }
                     }
@@ -152,7 +153,8 @@ object Units {
                             targetWeightLb = item.targetWeightLb,
                             mode = item.mode,
                             modifierPct = item.modifierPct,
-                            restSeconds = block.restSeconds
+                            restSeconds = block.restSeconds,
+                            autoWeight = item.autoWeight
                         )
                     }
                 }

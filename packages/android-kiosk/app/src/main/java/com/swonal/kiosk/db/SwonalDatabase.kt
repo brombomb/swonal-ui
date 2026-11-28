@@ -5,6 +5,7 @@ import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import com.swonal.kiosk.model.Exercise
+import com.swonal.kiosk.model.ExercisePref
 import com.swonal.kiosk.model.PersonalRecord
 import com.swonal.kiosk.model.SessionTemplateSummary
 import com.swonal.kiosk.model.SetLog
@@ -236,6 +237,23 @@ class SwonalDatabase(
                 key TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL,
                 updated_at_ms INTEGER NOT NULL
+            );
+            """.trimIndent()
+        )
+        c.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS exercise_prefs (
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                exercise_id TEXT NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+                weight_lb REAL NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'standard',
+                modifier_pct INTEGER NOT NULL DEFAULT 0,
+                accessory TEXT NOT NULL DEFAULT 'HANDLES',
+                last_reps INTEGER,
+                last_target_reps INTEGER,
+                updated_at TEXT NOT NULL,
+                updated_at_ms INTEGER NOT NULL,
+                PRIMARY KEY(user_id, exercise_id)
             );
             """.trimIndent()
         )
@@ -1232,6 +1250,82 @@ class SwonalDatabase(
                 null
             }
         }
+    }
+
+    suspend fun getExercisePref(userId: String, exerciseId: String): ExercisePref? = withDb { c ->
+        c.prepare(
+            """
+            SELECT user_id, exercise_id, weight_lb, mode, modifier_pct, accessory, last_reps, last_target_reps, updated_at
+            FROM exercise_prefs WHERE user_id = ? AND exercise_id = ?
+            """.trimIndent()
+        ).useStmt { s ->
+            s.bindText(1, userId)
+            s.bindText(2, exerciseId)
+            if (s.step()) {
+                ExercisePref(
+                    userId = s.getText(0),
+                    exerciseId = s.getText(1),
+                    weightLb = s.getDouble(2),
+                    mode = s.getText(3),
+                    modifierPct = s.getLong(4).toInt(),
+                    accessory = s.getText(5),
+                    lastReps = if (s.isNull(6)) null else s.getLong(6).toInt(),
+                    lastTargetReps = if (s.isNull(7)) null else s.getLong(7).toInt(),
+                    updatedAt = s.getText(8)
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    /** The exercise this lifter most recently logged a set on (still in the catalog), with its settings. */
+    suspend fun getLatestExercisePref(userId: String): ExercisePref? = withDb { c ->
+        c.prepare(
+            """
+            SELECT p.exercise_id FROM exercise_prefs p
+            JOIN exercises e ON e.id = p.exercise_id AND e.deleted_at_ms IS NULL
+            WHERE p.user_id = ? ORDER BY p.updated_at_ms DESC LIMIT 1
+            """.trimIndent()
+        ).useStmt { s ->
+            s.bindText(1, userId)
+            if (s.step()) s.getText(0) else null
+        }
+    }?.let { exId -> getExercisePref(userId, exId) }
+
+    suspend fun upsertExercisePref(pref: ExercisePref): ExercisePref = withTx { c ->
+        val nowMs = System.currentTimeMillis()
+        val nowIso = IsoTime.formatUtc(nowMs)
+        c.prepare(
+            """
+            INSERT INTO exercise_prefs(
+                user_id, exercise_id, weight_lb, mode, modifier_pct, accessory,
+                last_reps, last_target_reps, updated_at, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+                weight_lb = excluded.weight_lb,
+                mode = excluded.mode,
+                modifier_pct = excluded.modifier_pct,
+                accessory = excluded.accessory,
+                last_reps = excluded.last_reps,
+                last_target_reps = excluded.last_target_reps,
+                updated_at = excluded.updated_at,
+                updated_at_ms = excluded.updated_at_ms
+            """.trimIndent()
+        ).useStmt { s ->
+            s.bindText(1, pref.userId)
+            s.bindText(2, pref.exerciseId)
+            s.bindDouble(3, pref.weightLb)
+            s.bindText(4, pref.mode)
+            s.bindLong(5, pref.modifierPct.toLong())
+            s.bindText(6, pref.accessory)
+            if (pref.lastReps != null) s.bindLong(7, pref.lastReps.toLong()) else s.bindNull(7)
+            if (pref.lastTargetReps != null) s.bindLong(8, pref.lastTargetReps.toLong()) else s.bindNull(8)
+            s.bindText(9, nowIso)
+            s.bindLong(10, nowMs)
+            s.step()
+        }
+        pref.copy(updatedAt = nowIso)
     }
 
     suspend fun getRecentSetLogsForExercise(userId: String, exerciseId: String, limit: Int = 4): List<SetLog> = withDb { c ->

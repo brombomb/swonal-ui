@@ -125,7 +125,10 @@ data class WorkoutBlockItem(
     val targetReps: Int = 10,
     val mode: String = "standard",
     val modifierPct: Int = 0,
-    val targetWeightLb: Double = 25.0
+    /** Starting weight for a lifter's first time on this exercise (remembered weight is used after). */
+    val targetWeightLb: Double = 25.0,
+    /** "Auto": Swonal picks the first-time starting weight for lifters with Auto-Adjust Weights ON. */
+    val autoWeight: Boolean = false
 )
 
 @Serializable
@@ -159,7 +162,8 @@ data class RoutineStep(
     val targetWeightLb: Double,
     val mode: String,
     val modifierPct: Int,
-    val restSeconds: Int
+    val restSeconds: Int,
+    val autoWeight: Boolean = false
 )
 
 @Serializable
@@ -247,6 +251,21 @@ data class SetLogResponse(
     val newPr: Boolean = false,
     val totalVolume: Double = 0.0,
     val partnerRotation: PartnerRotation? = null
+)
+
+/** Last-used settings for one lifter on one exercise (weight, mode, accessory, and rep outcome). */
+@Serializable
+data class ExercisePref(
+    val userId: String,
+    val exerciseId: String,
+    val weightLb: Double,
+    val mode: String = "standard",
+    val modifierPct: Int = 0,
+    val accessory: String = "HANDLES",
+    val lastReps: Int? = null,
+    /** Rep goal of the last set when it was done inside a routine; null for Free Lift sets. */
+    val lastTargetReps: Int? = null,
+    val updatedAt: String = ""
 )
 
 @Serializable
