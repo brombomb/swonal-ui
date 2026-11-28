@@ -21,6 +21,9 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             Log.i(TAG, "BOOT_COMPLETED received. Ensuring Kiosk lock is clear and launching Swonal.")
 
+            // Keep the receiver alive until the root shell commands finish; without goAsync()
+            // Android may kill the process mid-command once onReceive() returns.
+            val pendingResult = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     // Release any leftover LockTaskMode from TonalLauncher
@@ -39,6 +42,8 @@ class BootReceiver : BroadcastReceiver() {
                     context.startActivity(launchIntent)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to initialize Swonal on boot", e)
+                } finally {
+                    pendingResult.finish()
                 }
             }
         }
