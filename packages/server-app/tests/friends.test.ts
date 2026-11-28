@@ -15,6 +15,7 @@ import {
   publishReaction,
   getFeed,
   closePool,
+  DEFAULT_RELAYS,
 } from '../src/server/services/nostrFriendsService';
 
 describe('Decentralized Peer-to-Peer Friends System (Nostr Protocol)', () => {
@@ -75,6 +76,84 @@ describe('Decentralized Peer-to-Peer Friends System (Nostr Protocol)', () => {
       // Subsequent retrieval yields identical pubkey
       const cached = await getOrCreateUserIdentity(DEFAULT_USERS.USER_ONE_ID);
       expect(cached.pubkeyHex).toBe(identity.pubkeyHex);
+    });
+  });
+
+  describe('Relays saved before the identity exists', () => {
+    const PRIVATE_RELAYS = ['ws://127.0.0.1:7777'];
+    const createdUserIds: string[] = [];
+
+    async function createFreshUser(name: string): Promise<string> {
+      const user = await prisma.user.create({ data: { name } });
+      createdUserIds.push(user.id);
+      return user.id;
+    }
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }).catch(() => {});
+    });
+
+    it('keeps relays posted before the first identity read (HTTP)', async () => {
+      const userId = await createFreshUser('Relay First');
+
+      const postRes = await fetch(`${baseUrl}/api/friends/identity/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relays: PRIVATE_RELAYS }),
+      });
+      expect(postRes.status).toBe(200);
+
+      const getRes = await fetch(`${baseUrl}/api/friends/identity/${userId}`);
+      expect(getRes.status).toBe(200);
+      const identity = await getRes.json();
+      expect(identity.npub).toMatch(/^npub1[0-9a-z]+$/);
+      expect(identity.relays).toEqual(PRIVATE_RELAYS);
+
+      const stored = await prisma.user.findUnique({ where: { id: userId }, select: { nostrRelays: true } });
+      expect(JSON.parse(stored!.nostrRelays!)).toEqual(PRIVATE_RELAYS);
+    });
+
+    it('keeps saved relays when publishing a workout creates the identity', async () => {
+      const userId = await createFreshUser('Relay First Share');
+      await prisma.user.update({
+        where: { id: userId },
+        data: { nostrRelays: JSON.stringify(PRIVATE_RELAYS) },
+      });
+
+      // publishWorkout goes through getUserSecretKey, which creates the identity on demand
+      const event = await publishWorkout(userId, {
+        sessionId: 'relay-first-session',
+        routineName: 'Relay Test Routine',
+        totalVolumeLb: 1000,
+        durationSec: 600,
+      });
+      expect(event).not.toBeNull();
+
+      const stored = await prisma.user.findUnique({ where: { id: userId }, select: { nostrRelays: true } });
+      expect(JSON.parse(stored!.nostrRelays!)).toEqual(PRIVATE_RELAYS);
+    });
+
+    it('still gives a user with no saved relays the defaults', async () => {
+      const userId = await createFreshUser('No Relays');
+      const identity = await getOrCreateUserIdentity(userId);
+      expect(identity.relays).toEqual(DEFAULT_RELAYS);
+
+      const stored = await prisma.user.findUnique({ where: { id: userId }, select: { nostrRelays: true } });
+      expect(JSON.parse(stored!.nostrRelays!)).toEqual(DEFAULT_RELAYS);
+    });
+
+    it('leaves an existing identity and its relays unchanged', async () => {
+      const userId = await createFreshUser('Existing Identity');
+      const first = await getOrCreateUserIdentity(userId);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { nostrRelays: JSON.stringify(PRIVATE_RELAYS) },
+      });
+
+      const again = await getOrCreateUserIdentity(userId);
+      expect(again.pubkeyHex).toBe(first.pubkeyHex);
+      expect(again.npub).toBe(first.npub);
+      expect(again.relays).toEqual(PRIVATE_RELAYS);
     });
   });
 

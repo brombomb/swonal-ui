@@ -167,7 +167,9 @@ export async function getOrCreateUserIdentity(userId: string): Promise<NostrIden
   const privHex = secretKeyToHex(sk);
   const pubHex = getPublicKey(sk);
   const npub = nip19.npubEncode(pubHex);
-  const relaysJson = JSON.stringify(DEFAULT_RELAYS);
+  // Keep relays the user saved before the identity existed; default only when none are saved.
+  const relays = parseRelays(user.nostrRelays);
+  const relaysJson = JSON.stringify(relays);
 
   const updated = await prisma.user.update({
     where: { id: userId },
@@ -193,7 +195,7 @@ export async function getOrCreateUserIdentity(userId: string): Promise<NostrIden
     npub: updated.nostrNpub!,
     pubkeyHex: updated.nostrPubKeyHex!,
     shareWorkouts: updated.shareWorkouts,
-    relays: DEFAULT_RELAYS,
+    relays,
   };
 }
 
