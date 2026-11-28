@@ -1458,16 +1458,21 @@ class MainActivity : AppCompatActivity() {
             "ROPE" to binding.btnAccRope
         )
         mapping.forEach { (acc, view) ->
+            // Only the attachment that is actually selected is highlighted. The exercise's
+            // recommended attachment gets the amber/green confirm colors only while it is
+            // the selected one, so picking another attachment turns it off like the rest.
+            val isSelected = norm == acc
             val isTarget = acc == targetAcc
-            val isConfirmedTarget = isTarget && isConfirmed
-            val isSelectedNonTarget = !isTarget && norm == acc
+            val isSelectedTarget = isSelected && isTarget
+            val isConfirmedTarget = isSelectedTarget && isConfirmed
+            val isSelectedNonTarget = isSelected && !isTarget
             when {
                 isConfirmedTarget -> {
                     view.background = p.successPillDrawable(d, 9f, interactive = true)
                     view.setTextColor(p.successText)
                     view.alpha = 1f
                 }
-                isTarget -> {
+                isSelectedTarget -> {
                     view.background = p.warningPillDrawable(d, 9f, interactive = true)
                     view.setTextColor(p.warningText)
                     view.alpha = 1f
