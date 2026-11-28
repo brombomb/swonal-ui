@@ -347,6 +347,8 @@ class EmbeddedApiRouter(
             val unilateral = b["unilateral"]?.jsonPrimitive?.booleanOrNull ?: b["isUnilateral"]?.jsonPrimitive?.booleanOrNull
             val updated = engine.updateExercise(
                 exerciseId = exId,
+                // Same as server-app: "notes": null or "" clears them; leaving "notes" out keeps them.
+                updateNotes = b.containsKey("notes"),
                 name = b["name"]?.jsonPrimitive?.contentOrNull,
                 muscleGroup = b["muscleGroup"]?.jsonPrimitive?.contentOrNull,
                 accessory = b["accessory"]?.jsonPrimitive?.contentOrNull,
