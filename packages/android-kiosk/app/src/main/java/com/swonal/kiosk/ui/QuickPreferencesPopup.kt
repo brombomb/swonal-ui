@@ -188,9 +188,9 @@ object KioskPopups {
         }
 
         listOf(
-            "H (Height): Vertical rail notch (1 – 12)",
-            "R (Rotation): Horizontal arm swing (1 – 3)",
-            "A (Angle): Vertical arm pivot notch (1 – 5)"
+            "H (Height): Rail notch (1 bottom – 9 top)",
+            "R (Rotation): Arm swing latch (2 – 6, 1 = stowed)",
+            "A (Angle): Arm pivot (1 down – 5 up, 0 = folded)"
         ).forEach { line ->
             root.addView(TextView(context).apply {
                 text = line

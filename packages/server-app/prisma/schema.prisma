@@ -82,7 +82,11 @@ model Exercise {
   recommendedHeight   Int              @default(4)
   recommendedRotation Int              @default(2)
   recommendedAngle    Int              @default(1)
-  unilateral          Boolean          @default(false)
+  // Acceptable arm positions as comma-separated ints ("4,5"); "" = only the recommended value.
+  allowedHeights      String           @default("")
+  allowedRotations    String           @default("")
+  allowedAngles       String           @default("")
+  unilateral         Boolean          @default(false)
   notes               String?
   mediaUrl            String?
   updatedAt           DateTime         @default(now()) @updatedAt

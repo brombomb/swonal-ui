@@ -4,6 +4,7 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.Exercise
 import com.swonal.kiosk.model.PersonalRecord
 import com.swonal.kiosk.model.SessionTemplateSummary
@@ -109,10 +110,17 @@ class SwonalDatabase(
                 media_url TEXT,
                 updated_at_ms INTEGER NOT NULL,
                 deleted_at_ms INTEGER,
-                dirty_sync INTEGER NOT NULL DEFAULT 0
+                dirty_sync INTEGER NOT NULL DEFAULT 0,
+                allowed_heights TEXT NOT NULL DEFAULT '',
+                allowed_rotations TEXT NOT NULL DEFAULT '',
+                allowed_angles TEXT NOT NULL DEFAULT ''
             );
             """.trimIndent()
         )
+        // Existing installs: add arm-position set columns (comma lists, '' = recommended value only).
+        ensureColumnUnlocked(c, "exercises", "allowed_heights", "TEXT NOT NULL DEFAULT ''")
+        ensureColumnUnlocked(c, "exercises", "allowed_rotations", "TEXT NOT NULL DEFAULT ''")
+        ensureColumnUnlocked(c, "exercises", "allowed_angles", "TEXT NOT NULL DEFAULT ''")
         c.execSQL(
             """
             CREATE TABLE IF NOT EXISTS workout_templates (
@@ -247,6 +255,17 @@ class SwonalDatabase(
         c.execSQL("CREATE INDEX IF NOT EXISTS idx_friend_act_created ON friend_activities(created_at DESC);")
     }
 
+    private fun ensureColumnUnlocked(c: SQLiteConnection, table: String, column: String, decl: String) {
+        val exists = c.prepare("PRAGMA table_info($table)").useStmt { s ->
+            var found = false
+            while (s.step()) {
+                if (s.getText(1) == column) found = true
+            }
+            found
+        }
+        if (!exists) c.execSQL("ALTER TABLE $table ADD COLUMN $column $decl;")
+    }
+
     internal inline fun <T> inTxUnlocked(c: SQLiteConnection, block: () -> T): T {
         c.execSQL("BEGIN IMMEDIATE;")
         try {
@@ -366,8 +385,9 @@ class SwonalDatabase(
             """
             INSERT OR IGNORE INTO exercises(
                 id, name, muscle_group, accessory, recommended_height, recommended_rotation,
-                recommended_angle, unilateral, notes, media_url, updated_at_ms, dirty_sync
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                recommended_angle, unilateral, notes, media_url, updated_at_ms, dirty_sync,
+                allowed_heights, allowed_rotations, allowed_angles
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, ex.id)
@@ -381,6 +401,7 @@ class SwonalDatabase(
             bindNullableText(s, 9, ex.notes)
             bindNullableText(s, 10, ex.mediaUrl)
             s.bindLong(11, nowMs)
+            bindAllowedSets(s, 12, ex)
             s.step()
         }
     }
@@ -573,7 +594,7 @@ class SwonalDatabase(
         searchQuery: String? = null
     ): List<Exercise> = withDb { c ->
         val sb = StringBuilder(
-            "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url FROM exercises WHERE deleted_at_ms IS NULL"
+            "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, allowed_heights, allowed_rotations, allowed_angles FROM exercises WHERE deleted_at_ms IS NULL"
         )
         val args = mutableListOf<Any>()
         if (!muscleGroup.isNullOrBlank()) {
@@ -613,7 +634,7 @@ class SwonalDatabase(
 
     suspend fun getExerciseById(exerciseId: String): Exercise? = withDb { c ->
         c.prepare(
-            "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url FROM exercises WHERE id = ? AND deleted_at_ms IS NULL"
+            "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, allowed_heights, allowed_rotations, allowed_angles FROM exercises WHERE id = ? AND deleted_at_ms IS NULL"
         ).useStmt { s ->
             s.bindText(1, exerciseId)
             if (s.step()) readExerciseFromRow(s) else null
@@ -629,16 +650,26 @@ class SwonalDatabase(
         recommendedAngle: Int = 1,
         unilateral: Boolean = false,
         notes: String? = null,
-        mediaUrl: String? = null
+        mediaUrl: String? = null,
+        allowedHeights: List<Int> = emptyList(),
+        allowedRotations: List<Int> = emptyList(),
+        allowedAngles: List<Int> = emptyList()
     ): Exercise = withTx { c ->
         val id = UUID.randomUUID().toString()
         val nowMs = System.currentTimeMillis()
+        val created = normalizeAllowedSets(
+            Exercise(
+                id, name, muscleGroup, accessory, recommendedHeight, recommendedRotation, recommendedAngle, unilateral, notes, mediaUrl,
+                allowedHeights, allowedRotations, allowedAngles
+            )
+        )
         c.prepare(
             """
             INSERT INTO exercises(
                 id, name, muscle_group, accessory, recommended_height, recommended_rotation,
-                recommended_angle, unilateral, notes, media_url, updated_at_ms, dirty_sync
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                recommended_angle, unilateral, notes, media_url, updated_at_ms, dirty_sync,
+                allowed_heights, allowed_rotations, allowed_angles
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, id)
@@ -652,9 +683,10 @@ class SwonalDatabase(
             bindNullableText(s, 9, notes)
             bindNullableText(s, 10, mediaUrl)
             s.bindLong(11, nowMs)
+            bindAllowedSets(s, 12, created)
             s.step()
         }
-        Exercise(id, name, muscleGroup, accessory, recommendedHeight, recommendedRotation, recommendedAngle, unilateral, notes, mediaUrl)
+        created
     }
 
     suspend fun updateExercise(
@@ -668,16 +700,19 @@ class SwonalDatabase(
         unilateral: Boolean? = null,
         notes: String? = null,
         mediaUrl: String? = null,
-        updateMediaUrl: Boolean = false
+        updateMediaUrl: Boolean = false,
+        allowedHeights: List<Int>? = null,
+        allowedRotations: List<Int>? = null,
+        allowedAngles: List<Int>? = null
     ): Exercise? = withTx { c ->
         val existing = c.prepare(
-            "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url FROM exercises WHERE id = ? AND deleted_at_ms IS NULL"
+            "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, allowed_heights, allowed_rotations, allowed_angles FROM exercises WHERE id = ? AND deleted_at_ms IS NULL"
         ).useStmt { s ->
             s.bindText(1, exerciseId)
             if (s.step()) readExerciseFromRow(s) else null
         } ?: return@withTx null
 
-        val next = existing.copy(
+        val next = normalizeAllowedSets(existing.copy(
             name = name ?: existing.name,
             muscleGroup = muscleGroup ?: existing.muscleGroup,
             accessory = accessory ?: existing.accessory,
@@ -686,14 +721,18 @@ class SwonalDatabase(
             recommendedAngle = recommendedAngle ?: existing.recommendedAngle,
             unilateral = unilateral ?: existing.unilateral,
             notes = notes ?: existing.notes,
-            mediaUrl = if (updateMediaUrl) mediaUrl else (mediaUrl ?: existing.mediaUrl)
-        )
+            mediaUrl = if (updateMediaUrl) mediaUrl else (mediaUrl ?: existing.mediaUrl),
+            allowedHeights = allowedHeights ?: existing.allowedHeights,
+            allowedRotations = allowedRotations ?: existing.allowedRotations,
+            allowedAngles = allowedAngles ?: existing.allowedAngles
+        ))
         val nowMs = System.currentTimeMillis()
         c.prepare(
             """
             UPDATE exercises SET
                 name = ?, muscle_group = ?, accessory = ?, recommended_height = ?, recommended_rotation = ?,
-                recommended_angle = ?, unilateral = ?, notes = ?, media_url = ?, updated_at_ms = ?, dirty_sync = 1
+                recommended_angle = ?, unilateral = ?, notes = ?, media_url = ?, updated_at_ms = ?, dirty_sync = 1,
+                allowed_heights = ?, allowed_rotations = ?, allowed_angles = ?
             WHERE id = ?
             """.trimIndent()
         ).useStmt { s ->
@@ -707,7 +746,8 @@ class SwonalDatabase(
             bindNullableText(s, 8, next.notes)
             bindNullableText(s, 9, next.mediaUrl)
             s.bindLong(10, nowMs)
-            s.bindText(11, exerciseId)
+            bindAllowedSets(s, 11, next)
+            s.bindText(14, exerciseId)
             s.step()
         }
         next
@@ -1171,7 +1211,8 @@ class SwonalDatabase(
             """
             SELECT pr.id, pr.user_id, pr.exercise_id, pr.one_rep_max_est, pr.max_weight_lb, pr.updated_at,
                    ex.id, ex.name, ex.muscle_group, ex.accessory, ex.recommended_height, ex.recommended_rotation,
-                   ex.recommended_angle, ex.unilateral, ex.notes, ex.media_url
+                   ex.recommended_angle, ex.unilateral, ex.notes, ex.media_url,
+                   ex.allowed_heights, ex.allowed_rotations, ex.allowed_angles
             FROM personal_records pr
             LEFT JOIN exercises ex ON ex.id = pr.exercise_id
             WHERE pr.user_id = ?
@@ -1192,7 +1233,10 @@ class SwonalDatabase(
                         recommendedAngle = s.getInt(12),
                         unilateral = s.getInt(13) != 0,
                         notes = getNullableText(s, 14),
-                        mediaUrl = getNullableText(s, 15)
+                        mediaUrl = getNullableText(s, 15),
+                        allowedHeights = getAllowedList(s, 16, ArmPositionSets.HEIGHT_RANGE),
+                        allowedRotations = getAllowedList(s, 17, ArmPositionSets.ROTATION_RANGE),
+                        allowedAngles = getAllowedList(s, 18, ArmPositionSets.ANGLE_RANGE)
                     )
                 } else null
                 out += PersonalRecord(
@@ -1310,6 +1354,24 @@ class SwonalDatabase(
     internal fun getNullableLong(s: SQLiteStatement, idx: Int): Long? =
         if (s.isNull(idx)) null else s.getLong(idx)
 
+    /** Reads a stored comma list ("4,5"); '' / NULL = empty (recommended value only). */
+    internal fun getAllowedList(s: SQLiteStatement, idx: Int, range: IntRange): List<Int> =
+        if (s.isNull(idx)) emptyList() else ArmPositionSets.parseCsv(s.getText(idx), range)
+
+    internal fun normalizeAllowedSets(ex: Exercise): Exercise = ex.copy(
+        allowedHeights = ArmPositionSets.normalize(ex.allowedHeights, ex.recommendedHeight, ArmPositionSets.HEIGHT_RANGE),
+        allowedRotations = ArmPositionSets.normalize(ex.allowedRotations, ex.recommendedRotation, ArmPositionSets.ROTATION_RANGE),
+        allowedAngles = ArmPositionSets.normalize(ex.allowedAngles, ex.recommendedAngle, ArmPositionSets.ANGLE_RANGE)
+    )
+
+    /** Binds normalised allowed_heights, allowed_rotations, allowed_angles at idx, idx + 1, idx + 2. */
+    internal fun bindAllowedSets(s: SQLiteStatement, idx: Int, ex: Exercise) {
+        val n = normalizeAllowedSets(ex)
+        s.bindText(idx, ArmPositionSets.toCsv(n.allowedHeights))
+        s.bindText(idx + 1, ArmPositionSets.toCsv(n.allowedRotations))
+        s.bindText(idx + 2, ArmPositionSets.toCsv(n.allowedAngles))
+    }
+
     private fun readUserFromRow(s: SQLiteStatement): User = User(
         id = s.getText(0),
         name = s.getText(1),
@@ -1332,7 +1394,10 @@ class SwonalDatabase(
         recommendedAngle = s.getInt(6),
         unilateral = s.getInt(7) != 0,
         notes = getNullableText(s, 8),
-        mediaUrl = getNullableText(s, 9)
+        mediaUrl = getNullableText(s, 9),
+        allowedHeights = getAllowedList(s, 10, ArmPositionSets.HEIGHT_RANGE),
+        allowedRotations = getAllowedList(s, 11, ArmPositionSets.ROTATION_RANGE),
+        allowedAngles = getAllowedList(s, 12, ArmPositionSets.ANGLE_RANGE)
     )
 
     private fun readTemplateFromRow(s: SQLiteStatement): WorkoutTemplate {

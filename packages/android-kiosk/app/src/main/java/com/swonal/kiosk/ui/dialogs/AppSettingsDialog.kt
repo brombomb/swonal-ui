@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.swonal.kiosk.BuildConfig
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.net.AppUpdateManager
 import com.swonal.kiosk.net.BugReportContext
@@ -1406,7 +1407,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                     })
                 })
                 topRow.addView(TextView(requireContext()).apply {
-                    text = "H${ex.recommendedHeight}  R${ex.recommendedRotation}  A${ex.recommendedAngle}"
+                    text = ArmPositionSets.targetCoords(ex, sep = "  ")
                     textSize = 14f
                     typeface = SwonalFonts.monoBold(requireContext())
                     setTextColor(p.accentInk)

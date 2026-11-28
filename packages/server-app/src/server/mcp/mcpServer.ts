@@ -2,6 +2,7 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { z } from 'zod';
 import { prisma } from '../db';
 import { formatWeight, toCanonicalLb, WeightUnit } from '../utils/units';
+import { toApiExercise } from '../utils/armPositions';
 import { QueuedWorkoutPayload, sessionCoordinator } from '../services/sessionState';
 
 export const WorkoutItemSchema = z.object({
@@ -81,7 +82,7 @@ export async function getExercisesCatalog(filters?: {
   accessory?: string;
   unilateral?: boolean;
 }) {
-  return prisma.exercise.findMany({
+  const rows = await prisma.exercise.findMany({
     where: {
       deletedAt: null,
       ...(filters?.muscleGroup ? { muscleGroup: filters.muscleGroup } : {}),
@@ -90,6 +91,7 @@ export async function getExercisesCatalog(filters?: {
     },
     orderBy: [{ muscleGroup: 'asc' }, { name: 'asc' }],
   });
+  return rows.map(toApiExercise);
 }
 
 export async function getUserProfileAndPrs(userId: string) {
@@ -381,7 +383,9 @@ export function createSwonalMcpServer(): McpServer {
     'swonal://exercises/catalog',
     {
       title: 'Tonal Exercise Catalog',
-      description: 'Complete list of Tonal movements, muscle groups, accessories, and recommended arm positions.',
+      description:
+        'Complete list of Tonal movements, muscle groups, accessories, and arm positions: recommended* plus allowed* sets ' +
+        '(empty = recommended only). Height 1 bottom-9 top; rotation 1 stowed, 2-6 latches; angle 1 down-5 up.',
       mimeType: 'application/json',
     },
     async (uri) => {
