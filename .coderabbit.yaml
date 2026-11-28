@@ -1,54 +1,33 @@
-# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# yaml-language-server: $schema=https://www.coderabbit.ai/integrations/schema.v3.json
 
+version: 3
 language: "en-US"
+inheritance: true
 
 reviews:
-  profile: "chill"
-  request_changes_workflow: false
-  high_level_summary: true
-  collapse_walkthrough: true
+  behavior:
+    profile: "chill"
+    path_filters:
+      - "!CHANGELOG.md"
+      - "!**/package-lock.json"
+      - "!**/gradle/wrapper/**"
+    auto_approvals:
+      # Override org auto-approvals: this repo drives 200 lb motorized Tonal hardware,
+      # so human maintainer review is always required before approval.
+      enabled: false
+      approve_on_skipped_review: false
+      max_merge_risk: "low"
+      max_security_risk: "low"
+    code_guidelines:
+      enabled: true
+      filePatterns:
+        - "agent.md"
+        - "CONTRIBUTING.md"
   auto_review:
     enabled: true
     drafts: false
-    base_branches:
-      - "^main$"
-    ignore_title_keywords:
-      - "WIP"
-      - "DO NOT MERGE"
-      - "chore(main): release"
-    auto_incremental_review: true
-  path_filters:
-    - "!CHANGELOG.md"
-    - "!**/package-lock.json"
-    - "!**/gradle/wrapper/**"
-  path_instructions:
-    - path: "packages/tonal-daemon/**/*.py"
-      instructions: |
-        This daemon drives physical Tonal V1 motorized resistance hardware on rooted Termux (Python 3.8).
-        - Enforce strict Python 3.8 compatibility: flag `X | Y` union syntax without `from __future__ import annotations`, `match`/`case`, and builtin generic subscripts (`list[...]`, `dict[...]`) evaluated at runtime.
-        - Enforce hardware safety invariants: resistance bounds (`5.0..200.0 lb`), heartbeat watchdog, fail-safe `disengage_weight()` on errors/disconnects/transitions, and no uncommanded weight engagement.
-        - Check that arm buttons cannot toggle weight and that handle/accessory safety logic is preserved.
-        - Verify motor/serial changes include corresponding unit tests in `packages/tonal-daemon/tests/`.
-    - path: "packages/android-kiosk/**/*.kt"
-      instructions: |
-        Target device is a Tonal V1 tablet running Android 6.0 Marshmallow (`minSdk = 23`) with R8 minification enabled.
-        - Flag any API 24+ calls (`java.time.*`, `java.util.Base64`, `List.of`, `Map.of`, `Collection.removeIf`, `String.repeat`, etc.); prefer `IsoTime` and `Base64Compat`.
-        - Verify `kotlinx.serialization` `@Serializable` models remain in `com.swonal.kiosk.*` packages covered by `proguard-rules.pro`.
-        - Verify workout safety invariants: disengage resistance before switching exercises, workouts, or attachments; keep `BAR` tilt-cutout and emergency `WEIGHT OFF` intact.
-        - Check data-model/API parity with `packages/server-app` where shared payloads or DB schemas change.
-    - path: "packages/server-app/**/*.{ts,tsx}"
-      instructions: |
-        - Verify input validation, error handling, and Prisma SQLite query safety on REST and WebSocket endpoints.
-        - Check payload/schema parity with `packages/android-kiosk` (`EmbeddedSwonalServer` / `SwonalDatabase`).
-        - Ensure tests use isolated temporary SQLite databases and never touch `.env` or `packages/server-app/prisma/data/swonal.db`.
-    - path: "scripts/**/*.sh"
-      instructions: |
-        - Check Bash/Termux compatibility, proper variable quoting, safe error handling, and ensure scripts never overwrite user `.env` or `swonal.db`.
-
-knowledge_base:
-  opt_out: false
-  code_guidelines:
-    enabled: true
-    filePatterns:
-      - files: "agent.md"
-      - files: "CONTRIBUTING.md"
+    incremental_review: true
+    pause_after_reviewed_commits: 5
+  output:
+    walkthrough:
+      collapse: true
