@@ -6,6 +6,7 @@ import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.text.TextUtils
 import android.media.AudioManager
 import android.view.Gravity
 import android.view.View
@@ -141,7 +142,7 @@ object KioskPopups {
         val label: TextView,
         val idleLabel: String,
         val idleIconTint: Int,
-        val confirmHint: String?
+        val needsConfirm: Boolean
     )
 
     /**
@@ -171,32 +172,35 @@ object KioskPopups {
                 bottomMargin = dp(10)
             }
         })
-        root.addView(TextView(context).apply {
-            text = "POWER"
+        // Confirm hint sits on the POWER label row, so arming a tile never resizes the popup.
+        val hint = TextView(context).apply {
+            text = "Tap again to confirm"
             textSize = 10.5f
-            letterSpacing = 0.08f
-            typeface = SwonalFonts.interExtraBold(context)
-            setTextColor(palette.textMuted)
+            typeface = SwonalFonts.interBold(context)
+            setTextColor(palette.criticalText)
+            visibility = View.INVISIBLE
+        }
+        root.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) }
+            addView(TextView(context).apply {
+                text = "POWER"
+                textSize = 10.5f
+                letterSpacing = 0.08f
+                typeface = SwonalFonts.interExtraBold(context)
+                setTextColor(palette.textMuted)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(hint)
         })
 
         val tilesRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62))
-        }
-        val hint = TextView(context).apply {
-            textSize = 10.5f
-            typeface = SwonalFonts.interSemiBold(context)
-            setTextColor(palette.textMuted)
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
         }
 
         var armed: PowerTile? = null
@@ -224,14 +228,14 @@ object KioskPopups {
             armed?.let { style(it, false) }
             armed = null
             armGeneration++
-            hint.visibility = View.GONE
+            hint.visibility = View.INVISIBLE
         }
 
         fun addTile(
             label: String,
             iconRes: Int,
             iconTint: Int,
-            confirmHint: String?,
+            needsConfirm: Boolean,
             isLast: Boolean,
             onConfirmed: () -> Unit
         ) {
@@ -244,6 +248,7 @@ object KioskPopups {
                 typeface = SwonalFonts.interBold(context)
                 gravity = Gravity.CENTER
                 maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
             }
             val view = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -257,10 +262,10 @@ object KioskPopups {
                 addView(icon)
                 addView(labelView)
             }
-            val tile = PowerTile(view, icon, labelView, label, iconTint, confirmHint)
+            val tile = PowerTile(view, icon, labelView, label, iconTint, needsConfirm)
             style(tile, confirming = false)
             view.setOnClickListener {
-                if (tile.confirmHint == null || armed === tile) {
+                if (!tile.needsConfirm || armed === tile) {
                     disarm()
                     dismiss()
                     onConfirmed()
@@ -269,7 +274,6 @@ object KioskPopups {
                 disarm()
                 armed = tile
                 style(tile, confirming = true)
-                hint.text = tile.confirmHint
                 hint.visibility = View.VISIBLE
                 val generation = armGeneration
                 view.postDelayed({ if (armGeneration == generation) disarm() }, POWER_CONFIRM_WINDOW_MS)
@@ -278,26 +282,17 @@ object KioskPopups {
             tilesRow.addView(view)
         }
 
-        addTile("Sleep", com.swonal.kiosk.R.drawable.ic_moon, palette.accentInk, null, isLast = false) {
+        addTile("Sleep", com.swonal.kiosk.R.drawable.ic_moon, palette.accentInk, needsConfirm = false, isLast = false) {
             onSleep()
         }
-        addTile(
-            "Restart",
-            com.swonal.kiosk.R.drawable.ic_rotate_cw,
-            palette.accentInk,
-            "Tap Restart again to confirm",
-            isLast = false
-        ) { onRestart() }
-        addTile(
-            "Shut Down",
-            com.swonal.kiosk.R.drawable.ic_power,
-            palette.criticalText,
-            "Tap Shut Down again to confirm.\nUse the power button to turn Tonal back on.",
-            isLast = true
-        ) { onShutDown() }
+        addTile("Restart", com.swonal.kiosk.R.drawable.ic_rotate_cw, palette.accentInk, needsConfirm = true, isLast = false) {
+            onRestart()
+        }
+        addTile("Shut Down", com.swonal.kiosk.R.drawable.ic_power, palette.criticalText, needsConfirm = true, isLast = true) {
+            onShutDown()
+        }
 
         root.addView(tilesRow)
-        root.addView(hint)
     }
 
     private const val POWER_CONFIRM_WINDOW_MS = 4_000L

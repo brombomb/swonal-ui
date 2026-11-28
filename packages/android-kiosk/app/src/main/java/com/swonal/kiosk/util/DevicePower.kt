@@ -26,7 +26,7 @@ object DevicePower {
          */
         SHUT_DOWN(
             command = "sync; reboot -p",
-            progressMessage = "Shutting down Tonal…",
+            progressMessage = "Shutting down Tonal… Press the power button to turn it back on.",
             failureVerb = "shut down"
         )
     }
