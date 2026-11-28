@@ -104,18 +104,20 @@ const LogSetSchema = z.object({
 
 /**
  * Whether a blocks array (`[{ items: [{ exerciseId }] }]`) uses `exerciseId`.
- * Anything that isn't that shape counts as a use: callers have already seen
- * the id in the raw JSON, so if we can't rule the reference out we fail closed.
+ * Anything that isn't that shape (including an item without a string
+ * `exerciseId`) counts as a use: callers have already seen the id in the raw
+ * JSON, so if we can't rule the reference out we fail closed.
  */
 function blocksReferenceExercise(blocks: unknown, exerciseId: string): boolean {
   if (!Array.isArray(blocks)) return true;
   return blocks.some((block) => {
     const items = typeof block === 'object' && block !== null ? (block as { items?: unknown }).items : undefined;
     if (!Array.isArray(items)) return true;
-    return items.some(
-      (item) =>
-        typeof item !== 'object' || item === null || (item as { exerciseId?: unknown }).exerciseId === exerciseId
-    );
+    return items.some((item) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return true;
+      const id = (item as { exerciseId?: unknown }).exerciseId;
+      return typeof id !== 'string' || id === exerciseId;
+    });
   });
 }
 

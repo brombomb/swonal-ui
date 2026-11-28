@@ -188,6 +188,52 @@ class LocalWorkoutEngineTest {
     }
 
     @Test
+    fun `refuses to delete an exercise when a routine mentioning it has blocks of the wrong shape`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val ex = engine.createExercise(name = "Guard Test Shape", muscleGroup = "Arms", accessory = "HANDLES")
+        val tpl = engine.createTemplate(
+            userId = alex.id,
+            name = "Guard Test Shape Routine",
+            description = "",
+            unit = "LB",
+            blocks = listOf(WorkoutBlock(blockType = "STRAIGHT_SET", restSeconds = 60, items = emptyList()))
+        )
+        fun setBlocksJson(json: String) = runBlocking {
+            db.withDb { c ->
+                c.prepare("UPDATE workout_templates SET blocks_json = ? WHERE id = ?").useStmt { s ->
+                    s.bindText(1, json)
+                    s.bindText(2, tpl.id)
+                    s.step()
+                }
+            }
+        }
+        val id = ex.id
+        // Each of these decodes into WorkoutBlock without error (unknown keys ignored,
+        // items defaulting to []), so a check on the decoded blocks would let them through.
+        val wrongShapes = listOf(
+            """[{"exerciseId":"$id"}]""",
+            """[{"items":null,"note":"$id"}]""",
+            """[{"items":[{"exerciseId":["$id"]}]}]""",
+            """[{"items":[{"note":"$id"}]}]""",
+            """[{"items":[["$id"]]}]""",
+            """{"items":[{"exerciseId":"$id"}]}""",
+        )
+        for (json in wrongShapes) {
+            setBlocksJson(json)
+            val refused = engine.deleteExercise(ex.id)
+            assertTrue(refused.isFailure, "delete must be refused for $json")
+            assertTrue(refused.exceptionOrNull()!!.message!!.contains("Guard Test Shape Routine"), json)
+        }
+        assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
+
+        // Well-formed blocks that only mention the id outside an exerciseId don't block it
+        setBlocksJson("""[{"blockType":"STRAIGHT_SET","items":[],"note":"$id"},""" +
+            """{"blockType":"STRAIGHT_SET","items":[{"exerciseId":"some-other-id","note":"$id"}]}]""")
+        assertTrue(engine.deleteExercise(ex.id).isSuccess)
+    }
+
+    @Test
     fun `refuses to delete an exercise the queued workout uses until it is dismissed`() = runBlocking<Unit> {
         engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
         val alex = engine.listUsers()[0]

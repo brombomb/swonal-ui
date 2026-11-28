@@ -130,6 +130,10 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
       { name: 'Guard Test Truncated', blocksJson: `[{"items":[{"exerciseId":"${exId}"` },
       { name: 'Guard Test Not An Array', blocksJson: `{"items":[{"exerciseId":"${exId}"}]}` },
       { name: 'Guard Test Null Block', blocksJson: `[null,{"note":"${exId}"}]` },
+      { name: 'Guard Test Array Id', blocksJson: `[{"items":[{"exerciseId":["${exId}"]}]}]` },
+      { name: 'Guard Test Number Id', blocksJson: `[{"items":[{"exerciseId":7,"note":"${exId}"}]}]` },
+      { name: 'Guard Test Missing Id', blocksJson: `[{"items":[{"note":"${exId}"}]}]` },
+      { name: 'Guard Test Array Item', blocksJson: `[{"items":[["${exId}"]]}]` },
     ];
     for (const r of rawRoutines) {
       const t = await prisma.workoutTemplate.create({
@@ -153,7 +157,10 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
         userId: DEFAULT_USERS.USER_ONE_ID,
         name: 'Guard Test Mention Only',
         description: null,
-        blocksJson: JSON.stringify([{ blockType: 'STRAIGHT_SET', restSeconds: 60, items: [], note: exId }]),
+        blocksJson: JSON.stringify([
+          { blockType: 'STRAIGHT_SET', restSeconds: 60, items: [], note: exId },
+          { blockType: 'STRAIGHT_SET', restSeconds: 60, items: [{ exerciseId: 'some-other-id', note: exId }] },
+        ]),
       },
     });
     templateIds.push(t.id);

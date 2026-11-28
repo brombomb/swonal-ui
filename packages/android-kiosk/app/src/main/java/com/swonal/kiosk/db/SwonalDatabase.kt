@@ -24,6 +24,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.Closeable
 import java.io.File
 import java.util.UUID
@@ -1432,15 +1435,23 @@ class SwonalDatabase(
     )
 
     /**
-     * Whether a routine uses the exercise. readTemplateFromRow turns unreadable blocks
-     * into an empty list, so if the raw JSON mentions the id but doesn't decode, count
-     * it as a use (fail closed) rather than letting the delete through.
+     * Whether a routine uses the exercise. Reads the raw JSON rather than decoded
+     * [WorkoutBlock]s: decoding ignores unknown keys and defaults a missing `items` to
+     * empty, which would hide a reference. If the JSON mentions the id and isn't the
+     * shape `[{ items: [{ exerciseId: "..." }] }]`, count it as a use (fail closed),
+     * like server-app's blocksReferenceExercise.
      */
     private fun templateUsesExercise(t: WorkoutTemplate, exerciseId: String): Boolean {
         if (!t.blocksJson.contains(exerciseId)) return false
-        val blocks = runCatching { SwonalJson.decodeFromString<List<WorkoutBlock>>(t.blocksJson) }.getOrNull()
+        val blocks = runCatching { SwonalJson.parseToJsonElement(t.blocksJson) }.getOrNull() as? JsonArray
             ?: return true
-        return blocks.any { b -> b.items.any { it.exerciseId == exerciseId } }
+        return blocks.any { block ->
+            val items = (block as? JsonObject)?.get("items") as? JsonArray ?: return@any true
+            items.any { item ->
+                val id = ((item as? JsonObject)?.get("exerciseId") as? JsonPrimitive)?.takeIf { it.isString }
+                id == null || id.content == exerciseId
+            }
+        }
     }
 
     private fun readTemplateFromRow(s: SQLiteStatement): WorkoutTemplate {
