@@ -94,6 +94,41 @@ const LogSetSchema = z.object({
   restSeconds: z.number().int().min(0).max(600).default(60),
 });
 
+/**
+ * Whether a blocks array (`[{ items: [{ exerciseId }] }]`) uses `exerciseId`.
+ * Anything that isn't that shape counts as a use: callers have already seen
+ * the id in the raw JSON, so if we can't rule the reference out we fail closed.
+ */
+function blocksReferenceExercise(blocks: unknown, exerciseId: string): boolean {
+  if (!Array.isArray(blocks)) return true;
+  return blocks.some((block) => {
+    const items = typeof block === 'object' && block !== null ? (block as { items?: unknown }).items : undefined;
+    if (!Array.isArray(items)) return true;
+    return items.some(
+      (item) =>
+        typeof item !== 'object' || item === null || (item as { exerciseId?: unknown }).exerciseId === exerciseId
+    );
+  });
+}
+
+/**
+ * Whether serialized JSON holding blocks uses `exerciseId`. `pickBlocks` selects
+ * the blocks array from the parsed value (default: the value itself). JSON that
+ * mentions the id but can't be parsed counts as a use (fail closed).
+ */
+function jsonReferencesExercise(
+  raw: string,
+  exerciseId: string,
+  pickBlocks: (parsed: unknown) => unknown = (parsed) => parsed
+): boolean {
+  if (!raw.includes(exerciseId)) return false;
+  try {
+    return blocksReferenceExercise(pickBlocks(JSON.parse(raw)), exerciseId);
+  } catch {
+    return true;
+  }
+}
+
 export function createApiRouter(bridge: DaemonCommandSender): Router {
   const router = Router();
 
@@ -403,14 +438,7 @@ const PUBLIC_USER_SELECT = {
         orderBy: { name: 'asc' },
       });
       const usedBy = candidates
-        .filter((t) => {
-          try {
-            const blocks = JSON.parse(t.blocksJson) as { items?: { exerciseId?: string }[] }[];
-            return blocks.some((b) => b.items?.some((i) => i.exerciseId === req.params.id));
-          } catch {
-            return false;
-          }
-        })
+        .filter((t) => jsonReferencesExercise(t.blocksJson, req.params.id))
         .map((t) => ({ id: t.id, name: t.name }));
       if (usedBy.length > 0) {
         res.status(409).json({

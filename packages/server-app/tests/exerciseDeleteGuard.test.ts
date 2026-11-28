@@ -83,6 +83,44 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
     expect(ex?.deletedAt).not.toBeNull();
   });
 
+  it('fails closed when a routine that mentions the exercise has unreadable blocks', async () => {
+    const exId = await createExercise('Guard Test Bad Json');
+    const rawRoutines = [
+      { name: 'Guard Test Truncated', blocksJson: `[{"items":[{"exerciseId":"${exId}"` },
+      { name: 'Guard Test Not An Array', blocksJson: `{"items":[{"exerciseId":"${exId}"}]}` },
+      { name: 'Guard Test Null Block', blocksJson: `[null,{"note":"${exId}"}]` },
+    ];
+    for (const r of rawRoutines) {
+      const t = await prisma.workoutTemplate.create({
+        data: { userId: DEFAULT_USERS.USER_ONE_ID, name: r.name, blocksJson: r.blocksJson },
+      });
+      templateIds.push(t.id);
+    }
+
+    const res = await deleteExercise(exId);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { templates: { name: string }[] };
+    expect(body.templates.map((t) => t.name).sort()).toEqual(rawRoutines.map((r) => r.name).sort());
+    const ex = await prisma.exercise.findUnique({ where: { id: exId } });
+    expect(ex?.deletedAt).toBeNull();
+  });
+
+  it('is not blocked by a well-formed routine that mentions the id outside an exerciseId', async () => {
+    const exId = await createExercise('Guard Test Mentioned');
+    const t = await prisma.workoutTemplate.create({
+      data: {
+        userId: DEFAULT_USERS.USER_ONE_ID,
+        name: 'Guard Test Mention Only',
+        description: null,
+        blocksJson: JSON.stringify([{ blockType: 'STRAIGHT_SET', restSeconds: 60, items: [], note: exId }]),
+      },
+    });
+    templateIds.push(t.id);
+
+    const res = await deleteExercise(exId);
+    expect(res.status).toBe(200);
+  });
+
   it('still deletes an exercise no routine mentions', async () => {
     const exId = await createExercise('Guard Test Unused');
     const res = await deleteExercise(exId);
