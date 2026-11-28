@@ -12,6 +12,8 @@ export const WorkoutItemSchema = z.object({
   mode: z.enum(['standard', 'eccentric', 'chains', 'spotter', 'burnout', 'smart_flex']).default('standard'),
   modifierPct: z.number().int().min(0).max(100).default(0),
   targetWeightLb: z.number().positive(),
+  // Per-item attachment; null/absent = the lifter's default, else the exercise's own. Unknown values are dropped.
+  accessory: z.enum(['HANDLES', 'BAR', 'ROPE']).nullish().catch(null),
 });
 
 export const WorkoutBlockSchema = z.object({

@@ -23,6 +23,7 @@ import {
   WorkoutSummaryData,
   WorkoutTemplate,
 } from '../types';
+import { resolveAccessory } from '../utils/accessories';
 import { soundEngine } from '../utils/soundEngine';
 import { hexToRgba, WeightUnit } from '../utils/units';
 
@@ -89,6 +90,7 @@ export function flattenTemplateBlocks(blocks: WorkoutBlock[]): RoutineStep[] {
               mode: item.mode,
               modifierPct: item.modifierPct,
               exerciseId: item.exerciseId,
+              accessory: item.accessory ?? null,
             });
           }
         });
@@ -108,6 +110,7 @@ export function flattenTemplateBlocks(blocks: WorkoutBlock[]): RoutineStep[] {
             mode: item.mode,
             modifierPct: item.modifierPct,
             exerciseId: item.exerciseId,
+            accessory: item.accessory ?? null,
           });
         }
       });
@@ -881,7 +884,7 @@ export function useSwonalState() {
         setSelectedExerciseId(firstStep.exerciseId);
         const ex = exercises.find((e) => e.id === firstStep.exerciseId);
         if (ex) {
-          sendWs({ type: 'set_accessory', accessory: ex.accessory });
+          sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, firstStep.accessory) });
         }
         setWeight(firstStep.targetWeightLb, firstStep.mode, firstStep.modifierPct);
         sendWs({ type: 'reset_reps' });
@@ -970,7 +973,9 @@ export function useSwonalState() {
           setSelectedExerciseId(nextStep.exerciseId);
           if (!result.partnerRotation) {
             const ex = exercises.find((e) => e.id === nextStep.exerciseId);
-            if (ex) sendWs({ type: 'set_accessory', accessory: ex.accessory });
+            if (ex) {
+              sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, nextStep.accessory) });
+            }
             setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct);
           }
         } else {
@@ -1190,7 +1195,7 @@ export function useSwonalState() {
         const step = routineSteps[nextIdx];
         setSelectedExerciseId(step.exerciseId);
         const ex = exercises.find((e) => e.id === step.exerciseId);
-        if (ex) sendWs({ type: 'set_accessory', accessory: ex.accessory });
+        if (ex) sendWs({ type: 'set_accessory', accessory: resolveAccessory(ex.accessory, step.accessory) });
         setWeight(step.targetWeightLb, step.mode, step.modifierPct);
         return;
       }

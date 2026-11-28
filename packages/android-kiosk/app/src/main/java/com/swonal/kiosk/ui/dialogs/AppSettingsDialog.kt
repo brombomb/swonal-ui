@@ -242,7 +242,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         val prefsCard = createSurfaceCard()
         prefsCard.addView(makeCardHeading(
             "Personal Preferences — ${activeUser?.name ?: "Active Lifter"}",
-            "Units, theme, form demo video, VBT/symmetry telemetry, and accent color"
+            "Units, theme, form demo video, default accessory, VBT/symmetry telemetry, and accent color"
         ))
 
         // Toggle rows: Theme, Units, Form Demo Video, VBT & Symmetry
@@ -250,6 +250,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         var localUnit = ui.activeUnit
         var localDemoPip = ui.showDemoPip
         var localTelemetry = ui.telemetryDisplayMode
+        var localAccessory = ui.preferredAccessory
 
         val (themeRow, themeValTv) = makeLargeToggleRow("Theme", if (localDark) "Dark" else "Light")
         themeRow.setOnClickListener {
@@ -276,6 +277,16 @@ open class AppSettingsDialog : BaseSwonalDialog() {
             repo.setShowDemoPip(localDemoPip)
         }
         prefsCard.addView(demoRow)
+
+        // Used by routine items left on "Default" and by free lifts; bodyweight moves are unaffected.
+        val accessories = com.swonal.kiosk.model.Accessories
+        val (accRow, accValTv) = makeLargeToggleRow("Default Accessory", accessories.defaultLabel(localAccessory))
+        accRow.setOnClickListener {
+            localAccessory = accessories.cycle(localAccessory)
+            accValTv.text = accessories.defaultLabel(localAccessory)
+            repo.setPreferredAccessory(localAccessory)
+        }
+        prefsCard.addView(accRow)
 
         val (vbtRow, vbtValTv) = makeLargeToggleRow("VBT & Symmetry Telemetry", localTelemetry.label)
         vbtRow.setOnClickListener {

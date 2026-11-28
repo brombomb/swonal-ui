@@ -38,6 +38,8 @@ export interface WorkoutBlockItem {
   mode: DynamicMode;
   modifierPct: number;
   targetWeightLb: number;
+  /** HANDLES / BAR / ROPE for this item; null/absent = the lifter's default, else the exercise's own. */
+  accessory?: AccessoryType | null;
 }
 
 export interface WorkoutBlock {
@@ -210,6 +212,8 @@ export interface RoutineStep {
   mode: DynamicMode;
   modifierPct: number;
   exerciseId: string;
+  /** The routine item's accessory pick, if any. */
+  accessory?: AccessoryType | null;
 }
 
 export interface HomeAssistantEventRecord {

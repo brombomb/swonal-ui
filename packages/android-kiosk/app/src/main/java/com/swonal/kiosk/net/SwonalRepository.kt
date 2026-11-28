@@ -74,6 +74,8 @@ data class KioskUiState(
     val safetyEvent: SafetyEvent? = null,
     val restSecondsRemaining: Int = 0,
     val showDemoPip: Boolean = true,
+    /** Each lifter's default attachment (user id -> HANDLES / BAR / ROPE); absent = exercise's own. */
+    val preferredAccessories: Map<String, String> = emptyMap(),
     val telemetryDisplayMode: TelemetryDisplayMode = TelemetryDisplayMode.ALWAYS,
     val soundMuted: Boolean = false,
     val developerMode: Boolean = false,
@@ -114,6 +116,18 @@ data class KioskUiState(
 
     val preferredMusicProvider: String
         get() = activeUser?.preferredMusicProvider?.ifBlank { "spotify" } ?: "spotify"
+
+    /** The active lifter's default attachment, or null to use each exercise's own. */
+    val preferredAccessory: String?
+        get() = activeUser?.id?.let { preferredAccessories[it] }
+
+    /** The attachment the current exercise uses: routine item pick, then lifter default, then catalog. */
+    val activeAccessory: String?
+        get() = activeExercise?.let { accessoryFor(it, currentStep) }
+
+    /** The attachment [exercise] uses as [step] of the routine (or as a free lift when [step] is null). */
+    fun accessoryFor(exercise: Exercise, step: RoutineStep? = null): String =
+        Accessories.resolve(exercise.accessory, step?.accessory, preferredAccessory)
 
     val currentStep: RoutineStep?
         get() = routineSteps.getOrNull(currentStepIdx)
@@ -866,6 +880,9 @@ class SwonalRepository(
                 _uiStateFlow.update { it.copy(showDemoPip = enabled) }
             }
         }
+        runCatching { localEngine.getPreferredAccessory(userId) }.onSuccess { acc ->
+            _uiStateFlow.update { it.copy(preferredAccessories = it.preferredAccessories.withEntry(userId, acc)) }
+        }
         runCatching { localEngine.listSessions(userId) }.onSuccess { sessions ->
             if (_uiStateFlow.value.activeUser?.id == userId) {
                 _uiStateFlow.update { it.copy(recentSessions = sessions) }
@@ -1401,7 +1418,7 @@ class SwonalRepository(
     fun syncMockArmsToActiveExercise() {
         val ui = _uiStateFlow.value
         if (ui.authRequired || !ui.isMockMode) return
-        val ex = ui.activeExercise ?: return
+        val ex = ui.activeExercise?.let { it.copy(accessory = ui.accessoryFor(it, ui.currentStep)) } ?: return
         scope.launch {
             val ok = localDaemon.setMockArmPositionsDirect(ex)
             if (!ok && prefs.syncMode == SyncMode.SERVER_SYNC && prefs.syncServerUrl.isNotBlank()) {
@@ -1516,6 +1533,24 @@ class SwonalRepository(
                 }
                 .onFailure { err ->
                     _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to create profile"))
+                }
+        }
+    }
+
+    /**
+     * Sets the active lifter's default attachment (null = each exercise's own) and, when the current
+     * exercise follows that default, tells the motor about the new attachment right away.
+     */
+    fun setPreferredAccessory(accessory: String?) {
+        if (_uiStateFlow.value.authRequired) return
+        val uid = _uiStateFlow.value.activeUser?.id ?: return
+        val clean = Accessories.normalize(accessory)
+        _uiStateFlow.update { it.copy(preferredAccessories = it.preferredAccessories.withEntry(uid, clean)) }
+        _uiStateFlow.value.activeAccessory?.let { setAccessory(it) }
+        scope.launch {
+            runCatching { localEngine.setPreferredAccessory(uid, clean) }
+                .onFailure { err ->
+                    _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to save default accessory"))
                 }
         }
     }
@@ -1656,7 +1691,7 @@ class SwonalRepository(
                     } else it.sessionState.copy(activeUserId = uid)
                 )
             }
-            if (ex0 != null) setAccessory(ex0.accessory)
+            if (ex0 != null) setAccessory(_uiStateFlow.value.accessoryFor(ex0, step0))
             setWeight(step0.targetWeightLb, step0.mode, step0.modifierPct, allowWhileEngaged = false)
             resetReps()
             refreshOverload(uid, step0.exerciseId)
@@ -1676,7 +1711,7 @@ class SwonalRepository(
                 activeExerciseId = exercise.id
             )
         }
-        setAccessory(exercise.accessory)
+        setAccessory(_uiStateFlow.value.accessoryFor(exercise))
         resetReps()
         val ui = _uiStateFlow.value
         val pr = ui.prs.firstOrNull { it.exerciseId == exercise.id }
@@ -1709,7 +1744,7 @@ class SwonalRepository(
             _uiStateFlow.update {
                 it.copy(currentStepIdx = nextIdx, activeExerciseId = step.exerciseId)
             }
-            if (ex != null) setAccessory(ex.accessory)
+            if (ex != null) setAccessory(ui.accessoryFor(ex, step))
             resetReps()
             scope.launch {
                 if (wasEngaged) {
@@ -1829,7 +1864,7 @@ class SwonalRepository(
                         it.copy(currentStepIdx = nextIdx, activeExerciseId = nextStep.exerciseId)
                     }
                     if (resp.partnerRotation == null) {
-                        if (nextEx != null) setAccessory(nextEx.accessory)
+                        if (nextEx != null) setAccessory(updatedUi.accessoryFor(nextEx, nextStep))
                         setWeight(nextStep.targetWeightLb, nextStep.mode, nextStep.modifierPct, allowWhileEngaged = false)
                     }
                     refreshOverload(effectiveUid, nextStep.exerciseId)
@@ -2348,3 +2383,7 @@ class SwonalRepository(
         }
     }
 }
+
+/** Copy of this map with [key] set to [value], or removed when [value] is null. */
+private fun Map<String, String>.withEntry(key: String, value: String?): Map<String, String> =
+    if (value == null) this - key else this + (key to value)

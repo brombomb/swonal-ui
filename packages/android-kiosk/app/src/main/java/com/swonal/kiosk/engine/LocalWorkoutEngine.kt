@@ -1,6 +1,7 @@
 package com.swonal.kiosk.engine
 
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.model.Accessories
 import com.swonal.kiosk.model.AppStateResponse
 import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.AuthStatus
@@ -198,6 +199,20 @@ class LocalWorkoutEngine(
 
     suspend fun getDemoPip(userId: String): Boolean = db.getDemoPip(userId)
     suspend fun setDemoPip(userId: String, enabled: Boolean): Boolean = db.setDemoPip(userId, enabled)
+
+    /** The lifter's default attachment (HANDLES / BAR / ROPE), or null to use each exercise's own. */
+    suspend fun getPreferredAccessory(userId: String): String? =
+        Accessories.normalize(db.getSetting(preferredAccessoryKey(userId)))
+
+    /** Saves the lifter's default attachment; null or an unknown value clears it. */
+    suspend fun setPreferredAccessory(userId: String, accessory: String?): String? {
+        val clean = Accessories.normalize(accessory)
+        if (clean == null) db.deleteSetting(preferredAccessoryKey(userId))
+        else db.setSetting(preferredAccessoryKey(userId), clean)
+        return clean
+    }
+
+    private fun preferredAccessoryKey(userId: String) = "$SETTING_PREFERRED_ACCESSORY_PREFIX$userId"
 
     // --- Exercises CRUD ---
 
@@ -699,5 +714,6 @@ class LocalWorkoutEngine(
         const val SETTING_SESSION_SECRET = "local_session_secret"
         const val SETTING_SYNC_CURSOR_MS = "last_sync_cursor_ms"
         const val SETTING_INITIAL_SERVER_IMPORT_DONE = "initial_server_import_done"
+        const val SETTING_PREFERRED_ACCESSORY_PREFIX = "preferred_accessory:"
     }
 }

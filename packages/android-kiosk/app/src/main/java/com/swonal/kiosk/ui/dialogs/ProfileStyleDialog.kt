@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.swonal.kiosk.model.Accessories
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.theme.SwonalThemeTokens
@@ -31,6 +32,7 @@ class ProfileStyleDialog : BaseSwonalDialog() {
         var localUnit = ui.activeUnit
         var localDark = p.isDark
         var localDemoPip = ui.showDemoPip
+        var localAccessory = ui.preferredAccessory
         var localTelemetry = ui.telemetryDisplayMode
 
         val root = createCardRoot(20)
@@ -143,6 +145,18 @@ class ProfileStyleDialog : BaseSwonalDialog() {
             repo.setShowDemoPip(localDemoPip)
         }
         body.addView(demoRow)
+
+        val (accRow, accValueTv) = makeToggleRow(
+            "Default Accessory",
+            Accessories.defaultLabel(localAccessory),
+            d
+        )
+        accRow.setOnClickListener {
+            localAccessory = Accessories.cycle(localAccessory)
+            accValueTv.text = Accessories.defaultLabel(localAccessory)
+            repo.setPreferredAccessory(localAccessory)
+        }
+        body.addView(accRow)
 
         val (vbtRow, vbtValueTv) = makeToggleRow(
             "VBT & Symmetry",

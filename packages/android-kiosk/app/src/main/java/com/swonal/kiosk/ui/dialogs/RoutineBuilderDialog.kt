@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.swonal.kiosk.R
+import com.swonal.kiosk.model.Accessories
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.Units
 import com.swonal.kiosk.model.WorkoutBlock
@@ -28,6 +29,7 @@ import java.util.Locale
  * Native Kiosk Routine Builder Dialog (100% offline-first):
  * - Create, Edit, and Delete custom multi-block routines (Straight Set / Superset / Circuit)
  * - 7-day schedule pills, exercise selector with muscle filter, sets/reps/weight/mode controls
+ * - Per-exercise accessory pick (Handles / Bar / Rope), or "Default" to follow the lifter's setting
  */
 class RoutineBuilderDialog : BaseSwonalDialog() {
 
@@ -41,7 +43,9 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
         var targetReps: Int = 10,
         var targetWeightDisplay: Double = 45.0,
         var mode: String = "standard",
-        var modifierPct: Int = 0
+        var modifierPct: Int = 0,
+        /** HANDLES / BAR / ROPE, or null to follow the lifter's default (then the exercise's own). */
+        var accessory: String? = null
     )
 
     private data class DraftBlock(
@@ -87,7 +91,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                             targetReps = item.targetReps,
                             targetWeightDisplay = Units.formatDisplayWeight(item.targetWeightLb, unit),
                             mode = item.mode,
-                            modifierPct = item.modifierPct
+                            modifierPct = item.modifierPct,
+                            accessory = Accessories.normalize(item.accessory)
                         )
                     }.toMutableList()
                 )
@@ -351,6 +356,15 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     textSize = 12f
                     layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(6) }
                 })
+                val itemEx = exMap[item.exerciseId]
+                // Bodyweight moves take no attachment, so they get no picker (unless one was already saved).
+                if (itemEx != null && (itemEx.accessory != Accessories.BODYWEIGHT || item.accessory != null)) {
+                    nameRow.addView(makeAccessoryPill(item, itemEx.accessory, ui.preferredAccessory).apply {
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply {
+                            if (blk.items.size > 1) marginEnd = dp(6)
+                        }
+                    })
+                }
                 if (blk.items.size > 1) {
                     nameRow.addView(makePillButton("Remove") {
                         blk.items.removeAt(iIdx)
@@ -458,6 +472,22 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
     private fun formatWeight(v: Double): String =
         if (v % 1.0 == 0.0) v.toInt().toString() else String.format(Locale.US, "%.1f", v)
 
+    /**
+     * Tapping cycles Default -> HANDLES -> BAR -> ROPE -> Default. "Default" shows what the item will
+     * use right now (the lifter's default, else the exercise's own), so the choice is never hidden.
+     */
+    private fun makeAccessoryPill(item: DraftItem, exerciseAccessory: String, userDefault: String?): TextView {
+        val picked = Accessories.normalize(item.accessory)
+        val label = picked ?: "Default · ${Accessories.resolve(exerciseAccessory, null, userDefault)}"
+        return makePillButton(label, active = picked != null, mono = true) {
+            item.accessory = Accessories.cycle(item.accessory)
+            renderBlocks()
+        }.apply {
+            textSize = 10.5f
+            contentDescription = "Accessory: $label. Tap to change."
+        }
+    }
+
     private fun pickExercise(onChosen: (String) -> Unit) {
         val exercises = repo.uiStateFlow.value.exercises
         if (exercises.isEmpty()) return
@@ -532,7 +562,8 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     targetReps = item.targetReps.coerceIn(1, 200),
                     mode = item.mode,
                     modifierPct = preservedModifier,
-                    targetWeightLb = item.targetWeightDisplay
+                    targetWeightLb = item.targetWeightDisplay,
+                    accessory = Accessories.normalize(item.accessory)
                 )
             }
             if (validItems.isEmpty()) null else WorkoutBlock(blk.blockType, blk.restSeconds, validItems)
