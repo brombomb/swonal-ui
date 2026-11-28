@@ -6,6 +6,7 @@ import {
   getPendingQueuedWorkout,
 } from '../mcp/mcpServer';
 import { getDemoPipEnabled, setDemoPipEnabled } from '../services/runtimeSettings';
+import { normalizeSyncedAllowedPositions, parsePositionSet } from '../utils/armPositions';
 
 type BroadcastFn = (payload: Record<string, unknown>) => void;
 
@@ -36,6 +37,11 @@ const SyncExerciseSchema = z.object({
   recommendedHeight: z.number().int().default(4),
   recommendedRotation: z.number().int().default(2),
   recommendedAngle: z.number().int().default(1),
+  // Lenient on purpose: out-of-range values are dropped and recommended* is added on accept.
+  // Omitted (older kiosks) = keep the stored set; new rows default to [].
+  allowedHeights: z.array(z.number()).nullish(),
+  allowedRotations: z.array(z.number()).nullish(),
+  allowedAngles: z.array(z.number()).nullish(),
   unilateral: z.boolean().default(false),
   notes: z.string().nullable().optional(),
   mediaUrl: z.string().nullable().optional(),
@@ -275,6 +281,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
                 recommendedHeight: ex.recommendedHeight,
                 recommendedRotation: ex.recommendedRotation,
                 recommendedAngle: ex.recommendedAngle,
+                ...normalizeSyncedAllowedPositions(ex),
                 unilateral: ex.unilateral,
                 notes: ex.notes ?? null,
                 mediaUrl: ex.mediaUrl ?? null,
@@ -295,6 +302,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
                 recommendedHeight: ex.recommendedHeight,
                 recommendedRotation: ex.recommendedRotation,
                 recommendedAngle: ex.recommendedAngle,
+                ...normalizeSyncedAllowedPositions(ex, existing),
                 unilateral: ex.unilateral,
                 notes: ex.notes ?? null,
                 mediaUrl: ex.mediaUrl ?? null,
@@ -416,8 +424,11 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
           });
         }
 
-        // 6. PersonalRecords (max envelope)
+        // 6. PersonalRecords (max envelope). A PR with no estimated 1RM came from a set with
+        // no completed reps: skip that row (not the whole push, so its sessions and set logs
+        // still land) so an unpatched peer can't sync a 0-rep "record" back in.
         for (const pr of bundle.personalRecords) {
+          if (!(pr.oneRepMaxEst > 0)) continue;
           const mappedExId = exerciseIdRemap[pr.exerciseId] ?? pr.exerciseId;
           const existing = await tx.personalRecord.findUnique({
             where: {
@@ -552,8 +563,12 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
           where: sinceDate ? { updatedAt: { gte: sinceDate } } : undefined,
           orderBy: { timestamp: 'asc' },
         }),
+        // Never hand out a PR with no estimated 1RM (a 0-rep set's leftover), on pull or restore.
         prisma.personalRecord.findMany({
-          where: sinceDate ? { updatedAt: { gte: sinceDate } } : undefined,
+          where: {
+            oneRepMaxEst: { gt: 0 },
+            ...(sinceDate ? { updatedAt: { gte: sinceDate } } : {}),
+          },
         }),
         prisma.friend.findMany({
           where: {
@@ -592,6 +607,9 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
         recommendedHeight: e.recommendedHeight,
         recommendedRotation: e.recommendedRotation,
         recommendedAngle: e.recommendedAngle,
+        allowedHeights: parsePositionSet(e.allowedHeights),
+        allowedRotations: parsePositionSet(e.allowedRotations),
+        allowedAngles: parsePositionSet(e.allowedAngles),
         unilateral: e.unilateral,
         notes: e.notes,
         mediaUrl: e.mediaUrl,

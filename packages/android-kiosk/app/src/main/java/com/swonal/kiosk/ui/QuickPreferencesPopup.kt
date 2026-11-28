@@ -121,6 +121,10 @@ object KioskPopups {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 16f * d
             isOutsideTouchable = true
+            setTouchInterceptor { _, _ ->
+                com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
+                false
+            }
         }
         popup.showAsDropDown(anchor, -dp(194), dp(8))
     }
@@ -184,9 +188,9 @@ object KioskPopups {
         }
 
         listOf(
-            "H (Height): Vertical rail notch (1 – 12)",
-            "R (Rotation): Horizontal arm swing (1 – 3)",
-            "A (Angle): Vertical arm pivot notch (1 – 5)"
+            "H (Height): Rail notch (1 bottom – 9 top)",
+            "R (Rotation): Arm swing latch (2 – 6, 1 = stowed)",
+            "A (Angle): Arm pivot (1 down – 5 up, 0 = folded)"
         ).forEach { line ->
             root.addView(TextView(context).apply {
                 text = line
@@ -203,6 +207,10 @@ object KioskPopups {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 16f * d
             isOutsideTouchable = true
+            setTouchInterceptor { _, _ ->
+                com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
+                false
+            }
         }
         popup.showAsDropDown(anchor, -dp(250), dp(6))
     }
@@ -457,6 +465,10 @@ object KioskPopups {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             elevation = 18f * d
             isOutsideTouchable = true
+            setTouchInterceptor { _, _ ->
+                com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
+                false
+            }
         }
         // Open directly above the speaker pill so it stays inside the viewport
         val loc = IntArray(2)

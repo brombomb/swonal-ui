@@ -16,8 +16,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect Changed Packages
+    runs-on: ubuntu-latest
+    outputs:
+      server_app: ${{ steps.filter.outputs.server_app }}
+      tonal_daemon: ${{ steps.filter.outputs.tonal_daemon }}
+      android_kiosk: ${{ steps.filter.outputs.android_kiosk }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate Workflow YAML Files
+        run: |
+          python3 - <<'PY'
+          import glob, re, sys, yaml
+
+          for path in sorted(glob.glob(".github/workflows/*.yml")):
+              with open(path, encoding="utf-8") as f:
+                  text = f.read()
+              yaml.safe_load(text)
+              for idx, line in enumerate(text.splitlines(), 1):
+                  if re.search(r"^\s*if:\s*.*\bsecrets\.", line):
+                      print(f"ERROR: {path}:{idx}: GitHub Actions forbids 'secrets.*' inside 'if:' expressions.")
+                      sys.exit(1)
+              print(f"OK: {path}")
+          PY
+
+      - name: Determine Affected Packages
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "server_app=true" >> "$GITHUB_OUTPUT"
+            echo "tonal_daemon=true" >> "$GITHUB_OUTPUT"
+            echo "android_kiosk=true" >> "$GITHUB_OUTPUT"
+            echo "scripts=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE_REF="origin/${{ github.base_ref }}"
+          MERGE_BASE="$(git merge-base "$BASE_REF" HEAD || echo "$BASE_REF")"
+          CHANGED="$(git diff --name-only "$MERGE_BASE" HEAD)"
+          echo "Changed files:"
+          printf '%s\n' "$CHANGED"
+
+          has_match() {
+            printf '%s\n' "$CHANGED" | grep -qE "$1"
+          }
+
+          if has_match '^(packages/server-app/|\.github/workflows/ci\.yml$)'; then
+            echo "server_app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "server_app=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_match '^(packages/tonal-daemon/|scripts/|\.github/workflows/ci\.yml$)'; then
+            echo "tonal_daemon=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tonal_daemon=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_match '^(packages/android-kiosk/|packages/server-app/src/client/|packages/server-app/package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+            echo "android_kiosk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "android_kiosk=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_match '^(scripts/|\.github/workflows/ci\.yml$)'; then
+            echo "scripts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "scripts=false" >> "$GITHUB_OUTPUT"
+          fi
+
   server-app:
     name: Server App (Typecheck, Build & Tests)
+    needs: changes
+    if: needs.changes.outputs.server_app == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,6 +139,8 @@ jobs:
 
   tonal-daemon:
     name: Tonal Daemon (Lint & Safety Tests)
+    needs: changes
+    if: needs.changes.outputs.tonal_daemon == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -80,14 +159,30 @@ jobs:
       - name: Install Dependencies
         run: pip install -e ".[dev]" ruff
 
-      - name: Ruff Static Checks (Syntax & Undefined Names)
-        run: ruff check --select E9,F63,F7,F82 src tests
+      - name: Ruff Static Checks (Python 3.8 Target)
+        run: ruff check --target-version py38 --select E9,F63,F7,F82 src tests
+
+      - name: Python 3.8 AST Compatibility Check (Termux Target)
+        run: |
+          python3 - <<'PY'
+          import ast, glob
+
+          files = sorted(
+              glob.glob("src/**/*.py", recursive=True) + glob.glob("tests/**/*.py", recursive=True)
+          )
+          for path in files:
+              with open(path, encoding="utf-8") as f:
+                  ast.parse(f.read(), filename=path, feature_version=(3, 8))
+          print(f"Python 3.8 AST check passed for {len(files)} files.")
+          PY
 
       - name: Run Pytest Suite
         run: pytest -v
 
   android-kiosk:
-    name: Android Kiosk (Unit Tests & Debug Build)
+    name: Android Kiosk (Unit Tests, Lint & Release R8 Build)
+    needs: changes
+    if: needs.changes.outputs.android_kiosk == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,5 +213,48 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Run Unit Tests & Compile Debug APK
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain
+      - name: Run Unit Tests, API 23 Lint & Release R8 Build
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon --console=plain
+
+  scripts:
+    name: Scripts (Bash Syntax & ShellCheck)
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Bash Syntax & ShellCheck Validation
+        run: |
+          bash -n scripts/*.sh
+          shellcheck -S error scripts/*.sh
+
+  ci-gate:
+    name: CI Gate
+    needs: [changes, server-app, tonal-daemon, android-kiosk, scripts]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Executed CI Jobs Succeeded
+        run: |
+          check_result() {
+            local name="$1"
+            local res="$2"
+            echo "Job '$name': $res"
+            if [ "$res" != "success" ] && [ "$res" != "skipped" ]; then
+              echo "ERROR: Required CI check '$name' finished with state '$res'."
+              exit 1
+            fi
+          }
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "ERROR: Package change detection failed (${{ needs.changes.result }})."
+            exit 1
+          fi
+
+          check_result "server-app" "${{ needs.server-app.result }}"
+          check_result "tonal-daemon" "${{ needs.tonal-daemon.result }}"
+          check_result "android-kiosk" "${{ needs.android-kiosk.result }}"
+          check_result "scripts" "${{ needs.scripts.result }}"
+          echo "All applicable CI checks passed."

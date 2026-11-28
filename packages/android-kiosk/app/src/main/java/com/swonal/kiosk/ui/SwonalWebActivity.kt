@@ -104,6 +104,7 @@ class SwonalWebActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyImmersiveFullscreen()
+        ScreenSleepController(this).attach()
 
         val targetUrl = intent.getStringExtra(EXTRA_URL)?.trim()
         val pageTitle = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() } ?: "Swonal"
@@ -383,6 +384,11 @@ class SwonalWebActivity : AppCompatActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) applyImmersiveFullscreen()
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
     }
 
     override fun onDestroy() {

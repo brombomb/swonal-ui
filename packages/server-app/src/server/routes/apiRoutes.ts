@@ -29,6 +29,14 @@ import {
   MIN_WEIGHT_LB,
   WeightUnit,
 } from '../utils/units';
+import {
+  allowedSetError,
+  parsePositionSet,
+  positionSetSchema,
+  positionValueSchema,
+  serializeAllowedPositions,
+  toApiExercise,
+} from '../utils/armPositions';
 
 export interface DaemonCommandSender {
   sendToDaemon: (msg: Record<string, unknown>) => boolean;
@@ -340,7 +348,7 @@ const PUBLIC_USER_SELECT = {
         data: { mediaUrl },
       });
       bridge.broadcastToClients({ type: 'exercises_updated' });
-      res.json(updated);
+      res.json(toApiExercise(updated));
     } catch (err) {
       next(err);
     }
@@ -348,37 +356,57 @@ const PUBLIC_USER_SELECT = {
 
   const ExerciseSchema = z.object({
     name: z.string().min(1).max(80),
+    // Short coaching cue shown during the set. Trimmed; null or "" clears it, leaving it out keeps it.
+    notes: z
+      .string()
+      .trim()
+      .max(500)
+      .nullable()
+      .optional()
+      .transform((v) => (v === '' ? null : v)),
     muscleGroup: z.string().min(1).max(40),
     accessory: z.enum(['HANDLES', 'BAR', 'ROPE', 'BODYWEIGHT']).default('HANDLES'),
     unilateral: z.boolean().optional(),
     isUnilateral: z.boolean().optional(),
-    recommendedHeight: z.number().int().min(1).max(12).default(4),
-    recommendedRotation: z.number().int().min(1).max(3).default(2),
-    recommendedAngle: z.number().int().min(1).max(5).default(1),
+    recommendedHeight: positionValueSchema('height').default(4),
+    recommendedRotation: positionValueSchema('rotation').default(2),
+    recommendedAngle: positionValueSchema('angle').default(1),
+    allowedHeights: positionSetSchema('height').default([]),
+    allowedRotations: positionSetSchema('rotation').default([]),
+    allowedAngles: positionSetSchema('angle').default([]),
     mediaUrl: SafeMediaUrlSchema.nullable().optional(),
   });
 
   router.post('/exercises', async (req, res, next) => {
     try {
       const parsed = ExerciseSchema.parse(req.body);
-      const { isUnilateral, unilateral, ...rest } = parsed;
+      const positionError = allowedSetError(parsed);
+      if (positionError) {
+        res.status(400).json({ error: positionError });
+        return;
+      }
+      const { isUnilateral, unilateral, allowedHeights, allowedRotations, allowedAngles, ...rest } =
+        parsed;
       const effectiveUnilateral = unilateral ?? isUnilateral ?? false;
+      const allowed = serializeAllowedPositions({ allowedHeights, allowedRotations, allowedAngles });
       const created = await prisma.exercise.upsert({
         where: { name: rest.name },
         create: {
           ...rest,
+          ...allowed,
           unilateral: effectiveUnilateral,
           mediaUrl: rest.mediaUrl || null,
         },
         update: {
           ...rest,
+          ...allowed,
           unilateral: effectiveUnilateral,
           mediaUrl: rest.mediaUrl || null,
           deletedAt: null,
         },
       });
       bridge.broadcastToClients({ type: 'exercises_updated' });
-      res.status(201).json(created);
+      res.status(201).json(toApiExercise(created));
     } catch (err) {
       next(err);
     }
@@ -389,23 +417,37 @@ const PUBLIC_USER_SELECT = {
       const parsed = ExerciseSchema.partial().parse(req.body);
       const existing = await prisma.exercise.findFirst({
         where: { id: req.params.id, deletedAt: null },
-        select: { id: true },
       });
       if (!existing) {
         res.status(404).json({ error: 'Exercise not found' });
         return;
       }
-      const { isUnilateral, unilateral, ...rest } = parsed;
+      // Validate the merged result so a partial update can't strand recommended* outside its set.
+      const positionError = allowedSetError({
+        recommendedHeight: parsed.recommendedHeight ?? existing.recommendedHeight,
+        recommendedRotation: parsed.recommendedRotation ?? existing.recommendedRotation,
+        recommendedAngle: parsed.recommendedAngle ?? existing.recommendedAngle,
+        allowedHeights: parsed.allowedHeights ?? parsePositionSet(existing.allowedHeights),
+        allowedRotations: parsed.allowedRotations ?? parsePositionSet(existing.allowedRotations),
+        allowedAngles: parsed.allowedAngles ?? parsePositionSet(existing.allowedAngles),
+      });
+      if (positionError) {
+        res.status(400).json({ error: positionError });
+        return;
+      }
+      const { isUnilateral, unilateral, allowedHeights, allowedRotations, allowedAngles, ...rest } =
+        parsed;
       const effectiveUnilateral = unilateral ?? isUnilateral;
       const updated = await prisma.exercise.update({
         where: { id: req.params.id },
         data: {
           ...rest,
+          ...serializeAllowedPositions({ allowedHeights, allowedRotations, allowedAngles }),
           ...(effectiveUnilateral !== undefined ? { unilateral: effectiveUnilateral } : {}),
         },
       });
       bridge.broadcastToClients({ type: 'exercises_updated' });
-      res.json(updated);
+      res.json(toApiExercise(updated));
     } catch (err) {
       next(err);
     }
@@ -668,7 +710,7 @@ const PUBLIC_USER_SELECT = {
         data: { totalVolume: { increment: volumeLb } },
       });
 
-      // Evaluate PR
+      // Evaluate PR (a set with no completed reps can't set a record)
       let newPr = false;
       const oneRepMaxEst = estimateOneRepMaxLb(parsed.weightLb, parsed.repsCompleted);
       const existingPr = await prisma.personalRecord.findUnique({
@@ -681,9 +723,10 @@ const PUBLIC_USER_SELECT = {
       });
 
       if (
-        !existingPr ||
-        parsed.weightLb > existingPr.maxWeightLb ||
-        oneRepMaxEst > existingPr.oneRepMaxEst
+        parsed.repsCompleted >= 1 &&
+        (!existingPr ||
+          parsed.weightLb > existingPr.maxWeightLb ||
+          oneRepMaxEst > existingPr.oneRepMaxEst)
       ) {
         newPr = true;
         await prisma.personalRecord.upsert({
@@ -833,7 +876,7 @@ const PUBLIC_USER_SELECT = {
         include: { exercise: true },
         orderBy: { updatedAt: 'desc' },
       });
-      res.json(prs);
+      res.json(prs.map((pr) => ({ ...pr, exercise: toApiExercise(pr.exercise) })));
     } catch (err) {
       next(err);
     }

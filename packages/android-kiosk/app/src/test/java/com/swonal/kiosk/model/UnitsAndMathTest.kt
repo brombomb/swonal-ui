@@ -70,6 +70,11 @@ class UnitsAndMathTest {
     }
 
     @Test
+    fun `Epley 1RM is zero when no reps were completed`() {
+        assertEquals(0.0, Units.estimateEpley1Rm(100.0, 0), 0.001)
+    }
+
+    @Test
     fun `symmetry metrics classify balanced drift critical and clamp puck symmetrically`() {
         val balanced = SymmetryMetrics.from(
             TelemetryFrame(

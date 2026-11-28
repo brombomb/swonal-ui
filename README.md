@@ -253,7 +253,7 @@ cd ../android-kiosk
 
 Join the community on Discord to share setups, workouts, and feedback: **[Join the Swonal Discord](https://discord.gg/hApx3nkryr)**
 
-Contributions are warmly welcomed! Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `perf:`) so Release Please automatically bumps versions, updates `CHANGELOG.md`, and builds signed APK releases when merged to `main`.
+Contributions are warmly welcomed! See [`CONTRIBUTING.md`](CONTRIBUTING.md) for package structure, safety invariants (Android API 23 & Termux Python 3.8), and PR guidelines, and use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `perf:`) so Release Please automatically bumps versions, updates `CHANGELOG.md`, and builds signed APK releases when merged to `main`.
 
 Run the clean-room local CI script before pushing to verify all three suites and workflow files without touching your local `.env` or `swonal.db`:
 

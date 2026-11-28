@@ -93,7 +93,12 @@ data class StoredExerciseSyncRecord(
     val notes: String? = null,
     val mediaUrl: String? = null,
     val updatedAtMs: Long = 0L,
-    val deletedAtMs: Long? = null
+    val deletedAtMs: Long? = null,
+    // null = field absent in incoming JSON (older server): pull keeps local sets for existing rows.
+    // Rows read from the DB always carry lists, so pushes always send all three (even []).
+    val allowedHeights: List<Int>? = null,
+    val allowedRotations: List<Int>? = null,
+    val allowedAngles: List<Int>? = null
 ) {
     fun toPublicExercise(): Exercise = Exercise(
         id = id,
@@ -105,7 +110,10 @@ data class StoredExerciseSyncRecord(
         recommendedAngle = recommendedAngle,
         unilateral = unilateral,
         notes = notes,
-        mediaUrl = mediaUrl
+        mediaUrl = mediaUrl,
+        allowedHeights = allowedHeights.orEmpty(),
+        allowedRotations = allowedRotations.orEmpty(),
+        allowedAngles = allowedAngles.orEmpty()
     )
 }
 

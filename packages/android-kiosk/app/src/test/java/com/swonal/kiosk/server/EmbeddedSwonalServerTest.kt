@@ -7,6 +7,7 @@ import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.net.LocalDaemonFailSafeClient
 import com.swonal.kiosk.net.SwonalPreferences
 import com.swonal.kiosk.net.SwonalRepository
+import com.swonal.kiosk.util.IdleActivityTracker
 import com.swonal.kiosk.util.PlaintextTestCipher
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class EmbeddedSwonalServerTest {
+
+    init {
+        // The server notes Companion activity for the screen sleep timeout; SystemClock is stubbed on the JVM.
+        IdleActivityTracker.clock = { System.nanoTime() / 1_000_000L }
+    }
 
     private class InMemorySharedPreferences : SharedPreferences {
         private val data = mutableMapOf<String, Any?>()
