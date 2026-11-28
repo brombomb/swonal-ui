@@ -1,20 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { BarChart3, CalendarDays, Flame, TrendingUp } from 'lucide-react';
 import { PersonalRecord, WorkoutSession } from '../types';
+import { buildExerciseSeries } from '../utils/progression';
 import { formatDisplayWeight, WeightUnit } from '../utils/units';
 
 interface ProgressionAnalyticsProps {
   sessions: WorkoutSession[];
   personalRecords: PersonalRecord[];
   unit: WeightUnit;
-}
-
-interface ExercisePoint {
-  dateLabel: string;
-  timestampMs: number;
-  est1RmLb: number;
-  maxWeightLb: number;
-  repsAtBest: number;
 }
 
 function getWeekStart(date: Date): Date {
@@ -24,12 +17,6 @@ function getWeekStart(date: Date): Date {
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
-}
-
-function estimate1RmLb(weightLb: number, reps: number): number {
-  if (reps < 1) return 0;
-  if (reps === 1) return weightLb;
-  return Math.round(weightLb * (1 + reps / 30) * 10) / 10;
 }
 
 export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = React.memo(({
@@ -159,91 +146,10 @@ export const ProgressionAnalytics: React.FC<ProgressionAnalyticsProps> = React.m
   const total8WeekVol = weeklyBuckets.reduce((acc, b) => acc + b.volumeLb, 0);
 
   // 2. Per-Exercise 1RM Progression Series
-  const exerciseSeriesMap = useMemo(() => {
-    const map = new Map<
-      string,
-      { exerciseId: string; name: string; muscleGroup: string; points: ExercisePoint[] }
-    >();
-
-    // Chronological order (oldest first)
-    const sortedSessions = [...sessions].sort(
-      (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-    );
-
-    for (const sess of sortedSessions) {
-      const logs = sess.setLogs ?? [];
-      const perSessionBest = new Map<
-        string,
-        { name: string; muscleGroup: string; est1RmLb: number; maxWeightLb: number; repsAtBest: number }
-      >();
-
-      for (const log of logs) {
-        if (log.repsCompleted < 1) continue; // no completed reps: not a strength data point
-        const name = log.exercise?.name ?? 'Exercise';
-        const muscleGroup = log.exercise?.muscleGroup ?? 'Full Body';
-        const est = estimate1RmLb(log.weightLb, log.repsCompleted);
-        const existing = perSessionBest.get(log.exerciseId);
-        if (!existing || est > existing.est1RmLb) {
-          perSessionBest.set(log.exerciseId, {
-            name,
-            muscleGroup,
-            est1RmLb: est,
-            maxWeightLb: Math.max(existing?.maxWeightLb ?? 0, log.weightLb),
-            repsAtBest: log.repsCompleted,
-          });
-        } else if (log.weightLb > existing.maxWeightLb) {
-          existing.maxWeightLb = log.weightLb;
-        }
-      }
-
-      const d = new Date(sess.startedAt);
-      const dateLabel = `${d.getMonth() + 1}/${d.getDate()}`;
-      const timestampMs = d.getTime();
-
-      for (const [exerciseId, best] of perSessionBest.entries()) {
-        let entry = map.get(exerciseId);
-        if (!entry) {
-          entry = {
-            exerciseId,
-            name: best.name,
-            muscleGroup: best.muscleGroup,
-            points: [],
-          };
-          map.set(exerciseId, entry);
-        }
-        entry.points.push({
-          dateLabel,
-          timestampMs,
-          est1RmLb: best.est1RmLb,
-          maxWeightLb: best.maxWeightLb,
-          repsAtBest: best.repsAtBest,
-        });
-      }
-    }
-
-    // Include PR-only exercises if they don't have session logs yet
-    for (const pr of personalRecords) {
-      if (!map.has(pr.exerciseId) && pr.exercise) {
-        const d = new Date(pr.updatedAt);
-        map.set(pr.exerciseId, {
-          exerciseId: pr.exerciseId,
-          name: pr.exercise.name,
-          muscleGroup: pr.exercise.muscleGroup,
-          points: [
-            {
-              dateLabel: `${d.getMonth() + 1}/${d.getDate()}`,
-              timestampMs: d.getTime(),
-              est1RmLb: pr.oneRepMaxEst,
-              maxWeightLb: pr.maxWeightLb,
-              repsAtBest: 1,
-            },
-          ],
-        });
-      }
-    }
-
-    return map;
-  }, [sessions, personalRecords]);
+  const exerciseSeriesMap = useMemo(
+    () => buildExerciseSeries(sessions, personalRecords),
+    [sessions, personalRecords]
+  );
 
   const exerciseOptions = useMemo(
     () =>
