@@ -2,6 +2,12 @@
 
 <!-- Describe what this PR changes and link any related Issue (e.g. Fixes #123). -->
 
+## Screenshots (Android App / UI)
+
+<!-- If this PR adds or modifies any UI feature, please attach a screenshot (or short recording) of the feature running in the Android Kiosk app (on a Tonal V1 or Android emulator). Tip: `adb exec-out screencap -p > screenshot.png` -->
+
+- [ ] Attached screenshot(s) of the feature in the Android app (or N/A — no UI changes)
+
 ## Package Scope
 
 - [ ] `packages/tonal-daemon` (Python 3.8 on Termux)
