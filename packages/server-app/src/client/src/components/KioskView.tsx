@@ -3496,6 +3496,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                               if (res.ok) {
                                 void refreshBootstrap();
                                 alert('Routine imported successfully!');
+                              } else {
+                                const err = await res.json().catch(() => null);
+                                alert(err?.error || 'Failed to import routine');
                               }
                             }}
                             className="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
