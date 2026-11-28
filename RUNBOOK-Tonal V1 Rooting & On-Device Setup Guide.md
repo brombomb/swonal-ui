@@ -5,8 +5,9 @@ Complete Guide to Rooting Tonal V1 (`tonal-freedom`), Blocking OTA Updates, and 
 # **Hardware & High-Force Motor Safety Warnings**
 
 1. **Unplug Power Before Opening:** Always switch off the Tonal's main power breaker and unplug the AC cord before removing the service cover.  
-2. **USB VBUS Triggers Motor Initialization:** Even with the Android tablet being flashed, applying 5V USB VBUS to the internal motor controller can cause initialization and sudden arm movement. Keep the Tonal's main AC power **OFF** while flashing the MediaTek board over micro-USB (the MediaTek board draws power from your laptop's USB port in BROM mode).  
-3. **Never Lose Your Original Dump:** Do not flash anything until you have verified non-zero file sizes for your virgin `boot.bin` and partition backups.
+2. **USB VBUS Triggers Motor Initialization:** Even with the Android tablet being flashed, applying 5V USB VBUS to the internal motor controller can cause initialization and sudden arm movement. Keep the Tonal's main AC power **OFF** while flashing the MediaTek board over micro-USB if your board powers up from your laptop's USB port in BROM mode.  
+3. **If BROM Needs the Tonal Switched On, Treat the Machine as Live:** On the Tonal V1 units reported so far, the MediaTek board does **not** come up on USB power alone (no USB device appears with AC off, across several cables). BROM is then reached by starting `mtkclient` first and **switching the Tonal on** while it waits, which also powers the motor controller. Before switching on: close and secure the service door with the micro-USB cable routed out (no high voltage exposed), fold both arms in, keep hands and body clear, and keep your laptop outside the cabinet. Switch the Tonal off as soon as each `mtkclient` command finishes.  
+4. **Never Lose Your Original Dump:** Do not flash anything until your virgin `boot.bin` and partition backups are verified (exact sizes and SHA-256 checksums, see Phase 1 step 3) and copied off the flashing machine.
 
 # **Prerequisites**
 
@@ -24,7 +25,8 @@ Complete Guide to Rooting Tonal V1 (`tonal-freedom`), Blocking OTA Updates, and 
 ## **1\. Power Down & Expose the MediaTek Service Port**
 
 * Turn off the Tonal power switch and unplug the AC power cable from the wall.  
-* Remove the service access cover to expose the main Android logic board. Locate the **micro-USB port** on the MediaTek board (do **not** unplug the internal USB serial cable going to the motor controller yet, or if you do, label its port).
+* Remove the service access cover to expose the main Android logic board. Locate the **micro-USB port** on the MediaTek board (do **not** unplug the internal USB serial cable going to the motor controller yet, or if you do, label its port).  
+* Plug the micro-USB cable into the board and route it out of the cabinet so the door closes without pinching it. If your board needs the Tonal switched on for BROM (Safety Warning 3), close and secure the service door before plugging the AC cord back in, and leave the power switch off for now.
 
 ## **2\. Install `mtkclient` on Your Laptop**
 
@@ -44,22 +46,31 @@ python3 mtk.py rl ~/tonal-backup
 ```
 
 * Plug the micro-USB cable from your laptop into the Tonal's MediaTek board (following the `tonal-freedom` BROM pin/button sequence if your board revision doesn't auto-enter BROM on USB plug).  
-* Wait for the full partition dump to finish.  
-* **Verification:** Run `ls -lh ~/tonal-backup/boot.bin` and verify `boot.bin` exists, is non-zero (typically 16MB), and copy the entire `~/tonal-backup` folder to a second safe drive before continuing.
+* **If nothing happens on USB power alone** (common on Tonal V1): with `mtkclient` still waiting, **switch the Tonal on** (Safety Warning 3). `mtkclient` catches BROM within a few seconds (on Linux, `lsusb` shows `0e8d:2000 MediaTek MT65xx Preloader`) and the Tonal's screen stays dark. If no device appears, switch it off, wait about 10 seconds and switch it on again. `device not accepting address, error -71` in `dmesg` means a poor USB connection: reseat the cable or try another USB port. Switch the Tonal off when the command finishes: every `mtkclient` command needs its own *start command → switch on → switch off* cycle.  
+* Wait for the full partition dump to finish. **It is slow:** about 30 GB, mostly `userdata` (~25 GiB), at roughly 3 MB/s, so plan for 2.5–3 hours. To get the small partitions safe first, you can dump everything except `userdata` (`python3 mtk.py rl ~/tonal-backup --skip userdata`, ~4 GB, ~25 min), then `userdata` on its own straight to an external drive (`python3 mtk.py r userdata /media/<drive>/userdata.bin`).  
+* **Verification:**  
+  1. Run `ls -lh ~/tonal-backup/boot.bin` and verify `boot.bin` exists and is 16MB. Better, save the partition table (`python3 mtk.py printgpt > ~/tonal-backup-gpt.txt`) and check that **every** file's size equals its partition's `Length` exactly.  
+  2. Record checksums (`cd ~/tonal-backup && sha256sum -- *.bin > SHA256SUMS`), copy the entire `~/tonal-backup` folder (plus `userdata.bin`) to a second safe drive, and run `sha256sum -c SHA256SUMS` on the copy before continuing.  
+  3. Prove reads are repeatable: read `boot` once more to a different path (`python3 mtk.py r boot ~/boot-check.bin`) and confirm its SHA-256 matches `boot.bin`.  
+* **`userdata` is encrypted** (Android full-disk encryption), so `userdata.bin` looks like random data with no filesystem signature. That is expected. Its key lives in the crypto footer in the `metadata` partition: keep `metadata.bin` with it, and only ever restore the two together, to the same Tonal.  
+* **Optional:** the eMMC boot areas (MediaTek preloader) are not part of `rl`. Read them with `mkdir -p ~/tonal-boot-areas` and then `python3 mtk.py rf ~/tonal-boot-areas/boot1.bin --parttype boot1` (and the same with `boot2`). Keep them, but **never write them back**.
 
 ## **4\. Patch `boot.bin` with Magisk v27.0**
 
 * Copy `~/tonal-backup/boot.bin` to a working copy (`cp ~/tonal-backup/boot.bin ~/boot-to-patch.img`) — never touch your original backup.  
 * Patch `boot-to-patch.img` using the `tonal-freedom` patching routine or on an Android device with Magisk v27.0 installed ("Select and Patch a File"), which outputs `magisk_patched.img`.  
-* Re-connect in BROM mode and flash the patched boot image to the `boot` partition:
+* Re-connect in BROM mode (the same way as for the backup) and flash the patched boot image to the `boot` partition:
 
 ```
 python3 mtk.py w boot ~/magisk_patched.img
 ```
 
+* **If the patched boot fails** (boot loop or black screen), restore your original the same way: enter BROM and run `python3 mtk.py w boot ~/tonal-backup/boot.bin`. `w` looks `boot` up in the partition table and writes only within that partition; BROM lives in the chip's ROM, so a failed or interrupted write can simply be repeated. Consider rehearsing this once **before** flashing the patch: write your original `boot.bin` back (identical bytes), read it back with `python3 mtk.py r boot ~/boot-check.bin`, and confirm the SHA-256 still matches. That proves the restore path works on your unit.  
+* **Do not run `python3 mtk.py wl ~/tonal-backup` on the backup folder as-is.** `wl` writes each file to the partition named after it, and the folder also holds `gpt.bin` / `gpt_backup.bin` (written at address 0, over the partition table) and other non-partition files. For a multi-partition restore, copy only the images you mean to restore into a new folder, and never include the boot areas.
+
 ## **5\. Boot Up, Unlock Kiosk Mode & Enable Persistent ADB**
 
-* Unplug your laptop's micro-USB cable from the Tonal board, plug the Tonal AC cord back in, and flip the power switch on.  
+* If you used the AC-on flow (Safety Warning 3), **flip the power switch off and unplug the AC cord before opening the service door.** Unplug your laptop's micro-USB cable from the Tonal board, close and secure the service door, then plug the Tonal AC cord back in and flip the power switch on. With no `mtkclient` command waiting, the Tonal boots normally.  
 * Once booted, reconnect your laptop via USB and run the `tonal-freedom` post-root unlock script (or via `adb shell`) to install the **Magisk v27.0 APK**, strip Tonal's device-owner kiosk lock, and enable **ADB over Wi-Fi** on port `5555`:
 
 ```
