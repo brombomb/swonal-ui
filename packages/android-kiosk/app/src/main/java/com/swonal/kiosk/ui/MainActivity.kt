@@ -468,7 +468,11 @@ class MainActivity : AppCompatActivity() {
             binding.tvHardwareStatus,
             binding.btnAccHandles,
             binding.btnAccBar,
-            binding.btnAccRope
+            binding.btnAccRope,
+            binding.tvModifierModeLabel,
+            binding.btnModifierMinus,
+            binding.tvModifierValue,
+            binding.btnModifierPlus
         ).forEach {
             it.typeface = monoBold
             it.fontFeatureSettings = "tnum"
@@ -652,6 +656,8 @@ class MainActivity : AppCompatActivity() {
         binding.btnModeSpotter.setOnClickListener { repo.setDynamicMode("spotter") }
         binding.btnModeBurnout.setOnClickListener { repo.setDynamicMode("burnout") }
         binding.btnModeSmartFlex.setOnClickListener { repo.setDynamicMode("smart_flex") }
+        binding.btnModifierMinus.setOnClickListener { repo.stepModifierPct(-5) }
+        binding.btnModifierPlus.setOnClickListener { repo.stepModifierPct(5) }
 
         // Voice Coach
         binding.btnOpenCoachModal.setOnClickListener {
@@ -773,6 +779,9 @@ class MainActivity : AppCompatActivity() {
             binding.btnModeChains,
             binding.btnModeSpotter,
             binding.btnModeBurnout,
+            binding.btnModeSmartFlex,
+            binding.btnModifierMinus,
+            binding.btnModifierPlus,
             binding.btnOpenCoachModal,
             binding.btnCoachSuggestedAction,
             binding.btnDismissMusicError,
@@ -910,7 +919,7 @@ class MainActivity : AppCompatActivity() {
 
         renderArmAlignmentBadgeIfChanged(frame, ui)
         renderAccessoryButtonsIfChanged(frame.accessory)
-        renderDynamicModeButtonsIfChanged(frame.profileMode, frame.modifierPct)
+        renderDynamicModeButtonsIfChanged(frame.profileMode, frame.modifierPct, frame.targetWeightLb, unit)
     }
 
     private fun renderVbtHotPath(vbt: VbtMetrics, ui: KioskUiState) {
@@ -1492,9 +1501,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderDynamicModeButtonsIfChanged(activeMode: String, modifierPct: Int) {
+    private fun renderDynamicModeButtonsIfChanged(
+        activeMode: String,
+        modifierPct: Int,
+        targetWeightLb: Double,
+        unit: String
+    ) {
         val norm = activeMode.lowercase(Locale.US)
-        val key = "$norm|$modifierPct"
+        val effPct = Units.effectiveModifierPct(norm, modifierPct)
+        val key = "$norm|$effPct|$targetWeightLb|$unit"
         if (key == lastModeKey) return
         lastModeKey = key
 
@@ -1514,12 +1529,20 @@ class MainActivity : AppCompatActivity() {
             view.background = if (selected) p.accentPillDrawable(d, 12f) else p.elevatedPillDrawable(d, 12f)
             view.setTextColor(if (selected) p.accentTextColor else p.textPrimary)
         }
+        val showModifierRow = norm in setOf("eccentric", "chains", "smart_flex")
+        binding.modifierControlRow.visibility = if (showModifierRow) View.VISIBLE else View.GONE
+        if (showModifierRow) {
+            val addedLb = Units.calculateDynamicAddedWeightLb(targetWeightLb, norm, effPct)
+            val addedDisp = Units.formatCompactWeight(addedLb, unit)
+            binding.tvModifierModeLabel.text = "${norm.replace('_', ' ').uppercase(Locale.US)} EXTRA LOAD"
+            binding.tvModifierValue.text = "+$effPct% (+$addedDisp $unit)"
+        }
         binding.tvModeDescription.text = when (norm) {
-            "eccentric" -> "Eccentric — Adds +${modifierPct.coerceAtLeast(25)}% extra load during the lowering phase"
-            "chains" -> "Chains — Progressively adds up to +${modifierPct.coerceAtLeast(25)}% as you extend the cables"
+            "eccentric" -> "Eccentric — Adds +$effPct% extra load during the lowering phase"
+            "chains" -> "Chains — Progressively adds up to +$effPct% as you extend the cables"
             "spotter" -> "Spotter — Automatically reduces weight if you slow down or stall mid-rep"
             "burnout" -> "Burnout — Gradually drops weight as you fatigue so you can push further"
-            "smart_flex" -> "Smart Flex — Dynamically adds up to +${modifierPct.coerceAtLeast(25)}% at your strongest point"
+            "smart_flex" -> "Smart Flex — Dynamically adds up to +$effPct% at your strongest point"
             else -> "Standard — Constant resistance through the full range of motion"
         }
     }
@@ -1728,6 +1751,12 @@ class MainActivity : AppCompatActivity() {
         binding.tvUpNextMeta.setTextColor(p.accentInk)
         binding.deckDivider.setBackgroundColor(p.borderSubtle)
         binding.tvModeDescription.setTextColor(p.textMuted)
+        binding.tvModifierModeLabel.setTextColor(p.textMuted)
+        binding.btnModifierMinus.background = p.elevatedPillDrawable(d, 9f)
+        binding.btnModifierMinus.setTextColor(p.textPrimary)
+        binding.tvModifierValue.setTextColor(p.accentInk)
+        binding.btnModifierPlus.background = p.elevatedPillDrawable(d, 9f)
+        binding.btnModifierPlus.setTextColor(p.textPrimary)
 
         // Inline Coach (uses emerald successPillDrawable matching web bg-emerald-500/25)
         binding.inlineCoachRow.background = p.elevatedPillDrawable(d, 12f, interactive = false)
