@@ -113,6 +113,37 @@ class BootPlannerTest {
     }
 
     @Test
+    fun `a timed-out probe is unknown even if it printed something`() {
+        assertEquals(DaemonPresence.UNKNOWN, BootPlanner.parseDaemonProbe(-1, "", timedOut = true))
+        assertEquals(
+            DaemonPresence.UNKNOWN,
+            BootPlanner.parseDaemonProbe(0, "swonal-daemon-probe:found:/data/adb/service.d/98-swonal-daemon.sh", timedOut = true)
+        )
+        assertEquals(DaemonPresence.UNKNOWN, BootPlanner.parseDaemonProbe(0, "swonal-daemon-probe:absent", timedOut = true))
+    }
+
+    @Test
+    fun `unknown daemon leaves the motor untouched and explains why`() {
+        for (adb in listOf(true, false)) {
+            val plan = BootPlanner.plan(DaemonPresence.UNKNOWN, takeOverMotor = true, keepWifiAdb = adb)
+            assertEquals(MotorBootOutcome.SKIPPED_ROOT_UNAVAILABLE, plan.motorOutcome)
+            assertFalse(plan.commands.any { "riptlabs" in it || "ttyACM0" in it }, plan.commands.toString())
+        }
+        val notice = BootPlanner.notice(MotorBootOutcome.SKIPPED_ROOT_UNAVAILABLE, DaemonPresence.UNKNOWN)!!
+        assertTrue("didn't answer within 30 s" in notice.body, notice.body)
+    }
+
+    @Test
+    fun `kiosk exit runs first and is not repeated after the probe`() {
+        for (daemon in DaemonPresence.values()) for (takeOver in listOf(true, false)) for (adb in listOf(true, false)) {
+            val plan = BootPlanner.plan(daemon, takeOver, adb)
+            assertEquals(legacyExitKiosk, plan.commands.first())
+            assertEquals(plan.afterKioskExit, plan.commands.drop(1))
+            assertFalse(legacyExitKiosk in plan.afterKioskExit)
+        }
+    }
+
+    @Test
     fun `notice is shown for every outcome except a takeover`() {
         assertNull(BootPlanner.notice(MotorBootOutcome.TAKEN_OVER, DaemonPresence.INSTALLED))
         for (outcome in MotorBootOutcome.values().filter { it != MotorBootOutcome.TAKEN_OVER }) {

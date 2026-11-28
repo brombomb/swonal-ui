@@ -2,7 +2,7 @@ package com.swonal.kiosk.receiver
 
 /**
  * Whether the Swonal tonal-daemon is installed on this Tonal, as seen by a root shell at boot.
- * [UNKNOWN] means the root shell itself failed, so we could not look.
+ * [UNKNOWN] means the root shell itself failed or timed out, so we could not look.
  */
 enum class DaemonPresence(val wireValue: String) {
     INSTALLED("installed"),
@@ -22,7 +22,7 @@ enum class MotorBootOutcome(val wireValue: String) {
     /** "Take over motor on boot" is on, but no daemon install was found: stock Tonal left alone. */
     SKIPPED_DAEMON_NOT_FOUND("daemon_not_found"),
 
-    /** "Take over motor on boot" is on, but the root shell failed, so nothing was changed. */
+    /** "Take over motor on boot" is on, but the root shell failed or timed out, so nothing was changed. */
     SKIPPED_ROOT_UNAVAILABLE("root_unavailable"),
 
     /** "Take over motor on boot" is off: the stock motor service was re-enabled. */
@@ -34,10 +34,16 @@ enum class MotorBootOutcome(val wireValue: String) {
 }
 
 data class BootPlan(
-    /** Root shell commands to run in order, one `su -c` each. */
-    val commands: List<String>,
+    /** Root shell commands to run after [BootPlanner.EXIT_TONAL_KIOSK], in order, one `su -c` each. */
+    val afterKioskExit: List<String>,
     val motorOutcome: MotorBootOutcome
-)
+) {
+    /**
+     * Every command the boot hook runs, in order. [BootReceiver] runs the first one
+     * (leave Tonal's lock-task mode) before the daemon probe, then [afterKioskExit].
+     */
+    val commands: List<String> get() = listOf(BootPlanner.EXIT_TONAL_KIOSK) + afterKioskExit
+}
 
 data class BootNotice(val title: String, val body: String)
 
@@ -57,6 +63,12 @@ object BootPlanner {
     const val TAKE_OVER_MOTOR =
         "pm disable $MCB_SERVICE_PACKAGE; am force-stop $MCB_SERVICE_PACKAGE; chown 0:0 /dev/ttyACM0; chmod 0600 /dev/ttyACM0"
     const val RETURN_MOTOR_TO_STOCK = "pm enable $MCB_SERVICE_PACKAGE"
+
+    /**
+     * Upper bound for each boot root command. On a V1, `su` right after BOOT_COMPLETED has been
+     * seen blocking for over 60 s; a probe that times out counts as [DaemonPresence.UNKNOWN].
+     */
+    const val ROOT_COMMAND_TIMEOUT_MS = 30_000L
 
     /**
      * Files that mean the daemon is installed. Any one is enough: a missed install would leave
@@ -86,10 +98,14 @@ object BootPlanner {
             "echo '$PROBE_ABSENT'"
     }
 
-    /** Interprets the probe's result. Anything unexpected (su failed, not root) is [DaemonPresence.UNKNOWN]. */
-    fun parseDaemonProbe(exitCode: Int, stdout: String): DaemonPresence {
+    /**
+     * Interprets the probe's result. Anything unexpected (su failed or timed out, not root) is
+     * [DaemonPresence.UNKNOWN], never "not installed".
+     */
+    fun parseDaemonProbe(exitCode: Int, stdout: String, timedOut: Boolean = false): DaemonPresence {
         val lines = stdout.lineSequence().map { it.trim() }
         return when {
+            timedOut -> DaemonPresence.UNKNOWN
             exitCode == 0 && lines.any { it.startsWith(PROBE_FOUND) } -> DaemonPresence.INSTALLED
             exitCode == 0 && lines.any { it == PROBE_ABSENT } -> DaemonPresence.NOT_FOUND
             else -> DaemonPresence.UNKNOWN
@@ -97,7 +113,7 @@ object BootPlanner {
     }
 
     fun plan(daemon: DaemonPresence, takeOverMotor: Boolean, keepWifiAdb: Boolean): BootPlan {
-        val commands = mutableListOf(EXIT_TONAL_KIOSK)
+        val commands = mutableListOf<String>()
         // ADB off: leave the adb props alone rather than actively turning ADB off, so a
         // setting change can never lock someone out of their recovery path.
         if (keepWifiAdb) commands += KEEP_WIFI_ADB
@@ -129,8 +145,9 @@ object BootPlanner {
         )
         MotorBootOutcome.SKIPPED_ROOT_UNAVAILABLE -> BootNotice(
             "MOTOR NOT CHECKED: NO ROOT ACCESS AT BOOT",
-            "The kiosk couldn't open a root shell, so it left the motor as it was. " +
-                "Make sure Magisk grants Swonal Kiosk root, then reboot."
+            "The kiosk's root shell failed or didn't answer within ${ROOT_COMMAND_TIMEOUT_MS / 1000} s, so it left " +
+                "the motor as it was (the daemon's own boot scripts, if installed, still hand it the motor). " +
+                "Make sure Magisk grants Swonal Kiosk root. Details: adb logcat -s BootReceiver."
         )
         MotorBootOutcome.RETURNED_TO_STOCK -> BootNotice(
             "MOTOR LEFT WITH STOCK TONAL",

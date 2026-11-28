@@ -120,6 +120,7 @@ class MainActivity : AppCompatActivity() {
     private var lastFatigueAlert: Boolean? = null
     private var lastHardwareStatusKey: String = ""
     private var lastPartnerKey: String = ""
+    private var bootMotorOutcomeListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -152,6 +153,11 @@ class MainActivity : AppCompatActivity() {
         app.repository.start()
         observeStateFlows()
         renderBootMotorNotice()
+        // The boot hook records its result after its root commands finish, which can be long after
+        // this activity opened: refresh the notice when it lands.
+        bootMotorOutcomeListener = app.prefs.registerBootMotorOutcomeListener {
+            runOnUiThread { if (!isFinishing && !isDestroyed) renderBootMotorNotice() }
+        }
 
         // Release any stale daemon maintenance lock left over from a completed update on fresh launch
         lifecycleScope.launch {
@@ -377,6 +383,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        bootMotorOutcomeListener?.let { app.prefs.unregisterBootMotorOutcomeListener(it) }
+        bootMotorOutcomeListener = null
         stopInlineVoiceControl()
         runCatching { offlineVoiceRecognizer?.close() }
         offlineVoiceRecognizer = null

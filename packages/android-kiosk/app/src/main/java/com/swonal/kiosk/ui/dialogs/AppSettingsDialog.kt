@@ -1024,7 +1024,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
 
         val outcome = app.prefs.lastBootMotorOutcome
         val lastBoot = when (outcome) {
-            null -> "Not recorded yet (reboot once)"
+            null -> "Not recorded (boot hook still running, or no reboot since install)"
             com.swonal.kiosk.receiver.MotorBootOutcome.TAKEN_OVER -> "Motor handed to the Swonal daemon"
             else -> com.swonal.kiosk.receiver.BootPlanner.notice(outcome, app.prefs.lastBootDaemonPresence)?.title
                 ?: outcome.wireValue

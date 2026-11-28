@@ -215,6 +215,31 @@ class SwonalPreferences(context: Context) {
             .commit()
     }
 
+    /** Forgets the previous boot's result at the start of a boot, so a stale notice is never shown. */
+    fun clearBootMotorOutcome() {
+        prefs.edit()
+            .remove(KEY_LAST_BOOT_MOTOR_OUTCOME)
+            .remove(KEY_LAST_BOOT_DAEMON_PRESENCE)
+            .commit()
+    }
+
+    /**
+     * Calls [onChange] (on the main thread) whenever the boot hook records or clears its result.
+     * Keep the returned listener referenced and pass it to [unregisterBootMotorOutcomeListener]:
+     * SharedPreferences holds listeners weakly.
+     */
+    fun registerBootMotorOutcomeListener(onChange: () -> Unit): SharedPreferences.OnSharedPreferenceChangeListener {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_LAST_BOOT_MOTOR_OUTCOME) onChange()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return listener
+    }
+
+    fun unregisterBootMotorOutcomeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
     var developerMode: Boolean
         get() = prefs.getBoolean(KEY_DEV_MODE, false)
         set(value) {
