@@ -10,8 +10,8 @@ Context, hardware constraints, design decisions, and operational playbooks for c
   - **Standalone-First Core (Default):** Runs 100% serverlessly on the Tonal V1 wall screen (`1080x1920`, `Physical density: 213dpi`) and supports optional Home/Cloud Server Sync via `CloudSyncManager` (`com.swonal.kiosk.sync`).
   - **On-Device Persistence (`SwonalDatabase`, `androidx.sqlite:sqlite-bundled` 2.5.1):** Bundled SQLite 3.46+ with WAL mode, seeded from `assets/seed/seed_catalog.json` (50 exercises) + 9 SVG form diagrams (`assets/media/`), plus sync tombstones (`deleted_at_ms`), `VACUUM INTO` backups, and **Android Keystore AES-256-GCM** encryption (`SecretCipher`).
   - **On-Device Engines:** `LocalWorkoutEngine` (sessions, PRs, progressive overload, Partner Work-In, CSV/JSON exports, PBKDF2 passcode lock), `LocalAiCoachEngine` (voice commands + offline coach + BYOK LLMs), `LocalSpotifyController` (Keymaster S256 PKCE + `:8765` librespot provisioning + 429 backoff), `LocalLanMusicProviders`, `LocalNostrSwocialEngine` (pure-Kotlin BIP-340 Schnorr + NIP-19 in `NostrCrypto`), and `LocalHomeAssistantClient`.
-  - **Embedded `:3000` Server (`EmbeddedSwonalServer` / `EmbeddedApiRouter` via `NanoWSD`):** Serves the Vite-compiled React SPA bundled in `assets/web/` (synced by Gradle `syncWebAssets` from `packages/server-app/dist/client`), `/api/*` REST parity, `/ws` Companion socket (never disengaging weight when a phone disconnects while Kiosk UI heartbeat is alive), and path-traversal-guarded `/media/*`.
-  - **Native 60fps Hot Path & Dialogs:** Separates 30Hz telemetry (`telemetryFlow`, `vbtFlow`) from discrete UI state (`uiStateFlow`); includes native `RoutineBuilderDialog` and `ServerSyncSettingsDialog`; embeds **Mozilla GeckoView 140 ESR (`arm64-v8a`)** in `SwonalWebActivity` for `/history`, `/settings`, and `/admin`; includes `StockOverlayService` (`TYPE_SYSTEM_ERROR`, `RootShell`) LockTask escape hatch and `LocalDaemonFailSafeClient` (`127.0.0.1:8765`).
+  - **Embedded `:53013` Server (Optional `:53443` HTTPS) (`EmbeddedSwonalServer` / `EmbeddedApiRouter` via `NanoWSD`):** Serves the Vite-compiled React SPA bundled in `assets/web/` (synced by Gradle `syncWebAssets` from `packages/server-app/dist/client`), `/api/*` REST parity, `/ws` Companion socket (never disengaging weight when a phone disconnects while Kiosk UI heartbeat is alive), opt-in TLS (`LocalTlsCertManager`, `/api/tls/ca.crt`), and path-traversal-guarded `/media/*`.
+  - **Native 60fps Hot Path & Dialogs:** Separates 30Hz telemetry (`telemetryFlow`, `vbtFlow`) from discrete UI state (`uiStateFlow`); includes native `RoutineBuilderDialog`, `HistoryDialog`, `AppSettingsDialog`, `AdminDialog`, `ServerSyncSettingsDialog`, bundled offline Vosk voice (`OfflineVoiceRecognizer`), and embedded **Mozilla GeckoView 140 ESR (`arm64-v8a`)** in `SwonalWebActivity`; includes `StockOverlayService` (`TYPE_SYSTEM_ERROR`, `RootShell`) LockTask escape hatch and `LocalDaemonFailSafeClient` (`127.0.0.1:8765`).
   - **Android 6.0 (API 23) Constraints:** Never use `java.time.*`, `java.util.Base64`, or API 24+ `Map.getOrDefault`/`computeIfAbsent` in `packages/android-kiosk` — use `CompatUtil` (`Base64Compat`, `IsoTime`, `CryptoCompat`). All external HTTPS/WSS OkHttp clients must wire `SwonalTlsConfig` (`@raw/swonal_extra_roots`), and all `@Serializable` packages must be kept in `app/proguard-rules.pro`.
 - **`packages/tonal-daemon`** (Python 3.8+ on Termux Android 6 / 3.11+ on dev/CI, FastAPI + WebSockets on port `8765`)
   - Runs on the Tonal V1 under Termux Android 5/6 (Python 3.8.0) + Magisk `service.d` (`start-daemon.sh`).
@@ -97,17 +97,20 @@ Context, hardware constraints, design decisions, and operational playbooks for c
 
 ---
 
-## 6. Verification & Build Commands
+## 6. Verification, CI & Contributor Playbook
 
 Run after every change before committing or restarting the server:
 
 ```sh
-# Clean-room full CI check (workflows + server-app + tonal-daemon + android-kiosk, isolated from .env & swonal.db)
+# Clean-room full CI check (workflows, bash -n, server-app, tonal-daemon + py38 AST, android-kiosk; isolated from .env & swonal.db)
 ./scripts/ci-local.sh
 
-# Release APK check (verifies R8 minification & resource shrinking + bundled web assets)
+# Release APK check (verifies API 23 lintVitalRelease, R8 minification, resource shrinking & bundled web assets)
 cd packages/android-kiosk && ./gradlew :app:assembleRelease --no-daemon
 
 # Installer / boot script syntax check
-bash -n scripts/install-device.sh && sh -n packages/tonal-daemon/start-daemon.sh
+bash -n scripts/*.sh && sh -n packages/tonal-daemon/start-daemon.sh
 ```
+
+- **GitHub Actions CI (`.github/workflows/ci.yml`):** Uses path-based change detection (`Detect Changed Packages`) so PRs run only the affected suites (`server-app`, `tonal-daemon` with Python 3.8 AST + Ruff target `py38`, `android-kiosk` `:app:testDebugUnitTest :app:assembleRelease`, `scripts` `bash -n` + `shellcheck`), aggregated into **`CI Gate`** (required by the `Protect Main` ruleset). Push events to `main` always run all checks.
+- **PR Automation & Guides:** `.github/workflows/labeler.yml` + `.github/labeler.yml` auto-label incoming PRs; contributor guidelines and safety checklists live in `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md`.

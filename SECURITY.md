@@ -15,7 +15,7 @@ Please include:
 - Any relevant logs (scrubbed of tokens/passcodes)
 
 ## Hardening Recommendations for Self-Hosters
-- **Set a Passcode:** Configure a passcode in Kiosk **Settings → Security** (or `SWONAL_AUTH_PASSCODE` in `.env` on the optional sync server) so all LAN `/companion` and `/ws` requests from other devices require authentication.
+- **Set a Passcode:** Configure a passcode in the kiosk under **Application Settings → Network & TLS → LAN Companion Security Lock** (or `SWONAL_AUTH_PASSCODE` in `.env` on the optional sync server) so all LAN `/companion` and `/ws` requests from other devices require authentication.
 - **Protect `tonal-daemon` (`:8765`):** Keep the Tonal on a trusted LAN/VLAN and optionally configure `DAEMON_API_TOKEN` so non-loopback requests require a shared bearer token.
 - **Use HTTPS for Remote Access:** Terminate TLS at your reverse proxy or tunnel when accessing Swonal or the optional sync server remotely.
 
@@ -23,7 +23,7 @@ Please include:
 - **Encrypted Credentials at Rest:** BYOK AI keys, Spotify Keymaster OAuth tokens, Home Assistant tokens, and Nostr `nsec` private keys stored on the Tonal tablet in `swonal_local.db` are encrypted using **Android Keystore AES-256-GCM** (`SecretCipher`, hardware/OS-backed key storage on API 23+).
 - **Embedded `:53013` HTTP & Optional `:53443` HTTPS LAN Server Hardening:**
   - Loopback (`127.0.0.1` / `::1`) is trusted for on-device clients; non-loopback LAN clients enforce PBKDF2-HMAC-SHA256 passcode verification with `HttpOnly; SameSite=Lax` session cookies and constant-time Bearer token comparison.
-  - Optional on-device HTTPS (`:53443`, toggled in Kiosk **Settings → Application Settings**) generates a device-local RSA-2048 Root CA and LAN-SAN leaf certificate (`LocalTlsCertManager`) stored in app-private storage, with the public Root CA downloadable at `GET /api/tls/ca.crt` so mobile browsers can trust HTTPS Companion sessions without a reverse proxy.
+  - Optional on-device HTTPS (`:53443`, toggled in the kiosk under **Application Settings → Network & TLS → Enable On-Device HTTPS**) generates a device-local RSA-2048 Root CA and LAN-SAN leaf certificate (`LocalTlsCertManager`) stored in app-private storage, with the public Root CA downloadable at `GET /api/tls/ca.crt` so mobile browsers can trust HTTPS Companion sessions without a reverse proxy.
   - Strict canonical path-traversal guards protect `/media/*` and bundled static web assets (blocking `..`, backslashes, null bytes, and out-of-root symlinks).
   - Request body caps (`2 MB` JSON routes, `25 MB` JSON backup restore) and strict LAN/loopback CORS origin whitelisting protect embedded memory on Android 6.0.
   - Intent extra overrides (`MainActivity.handleLaunchIntent`) are disabled in Release builds (`!BuildConfig.DEBUG`) and strictly validate `http://`/`https://` URLs.
