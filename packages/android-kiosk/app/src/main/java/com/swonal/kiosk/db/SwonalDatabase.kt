@@ -25,6 +25,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.Closeable
@@ -1435,23 +1436,32 @@ class SwonalDatabase(
     )
 
     /**
-     * Whether a routine uses the exercise. Reads the raw JSON rather than decoded
+     * Whether a routine uses the exercise. Reads the parsed JSON rather than decoded
      * [WorkoutBlock]s: decoding ignores unknown keys and defaults a missing `items` to
-     * empty, which would hide a reference. If the JSON mentions the id and isn't the
-     * shape `[{ items: [{ exerciseId: "..." }] }]`, count it as a use (fail closed),
-     * like server-app's blocksReferenceExercise.
+     * empty, which would hide a reference. Ids are compared decoded, so a JSON escape
+     * (`\u0061` for `a`) can't hide one. A routine that isn't the shape
+     * `[{ items: [{ exerciseId: "..." }] }]` counts as a use if any of its strings
+     * mentions the id, and unparseable JSON if its raw text does (fail closed), like
+     * server-app's blocksReferenceExercise.
      */
     private fun templateUsesExercise(t: WorkoutTemplate, exerciseId: String): Boolean {
-        if (!t.blocksJson.contains(exerciseId)) return false
-        val blocks = runCatching { SwonalJson.parseToJsonElement(t.blocksJson) }.getOrNull() as? JsonArray
-            ?: return true
-        return blocks.any { block ->
-            val items = (block as? JsonObject)?.get("items") as? JsonArray ?: return@any true
-            items.any { item ->
+        val root = runCatching { SwonalJson.parseToJsonElement(t.blocksJson) }.getOrNull()
+            ?: return t.blocksJson.contains(exerciseId)
+        fun mentions(e: JsonElement): Boolean = when (e) {
+            is JsonPrimitive -> e.isString && e.content.contains(exerciseId)
+            is JsonArray -> e.any(::mentions)
+            is JsonObject -> e.any { (k, v) -> k.contains(exerciseId) || mentions(v) }
+        }
+        val blocks = root as? JsonArray ?: return mentions(root)
+        for (block in blocks) {
+            val items = (block as? JsonObject)?.get("items") as? JsonArray ?: return mentions(root)
+            for (item in items) {
                 val id = ((item as? JsonObject)?.get("exerciseId") as? JsonPrimitive)?.takeIf { it.isString }
-                id == null || id.content == exerciseId
+                    ?: return mentions(root)
+                if (id.content == exerciseId) return true
             }
         }
+        return false
     }
 
     private fun readTemplateFromRow(s: SQLiteStatement): WorkoutTemplate {

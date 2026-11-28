@@ -227,6 +227,17 @@ class LocalWorkoutEngineTest {
         }
         assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
 
+        // JSON may escape any character (\u0061 = "a"): the decoded id still counts, in a
+        // well-formed item and in a wrong-shaped routine alike.
+        val escapedId = "\\u%04x".format(id[0].code) + id.substring(1)
+        for (json in listOf(
+            """[{"items":[{"exerciseId":"$escapedId"}]}]""",
+            """[{"items":null,"note":"$escapedId"}]""",
+        )) {
+            setBlocksJson(json)
+            assertTrue(engine.deleteExercise(ex.id).isFailure, "delete must be refused for $json")
+        }
+
         // Well-formed blocks that only mention the id outside an exerciseId don't block it
         setBlocksJson("""[{"blockType":"STRAIGHT_SET","items":[],"note":"$id"},""" +
             """{"blockType":"STRAIGHT_SET","items":[{"exerciseId":"some-other-id","note":"$id"}]}]""")

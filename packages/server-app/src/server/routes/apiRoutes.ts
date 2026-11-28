@@ -102,41 +102,60 @@ const LogSetSchema = z.object({
   restSeconds: z.number().int().min(0).max(600).default(60),
 });
 
+/** Whether any string (key or value) anywhere in a parsed JSON value contains `needle`. */
+function jsonMentions(value: unknown, needle: string): boolean {
+  if (typeof value === 'string') return value.includes(needle);
+  if (Array.isArray(value)) return value.some((v) => jsonMentions(v, needle));
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).some(([k, v]) => k.includes(needle) || jsonMentions(v, needle));
+  }
+  return false;
+}
+
 /**
- * Whether a blocks array (`[{ items: [{ exerciseId }] }]`) uses `exerciseId`.
- * Anything that isn't that shape (including an item without a string
- * `exerciseId`) counts as a use: callers have already seen the id in the raw
- * JSON, so if we can't rule the reference out we fail closed.
+ * Whether a blocks array (`[{ items: [{ exerciseId }] }]`) uses `exerciseId`, comparing
+ * decoded ids (so a JSON escape like `\u0061` can't hide one). Anything that isn't that
+ * shape (including an item without a string `exerciseId`) counts as a use if `mentionsIt`
+ * says the routine mentions the id anywhere: if we can't rule the reference out we fail closed.
  */
-function blocksReferenceExercise(blocks: unknown, exerciseId: string): boolean {
-  if (!Array.isArray(blocks)) return true;
-  return blocks.some((block) => {
+function blocksReferenceExercise(blocks: unknown, exerciseId: string, mentionsIt: () => boolean): boolean {
+  if (!Array.isArray(blocks)) return mentionsIt();
+  for (const block of blocks) {
     const items = typeof block === 'object' && block !== null ? (block as { items?: unknown }).items : undefined;
-    if (!Array.isArray(items)) return true;
-    return items.some((item) => {
-      if (typeof item !== 'object' || item === null || Array.isArray(item)) return true;
+    if (!Array.isArray(items)) return mentionsIt();
+    for (const item of items) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return mentionsIt();
       const id = (item as { exerciseId?: unknown }).exerciseId;
-      return typeof id !== 'string' || id === exerciseId;
-    });
-  });
+      if (typeof id !== 'string') return mentionsIt();
+      if (id === exerciseId) return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Whether serialized JSON holding blocks uses `exerciseId`. `pickBlocks` selects
  * the blocks array from the parsed value (default: the value itself). JSON that
- * mentions the id but can't be parsed counts as a use (fail closed).
+ * can't be parsed counts as a use if its raw text mentions the id (fail closed).
  */
 function jsonReferencesExercise(
   raw: string,
   exerciseId: string,
   pickBlocks: (parsed: unknown) => unknown = (parsed) => parsed
 ): boolean {
-  if (!raw.includes(exerciseId)) return false;
+  let parsed: unknown;
   try {
-    return blocksReferenceExercise(pickBlocks(JSON.parse(raw)), exerciseId);
+    parsed = JSON.parse(raw);
   } catch {
-    return true;
+    return raw.includes(exerciseId);
   }
+  let blocks: unknown;
+  try {
+    blocks = pickBlocks(parsed);
+  } catch {
+    blocks = undefined;
+  }
+  return blocksReferenceExercise(blocks, exerciseId, () => jsonMentions(parsed, exerciseId));
 }
 
 export function createApiRouter(bridge: DaemonCommandSender): Router {
@@ -476,9 +495,10 @@ const PUBLIC_USER_SELECT = {
             return { status: 409, body: { error: `Cannot delete exercise with ${usageCount} logged sets.` } };
           }
           // Routines reference exercises by id inside blocksJson; deleting one would
-          // silently drop that step from every routine that uses it.
+          // silently drop that step from every routine that uses it. Every live routine is
+          // parsed (no text pre-filter): a JSON-escaped id wouldn't match a substring search.
           const candidates = await tx.workoutTemplate.findMany({
-            where: { deletedAt: null, blocksJson: { contains: exerciseId } },
+            where: { deletedAt: null },
             select: { id: true, name: true, blocksJson: true },
             orderBy: { name: 'asc' },
           });

@@ -58,9 +58,10 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
     prisma.$use(async (params, next) => {
       const hook = deleteHook;
       if (!hook) return next(params);
-      const where = (params.args as { where?: { id?: unknown; blocksJson?: { contains?: unknown } } } | undefined)
+      const where = (params.args as { where?: { id?: unknown; deletedAt?: unknown } } | undefined)
         ?.where;
-      if (params.model === 'WorkoutTemplate' && params.action === 'findMany' && where?.blocksJson?.contains === hook.exerciseId && !hook.fired) {
+      // The delete route's routine lookup: the first live-routine findMany once the hook is armed.
+      if (params.model === 'WorkoutTemplate' && params.action === 'findMany' && where?.deletedAt === null && !hook.fired) {
         hook.fired = true;
         const result = await next(params);
         await hook.afterRoutineCheck();
@@ -125,6 +126,7 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
   });
 
   it('fails closed when a routine that mentions the exercise has unreadable blocks', async () => {
+    const escape = (id: string) => `\\u${id.charCodeAt(0).toString(16).padStart(4, '0')}${id.slice(1)}`;
     const exId = await createExercise('Guard Test Bad Json');
     const rawRoutines = [
       { name: 'Guard Test Truncated', blocksJson: `[{"items":[{"exerciseId":"${exId}"` },
@@ -134,6 +136,9 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
       { name: 'Guard Test Number Id', blocksJson: `[{"items":[{"exerciseId":7,"note":"${exId}"}]}]` },
       { name: 'Guard Test Missing Id', blocksJson: `[{"items":[{"note":"${exId}"}]}]` },
       { name: 'Guard Test Array Item', blocksJson: `[{"items":[["${exId}"]]}]` },
+      // JSON may escape any character (\u0061 = "a"): the decoded id still counts.
+      { name: 'Guard Test Escaped Id', blocksJson: `[{"items":[{"exerciseId":"${escape(exId)}"}]}]` },
+      { name: 'Guard Test Escaped Mention', blocksJson: `[{"items":null,"note":"${escape(exId)}"}]` },
     ];
     for (const r of rawRoutines) {
       const t = await prisma.workoutTemplate.create({
