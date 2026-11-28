@@ -277,10 +277,14 @@ class LocalWorkoutEngine(
     ): WorkoutTemplate {
         require(blocks.isNotEmpty()) { "Workout routine must have at least one block" }
         val user = db.getUserById(userId) ?: throw IllegalArgumentException("User not found: $userId")
-        requireExercisesExist(blocks)
         val effectiveUnit = unit ?: user.weightUnit
         val normalizedBlocks = normalizeBlocksToCanonicalLb(blocks, effectiveUnit)
-        return db.createTemplate(userId, name.trim(), description?.trim(), normalizedBlocks, scheduleDays)
+        // Rejects missing/deleted exercises (IllegalArgumentException -> HTTP 400 in the embedded
+        // API). Without this the kiosk later ran another exercise and logged sets/PRs against it.
+        return db.createTemplate(
+            userId, name.trim(), description?.trim(), normalizedBlocks, scheduleDays,
+            requireKnownExercises = true
+        )
     }
 
     suspend fun updateTemplate(
@@ -296,21 +300,12 @@ class LocalWorkoutEngine(
         val effectiveUnit = unit ?: owner?.weightUnit ?: "LB"
         val normalizedBlocks = blocks?.let {
             require(it.isNotEmpty()) { "Workout routine must have at least one block" }
-            requireExercisesExist(it)
             normalizeBlocksToCanonicalLb(it, effectiveUnit)
         }
-        return db.updateTemplate(templateId, name?.trim(), description?.trim(), normalizedBlocks, scheduleDays)
-    }
-
-    /**
-     * Rejects routines that reference missing or deleted exercises. Without this, the kiosk later
-     * substituted another exercise and logged sets/PRs against the wrong movement. Throws
-     * IllegalArgumentException, which the embedded API maps to HTTP 400.
-     */
-    private suspend fun requireExercisesExist(blocks: List<WorkoutBlock>) {
-        val ids = blocks.flatMap { block -> block.items.map { it.exerciseId } }.distinct()
-        val missing = ids.filter { db.getExerciseById(it) == null }
-        require(missing.isEmpty()) { "Unknown exercise id(s): ${missing.joinToString(", ")}" }
+        return db.updateTemplate(
+            templateId, name?.trim(), description?.trim(), normalizedBlocks, scheduleDays,
+            requireKnownExercises = true
+        )
     }
 
     suspend fun deleteTemplate(templateId: String): Boolean = db.deleteTemplate(templateId)

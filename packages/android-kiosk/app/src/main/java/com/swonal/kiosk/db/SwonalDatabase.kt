@@ -768,8 +768,10 @@ class SwonalDatabase(
         description: String?,
         blocks: List<WorkoutBlock>,
         scheduleDays: List<Int> = emptyList(),
-        idOverride: String? = null
+        idOverride: String? = null,
+        requireKnownExercises: Boolean = false
     ): WorkoutTemplate = withTx { c ->
+        if (requireKnownExercises) requireKnownExercisesUnlocked(c, blocks)
         val id = idOverride ?: UUID.randomUUID().toString()
         val nowMs = System.currentTimeMillis()
         val nowIso = IsoTime.formatUtc(nowMs)
@@ -802,8 +804,10 @@ class SwonalDatabase(
         name: String? = null,
         description: String? = null,
         blocks: List<WorkoutBlock>? = null,
-        scheduleDays: List<Int>? = null
+        scheduleDays: List<Int>? = null,
+        requireKnownExercises: Boolean = false
     ): WorkoutTemplate? = withTx { c ->
+        if (requireKnownExercises && blocks != null) requireKnownExercisesUnlocked(c, blocks)
         val existing = c.prepare(
             "SELECT id, user_id, name, description, blocks_json, schedule_days_json, created_at, updated_at FROM workout_templates WHERE id = ? AND deleted_at_ms IS NULL"
         ).useStmt { s ->
@@ -843,6 +847,24 @@ class SwonalDatabase(
             s.step()
         }
         updated
+    }
+
+    /**
+     * Throws IllegalArgumentException if any block item references a missing or soft-deleted
+     * exercise. One `IN (...)` query, run inside the caller's write transaction so an exercise
+     * can't be deleted between the check and the insert/update.
+     */
+    internal fun requireKnownExercisesUnlocked(c: SQLiteConnection, blocks: List<WorkoutBlock>) {
+        val ids = blocks.flatMap { block -> block.items.map { it.exerciseId } }.distinct()
+        if (ids.isEmpty()) return
+        val found = HashSet<String>()
+        val placeholders = ids.joinToString(",") { "?" }
+        c.prepare("SELECT id FROM exercises WHERE id IN ($placeholders) AND deleted_at_ms IS NULL").useStmt { s ->
+            ids.forEachIndexed { idx, id -> s.bindText(idx + 1, id) }
+            while (s.step()) found += s.getText(0)
+        }
+        val missing = ids.filterNot { it in found }
+        require(missing.isEmpty()) { "Unknown exercise id(s): ${missing.joinToString(", ")}" }
     }
 
     suspend fun deleteTemplate(templateId: String): Boolean = withTx { c ->

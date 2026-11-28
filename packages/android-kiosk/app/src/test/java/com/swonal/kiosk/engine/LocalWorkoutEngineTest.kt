@@ -231,4 +231,28 @@ class LocalWorkoutEngineTest {
             runBlocking { engine.createTemplate(alex.id, "Uses deleted", null, singleItemBlock(doomed.id)) }
         }
     }
+
+    @Test
+    fun `database checks routine exercises in one query inside the write transaction`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val valid = engine.getAppState(daemonConnected = true).exercises.take(2)
+        val bogus = "00000000-0000-4000-8000-00000000beef"
+        val before = db.listTemplates(alex.id).size
+
+        // Several ids (valid, repeated, unknown) -> only the unknown one is reported, nothing is written.
+        val blocks = singleItemBlock(valid[0].id) + singleItemBlock(valid[1].id) +
+            singleItemBlock(valid[0].id) + singleItemBlock(bogus)
+        val err = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { db.createTemplate(alex.id, "Mixed", null, blocks, requireKnownExercises = true) }
+        }
+        assertEquals("Unknown exercise id(s): $bogus", err.message)
+        assertEquals(before, db.listTemplates(alex.id).size)
+
+        // Sync/restore callers keep the old lenient behaviour (flag off by default).
+        val lenient = db.createTemplate(alex.id, "Lenient", null, singleItemBlock(bogus))
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { db.updateTemplate(lenient.id, blocks = singleItemBlock(bogus), requireKnownExercises = true) }
+        }
+    }
 }
