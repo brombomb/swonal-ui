@@ -786,7 +786,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     if (resp.ok) {
       showToast(`Sent "${name}" to Tonal Kiosk!`);
     } else {
-      showToast('Failed to send routine to Tonal');
+      const err = await resp.json().catch(() => null);
+      showToast(err?.error || 'Failed to send routine to Tonal');
     }
   };
 

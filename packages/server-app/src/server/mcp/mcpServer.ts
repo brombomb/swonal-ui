@@ -306,12 +306,19 @@ export async function queueWorkoutForSession(params: {
       throw new Error(`Workout template not found: ${params.templateId}`);
     }
 
+    const blocks = JSON.parse(template.blocksJson);
+    // The template may predate validation, or one of its exercises was deleted since it was saved.
+    // Refuse before it reaches the Tonal rather than leave a step with no exercise mid-workout.
+    await assertExercisesExist(
+      blocks,
+      "Can't queue this routine: edit it first, these exercises are missing or deleted"
+    );
     const payload: QueuedWorkoutPayload = {
       userId: params.userId,
       templateId: template.id,
       templateName: template.name,
       description: template.description,
-      blocks: JSON.parse(template.blocksJson),
+      blocks,
       queuedAt: new Date().toISOString(),
     };
     await prisma.appSetting.upsert({

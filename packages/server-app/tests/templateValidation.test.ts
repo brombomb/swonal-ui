@@ -39,6 +39,7 @@ describe('Workout templates reject unknown exercise ids', () => {
       await prisma.workoutTemplate.deleteMany({ where: { id: { in: createdTemplateIds } } });
     }
     await prisma.exercise.deleteMany({ where: { id: { in: createdExerciseIds } } });
+    await prisma.appSetting.deleteMany({ where: { key: 'pending_queued_workout' } });
     await srv.close();
     await prisma.$disconnect();
   });
@@ -252,6 +253,34 @@ describe('Workout templates reject unknown exercise ids', () => {
       });
       expect(session?.templateId).toBeNull();
       expect(session?.setLogs.map((l) => l.id)).toEqual([setId]);
+    });
+  });
+
+  describe('queueing a routine', () => {
+    it('POST /api/templates/:id/queue refuses a routine whose exercise was deleted, and queues nothing', async () => {
+      const doomed = await prisma.exercise.create({
+        data: { name: `Queued then deleted ${randomUUID()}`, muscleGroup: 'Test' },
+      });
+      createdExerciseIds.push(doomed.id);
+      const tpl = await createCustomWorkoutTemplate({
+        userId: DEFAULT_USERS.USER_ONE_ID,
+        name: 'Stale routine',
+        blocks: [block(validExerciseId), block(doomed.id)],
+      });
+      createdTemplateIds.push(tpl.id);
+      await prisma.exercise.update({ where: { id: doomed.id }, data: { deletedAt: new Date() } });
+      await prisma.appSetting.deleteMany({ where: { key: 'pending_queued_workout' } });
+
+      const res = await fetch(`${baseUrl}/api/templates/${tpl.id}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: DEFAULT_USERS.USER_ONE_ID }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string; unknownExerciseIds: string[] };
+      expect(body.unknownExerciseIds).toEqual([doomed.id]);
+      expect(body.error).toContain("Can't queue this routine");
+      expect(await prisma.appSetting.findUnique({ where: { key: 'pending_queued_workout' } })).toBeNull();
     });
   });
 });
