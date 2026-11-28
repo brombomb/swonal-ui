@@ -120,6 +120,8 @@ class MainActivity : AppCompatActivity() {
     private var lastFatigueAlert: Boolean? = null
     private var lastHardwareStatusKey: String = ""
     private var lastPartnerKey: String = ""
+    private lateinit var screenSleepController: ScreenSleepController
+    private var powerActionInFlight = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         app = application as SwonalApp
-        ScreenSleepController(this).attach()
+        screenSleepController = ScreenSleepController(this).also { it.attach() }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         binding = ActivityKioskBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -546,7 +548,16 @@ class MainActivity : AppCompatActivity() {
                 },
                 onOpenBugReport = {
                     showDialogOnce("bug_report") { com.swonal.kiosk.ui.dialogs.BugReportDialog() }
-                }
+                },
+                onSleep = {
+                    lifecycleScope.launch {
+                        screenSleepController.sleepNow()?.let { reason ->
+                            Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                onRestart = { runPowerAction(com.swonal.kiosk.util.DevicePower.Action.RESTART) },
+                onShutDown = { runPowerAction(com.swonal.kiosk.util.DevicePower.Action.SHUT_DOWN) }
             )
         }
         binding.btnHardwareStatus.setOnClickListener {
@@ -1881,6 +1892,55 @@ class MainActivity : AppCompatActivity() {
     private fun openServerWebPath(path: String, title: String = "Swonal") {
         val url = "${app.repository.uiStateFlow.value.serverUrl.trimEnd('/')}$path"
         InAppWebLauncher.open(this, url, title, currentPalette)
+    }
+
+    /**
+     * Restart / Shut Down from Quick Preferences. Kiosk engage requests are blocked for the whole
+     * attempt, and the device only goes down once telemetry confirms weight is off.
+     */
+    private fun runPowerAction(action: com.swonal.kiosk.util.DevicePower.Action) {
+        if (powerActionInFlight) return
+        powerActionInFlight = true
+        val repo = app.repository
+        repo.blockEngageForPowerAction()
+        lifecycleScope.launch {
+            // Keep the block on once the command succeeds: the device may take a few seconds to go down.
+            var keepEngageBlock = false
+            try {
+                if (!repo.disableWeightAndConfirmOff()) {
+                    showPowerActionStillEngaged(action)
+                    return@launch
+                }
+                Toast.makeText(this@MainActivity, action.progressMessage, Toast.LENGTH_LONG).show()
+                // Last check right before going down: the separate server app can reach the daemon directly.
+                if (repo.isWeightCurrentlyEngaged()) {
+                    showPowerActionStillEngaged(action)
+                    return@launch
+                }
+                val res = com.swonal.kiosk.util.DevicePower.perform(action)
+                if (res.isSuccess) {
+                    keepEngageBlock = true
+                } else {
+                    val reason = res.stderr.ifBlank { "root access denied" }
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Couldn't ${action.failureVerb}: $reason",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } finally {
+                if (!keepEngageBlock) repo.clearPowerActionEngageBlock()
+                powerActionInFlight = false
+            }
+        }
+    }
+
+    private fun showPowerActionStillEngaged(action: com.swonal.kiosk.util.DevicePower.Action) {
+        Toast.makeText(
+            this,
+            "Tonal still reports weight engaged, so it won't ${action.failureVerb}. Press WEIGHT OFF and try again.",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun showDialogOnce(tag: String, factory: () -> androidx.fragment.app.DialogFragment) {

@@ -80,6 +80,20 @@ class ScreenSleepPolicyTest {
     }
 
     @Test
+    fun `manual sleep stays asleep until new activity or a blocking condition`() {
+        val sleptAt = 100_000L
+        // Last activity was the tap on "Sleep" itself (just before the screen blanked)
+        assertFalse(ScreenSleepPolicy.shouldWakeFromManualSleep(sleptAt, sleptAt, idleMs = 0L, blocked = false))
+        assertFalse(
+            ScreenSleepPolicy.shouldWakeFromManualSleep(sleptAt, sleptAt + 2 * 60 * minute, idleMs = 2 * 60 * minute, blocked = false)
+        )
+        // Cable / arm / Companion activity noted 1s ago, after the screen blanked
+        assertTrue(ScreenSleepPolicy.shouldWakeFromManualSleep(sleptAt, sleptAt + 10_000L, idleMs = 1_000L, blocked = false))
+        // Weight engaged from a phone, a rest timer, or an update always wakes
+        assertTrue(ScreenSleepPolicy.shouldWakeFromManualSleep(sleptAt, sleptAt + 10_000L, idleMs = 10_000L, blocked = true))
+    }
+
+    @Test
     fun `cable movement uses the daemon's 2 unit threshold`() {
         assertFalse(ScreenSleepPolicy.cableMoved(null, null, 50.0, 50.0, 0.0, 0.0))
         assertFalse(ScreenSleepPolicy.cableMoved(10.0, 10.0, 11.9, 8.1, 1.9, -1.9))
