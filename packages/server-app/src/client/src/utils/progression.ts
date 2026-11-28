@@ -84,8 +84,10 @@ export function buildExerciseSeries(
     }
   }
 
-  // Include PR-only exercises if they don't have session logs yet
+  // Include PR-only exercises if they don't have session logs yet. A PR with no estimated
+  // 1RM is a leftover from a 0-rep set (older databases), not a strength data point.
   for (const pr of personalRecords) {
+    if (!(pr.oneRepMaxEst > 0)) continue;
     if (!map.has(pr.exerciseId) && pr.exercise) {
       const d = new Date(pr.updatedAt);
       map.set(pr.exerciseId, {
