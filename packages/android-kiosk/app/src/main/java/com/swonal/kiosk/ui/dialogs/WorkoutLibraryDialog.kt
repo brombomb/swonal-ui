@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.Space
 import android.widget.TextView
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.model.Exercise
@@ -186,8 +187,11 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
                 })
             }
             if (pair.size == 1) {
-                row.addView(View(requireContext()).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                // The filler must also be MATCH_PARENT: a WRAP_CONTENT LinearLayout
+                // only sizes to its tallest child when every child is MATCH_PARENT,
+                // otherwise it uses the fixed-height children and a lone tile collapses.
+                row.addView(Space(requireContext()).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
                 })
             }
             contentContainer.addView(row)
@@ -547,8 +551,9 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
                         })
                     }
                     if (pair.size == 1) {
-                        row.addView(View(requireContext()).apply {
-                            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                        // MATCH_PARENT filler keeps a lone tile visible (see renderRoutinesTab).
+                        row.addView(Space(requireContext()).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
                         })
                     }
                     host.addView(row)
