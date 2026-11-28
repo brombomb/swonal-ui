@@ -135,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         app = application as SwonalApp
+        ScreenSleepController(this).attach()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         binding = ActivityKioskBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -200,6 +201,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

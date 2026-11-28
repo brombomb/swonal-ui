@@ -147,6 +147,7 @@ class OfflineVoiceRecognizer(
             override fun onResult(hypothesis: String?) {
                 val spoken = extractUtteranceText(hypothesis)
                 if (!spoken.isNullOrBlank()) {
+                    com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
                     onUtterance(spoken)
                 }
             }
@@ -154,6 +155,7 @@ class OfflineVoiceRecognizer(
             override fun onFinalResult(hypothesis: String?) {
                 val spoken = extractUtteranceText(hypothesis)
                 if (!spoken.isNullOrBlank()) {
+                    com.swonal.kiosk.util.IdleActivityTracker.noteActivity()
                     onUtterance(spoken)
                 }
             }
