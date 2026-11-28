@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db';
+import { exerciseIdsInBlocks, findUnknownExerciseIds } from '../services/exerciseValidation';
 import {
   clearPendingQueuedWorkout,
   getPendingQueuedWorkout,
@@ -157,6 +158,14 @@ function rewriteBlocksExerciseIds(
   }
 }
 
+function parseJsonOrNull(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function toSafeDate(ms: number | null | undefined, fallback?: string): Date {
   if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
     return new Date(ms);
@@ -204,6 +213,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
         personalRecords: 0,
         friends: 0,
       };
+      const rejectedTemplates: Array<{ id: string; name: string; unknownExerciseIds: string[] }> = [];
 
       await prisma.$transaction(async (tx) => {
         // 1. Users (LWW)
@@ -305,12 +315,36 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
           }
         }
 
-        // 3. Templates (LWW + rewrite remapped exercise IDs)
+        // 3. Templates (LWW + rewrite remapped exercise IDs).
+        // A live template that references an exercise this server has never seen is skipped and
+        // reported in rejectedTemplates, instead of failing the push (which would also drop its
+        // sessions and sets). Soft-deleted exercises still count as known: sync mirrors the
+        // device's state, and a routine whose exercise was deleted later is handled at run time.
+        const templateExerciseIds = new Map<string, string[]>();
+        for (const tpl of bundle.templates) {
+          if (tpl.deletedAtMs) continue;
+          const cleanBlocks = rewriteBlocksExerciseIds(tpl.blocksJson, exerciseIdRemap);
+          templateExerciseIds.set(tpl.id, exerciseIdsInBlocks(parseJsonOrNull(cleanBlocks)));
+        }
+        const unknownExerciseIds = new Set(
+          await findUnknownExerciseIds(
+            Array.from(new Set(Array.from(templateExerciseIds.values()).flat())),
+            { db: tx, includeDeleted: true }
+          )
+        );
         for (const tpl of bundle.templates) {
           const existing = await tx.workoutTemplate.findUnique({ where: { id: tpl.id } });
           const cleanBlocks = rewriteBlocksExerciseIds(tpl.blocksJson, exerciseIdRemap);
           const scheduleStr = JSON.stringify(tpl.scheduleDays);
           const deletedAt = tpl.deletedAtMs ? new Date(tpl.deletedAtMs) : null;
+          const missing = (templateExerciseIds.get(tpl.id) ?? []).filter((id) =>
+            unknownExerciseIds.has(id)
+          );
+          const wouldWrite = !existing || tpl.updatedAtMs >= existing.updatedAt.getTime();
+          if (wouldWrite && missing.length > 0) {
+            rejectedTemplates.push({ id: tpl.id, name: tpl.name, unknownExerciseIds: missing });
+            continue;
+          }
           if (!existing) {
             await tx.workoutTemplate.create({
               data: {
@@ -508,6 +542,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
         serverTimeMs: Date.now(),
         exerciseIdRemap,
         acceptedCounts,
+        rejectedTemplates,
       });
     } catch (err) {
       next(err);

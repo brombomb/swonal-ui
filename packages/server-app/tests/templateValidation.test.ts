@@ -22,6 +22,8 @@ describe('Workout templates reject unknown exercise ids', () => {
   let validExerciseId: string;
   const createdTemplateIds: string[] = [];
   const createdActivityIds: string[] = [];
+  const createdSessionIds: string[] = [];
+  const createdExerciseIds: string[] = [];
 
   beforeAll(async () => {
     srv = await createSwonalServer({ port: 0, connectDaemonWs: false });
@@ -32,9 +34,11 @@ describe('Workout templates reject unknown exercise ids', () => {
 
   afterAll(async () => {
     await prisma.friendActivity.deleteMany({ where: { eventId: { in: createdActivityIds } } });
+    await prisma.workoutSession.deleteMany({ where: { id: { in: createdSessionIds } } });
     if (createdTemplateIds.length > 0) {
       await prisma.workoutTemplate.deleteMany({ where: { id: { in: createdTemplateIds } } });
     }
+    await prisma.exercise.deleteMany({ where: { id: { in: createdExerciseIds } } });
     await srv.close();
     await prisma.$disconnect();
   });
@@ -159,6 +163,95 @@ describe('Workout templates reject unknown exercise ids', () => {
       expect(res.status).toBe(200);
       const created = (await res.json()) as { id: string };
       createdTemplateIds.push(created.id);
+    });
+  });
+
+  describe('POST /api/sync/push', () => {
+    it('skips and reports templates with unknown exercise ids but keeps the rest of the push', async () => {
+      const now = Date.now();
+      const bogus = randomUUID();
+      const customExId = randomUUID();
+      const goodTplId = randomUUID();
+      const badTplId = randomUUID();
+      const tombstoneTplId = randomUUID();
+      const sessId = randomUUID();
+      const setId = randomUUID();
+      createdTemplateIds.push(goodTplId, badTplId, tombstoneTplId);
+      createdSessionIds.push(sessId);
+      createdExerciseIds.push(customExId);
+      const tpl = (id: string, exerciseIds: string[], extra: Record<string, unknown> = {}) => ({
+        id,
+        userId: DEFAULT_USERS.USER_ONE_ID,
+        name: `Synced ${id.slice(0, 8)}`,
+        blocksJson: JSON.stringify(exerciseIds.map((e) => block(e))),
+        updatedAtMs: now,
+        ...extra,
+      });
+
+      const res = await fetch(`${baseUrl}/api/sync/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: 'template-validation-test',
+          pushedAtMs: now,
+          // A custom exercise created on the device in the same push must count as known.
+          exercises: [
+            { id: customExId, name: `Device move ${customExId}`, muscleGroup: 'Test', updatedAtMs: now },
+          ],
+          templates: [
+            tpl(goodTplId, [validExerciseId, customExId]),
+            tpl(badTplId, [validExerciseId, bogus]),
+            // Deleting a template is never blocked by what it references.
+            tpl(tombstoneTplId, [bogus], { deletedAtMs: now }),
+          ],
+          sessions: [
+            {
+              id: sessId,
+              userId: DEFAULT_USERS.USER_ONE_ID,
+              templateId: badTplId,
+              startedAt: new Date(now - 600_000).toISOString(),
+              completedAt: new Date(now).toISOString(),
+              totalVolume: 300,
+              updatedAtMs: now,
+            },
+          ],
+          setLogs: [
+            {
+              id: setId,
+              sessionId: sessId,
+              exerciseId: validExerciseId,
+              setNumber: 1,
+              weightLb: 30,
+              repsCompleted: 10,
+              volumeLb: 300,
+              timestamp: new Date(now).toISOString(),
+              updatedAtMs: now,
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        acceptedCounts: Record<string, number>;
+        rejectedTemplates: Array<{ id: string; unknownExerciseIds: string[] }>;
+      };
+      expect(body.rejectedTemplates).toEqual([
+        expect.objectContaining({ id: badTplId, unknownExerciseIds: [bogus] }),
+      ]);
+      expect(body.acceptedCounts.templates).toBe(2);
+
+      expect(await prisma.workoutTemplate.findUnique({ where: { id: goodTplId } })).not.toBeNull();
+      expect(await prisma.workoutTemplate.findUnique({ where: { id: badTplId } })).toBeNull();
+      const tombstone = await prisma.workoutTemplate.findUnique({ where: { id: tombstoneTplId } });
+      expect(tombstone?.deletedAt).not.toBeNull();
+
+      // The push's session and set still land; the session just loses its link to the skipped template.
+      const session = await prisma.workoutSession.findUnique({
+        where: { id: sessId },
+        include: { setLogs: true },
+      });
+      expect(session?.templateId).toBeNull();
+      expect(session?.setLogs.map((l) => l.id)).toEqual([setId]);
     });
   });
 });
