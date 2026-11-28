@@ -44,10 +44,14 @@ import kotlinx.coroutines.launch
  * it (a real screen-off on Android 6 disables the touchscreen and needs the power button).
  * Because the kiosk never leaves the foreground, the UI heartbeat stays alive. Any activity
  * while blanked (Companion command, voice, cable or arm movement) or a blocking condition
- * (e.g. weight engaged from a phone) wakes the screen within one tick.
+ * wakes the screen within one tick.
  *
- * [sleepNow] (Quick Preferences → Power → Sleep) blanks the screen the same way on demand,
- * whatever the timeout setting is, and wakes on the same touch / activity / blocking rules.
+ * Weight is always off while asleep, so the screen always wakes with weight off: kiosk engage
+ * requests are refused while blanked, and if anything still reports weight engaged (e.g. the
+ * separate server app talking to the daemon directly) it is turned off and the screen wakes.
+ *
+ * [sleepNow] (Quick Preferences → Power → Sleep) turns weight off and blanks the screen the
+ * same way on demand, whatever the timeout setting is, and wakes on the same rules.
  */
 class ScreenSleepController(private val activity: AppCompatActivity) {
 
@@ -69,19 +73,36 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
     private var manualSleepStartedMs: Long? = null
 
     /**
-     * Blanks the screen right away (touch anywhere to wake). Refuses while weight is engaged,
-     * a rest timer is running, or an update is installing, and returns false in that case.
+     * Turns weight off (waiting for telemetry to confirm it), then blanks the screen (touch
+     * anywhere to wake). Returns null on success, or a message saying why it didn't sleep:
+     * a rest timer is running, an update is installing, or weight couldn't be confirmed off.
      */
-    fun sleepNow(): Boolean {
-        if (activity.isFinishing || activity.isDestroyed) return false
-        if (isBlocked()) return false
+    suspend fun sleepNow(): String? {
+        if (activity.isFinishing || activity.isDestroyed) return "Can't sleep right now"
+        val repo = app.repository
+        if (repo.uiStateFlow.value.restSecondsRemaining > 0) return "Can't sleep while a rest timer is running"
+        if (AppUpdateManager.isUpdateInProgress.get()) return "Can't sleep while an update is installing"
+
+        // Refuse new engage requests first, then turn weight off and wait for confirmation.
+        repo.setEngageBlockedWhileAsleep(true)
+        if (!repo.disableWeightAndConfirmOff()) {
+            if (blankOverlay == null) repo.setEngageBlockedWhileAsleep(false)
+            return "Tonal still reports weight engaged, so it won't sleep. Press WEIGHT OFF and try again."
+        }
+        if (activity.isFinishing || activity.isDestroyed) {
+            repo.setEngageBlockedWhileAsleep(false)
+            return "Can't sleep right now"
+        }
         dismissWarning()
         if (blankOverlay == null) blankScreen()
-        if (blankOverlay == null) return false
+        if (blankOverlay == null) {
+            repo.setEngageBlockedWhileAsleep(false)
+            return "Couldn't turn the screen off"
+        }
         // The tap on "Sleep" was the last activity; anything noted after this point wakes up.
         IdleActivityTracker.noteActivity()
         manualSleepStartedMs = IdleActivityTracker.clock()
-        return true
+        return null
     }
 
     fun attach() {
@@ -133,6 +154,12 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         }
 
         trackCableMovement()
+
+        // Weight is never left on while asleep (e.g. engaged by the server app straight at the
+        // daemon): turn it off; the blocking check below then wakes the screen.
+        if (blankOverlay != null && app.repository.isWeightCurrentlyEngaged()) {
+            app.repository.disableWeight()
+        }
 
         val blocked = isBlocked()
 
@@ -254,12 +281,15 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
         if (runCatching { overlay.show() }.isFailure) {
             blankOverlay = null
             IdleActivityTracker.noteActivity()
+            return
         }
+        app.repository.setEngageBlockedWhileAsleep(true)
     }
 
     /** Removes the blank overlay (restoring brightness) and restarts the idle countdown. */
     private fun wake() {
         manualSleepStartedMs = null
+        app.repository.setEngageBlockedWhileAsleep(false)
         val overlay = blankOverlay ?: return
         blankOverlay = null
         runCatching { if (overlay.isShowing) overlay.dismiss() }

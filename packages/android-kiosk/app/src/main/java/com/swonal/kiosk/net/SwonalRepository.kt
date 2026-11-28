@@ -1,5 +1,6 @@
 package com.swonal.kiosk.net
 
+import android.os.SystemClock
 import com.swonal.kiosk.audio.SwonalSoundEngine
 import com.swonal.kiosk.db.SwonalDatabase
 import com.swonal.kiosk.db.countDirtySyncRows
@@ -439,6 +440,22 @@ class SwonalRepository(
     private val started = AtomicBoolean(false)
     private val logSetInFlight = AtomicBoolean(false)
     private val lastEnableTapMs = AtomicLong(0L)
+
+    /**
+     * elapsedRealtime until which engaging is refused because Quick Preferences → Restart /
+     * Shut Down is taking the device down. Every kiosk engage path (load dial, phone/Companion
+     * through EmbeddedSwonalServer, voice) goes through [toggleWeight], which checks this.
+     * It expires by itself so a power command that never takes the device down can't keep
+     * the motor locked out.
+     */
+    private val powerActionEngageBlockUntilMs = AtomicLong(0L)
+
+    /**
+     * True while the screen is asleep (Quick Preferences → Sleep or the inactivity timeout).
+     * Weight is always off while asleep, so [toggleWeight] refuses to engage until a wake.
+     */
+    @Volatile
+    private var engageBlockedWhileAsleep = false
     private val autoSelectedLibrespot = AtomicBoolean(false)
 
     @Volatile
@@ -1266,6 +1283,15 @@ class SwonalRepository(
             return
         }
 
+        if (isEngageBlockedForPowerAction()) {
+            _effectsFlow.tryEmit(KioskEffect.ShowMessage("Tonal is restarting or shutting down"))
+            return
+        }
+        if (engageBlockedWhileAsleep) {
+            _effectsFlow.tryEmit(KioskEffect.ShowMessage("Tonal is asleep. Tap the screen to wake it, then engage weight."))
+            return
+        }
+
         val ui = _uiStateFlow.value
         if (ui.authRequired) {
             _effectsFlow.tryEmit(KioskEffect.ShowMessage("Unlock Swonal before engaging weight"))
@@ -1314,6 +1340,37 @@ class SwonalRepository(
         if (!isWeightCurrentlyEngaged()) {
             toggleWeight()
         }
+    }
+
+    /** Refuse kiosk engage requests for [durationMs] while a restart / shut down is underway. */
+    fun blockEngageForPowerAction(durationMs: Long = POWER_ACTION_ENGAGE_BLOCK_MS) {
+        powerActionEngageBlockUntilMs.set(SystemClock.elapsedRealtime() + durationMs)
+    }
+
+    fun clearPowerActionEngageBlock() {
+        powerActionEngageBlockUntilMs.set(0L)
+    }
+
+    fun setEngageBlockedWhileAsleep(blocked: Boolean) {
+        engageBlockedWhileAsleep = blocked
+    }
+
+    fun isEngageBlockedForPowerAction(): Boolean =
+        SystemClock.elapsedRealtime() < powerActionEngageBlockUntilMs.get()
+
+    /**
+     * Disengages, then waits until telemetry (server and local daemon) actually reports weight
+     * off. Unlike [disableWeightAndAwait], a successful send is not treated as proof.
+     * Returns false if weight is still reported engaged after [timeoutMs].
+     */
+    suspend fun disableWeightAndConfirmOff(timeoutMs: Long = 3_000L): Boolean {
+        disableWeightAndAwait()
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (!isWeightCurrentlyEngaged()) return true
+            delay(100L)
+        }
+        return !isWeightCurrentlyEngaged()
     }
 
     suspend fun disableWeightAndAwait(): Boolean {
@@ -2318,6 +2375,9 @@ class SwonalRepository(
 
     companion object {
         const val MAX_COACH_DELTA_LB = 20.0
+
+        /** Covers a slow framework shutdown; cleared early if the power action is aborted or fails. */
+        const val POWER_ACTION_ENGAGE_BLOCK_MS = 60_000L
 
         fun findLibrespotDevice(devices: List<MusicDevice>): MusicDevice? {
             return devices.firstOrNull {

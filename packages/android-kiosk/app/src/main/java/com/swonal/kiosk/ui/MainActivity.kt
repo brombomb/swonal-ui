@@ -550,12 +550,10 @@ class MainActivity : AppCompatActivity() {
                     showDialogOnce("bug_report") { com.swonal.kiosk.ui.dialogs.BugReportDialog() }
                 },
                 onSleep = {
-                    if (!screenSleepController.sleepNow()) {
-                        Toast.makeText(
-                            this,
-                            "Can't sleep while weight is engaged, a rest timer is running, or an update is installing",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                    lifecycleScope.launch {
+                        screenSleepController.sleepNow()?.let { reason ->
+                            Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
+                        }
                     }
                 },
                 onRestart = { runPowerAction(com.swonal.kiosk.util.DevicePower.Action.RESTART) },
@@ -1896,24 +1894,33 @@ class MainActivity : AppCompatActivity() {
         InAppWebLauncher.open(this, url, title, currentPalette)
     }
 
-    /** Restart / Shut Down from Quick Preferences: always disengage resistance before the device goes down. */
+    /**
+     * Restart / Shut Down from Quick Preferences. Kiosk engage requests are blocked for the whole
+     * attempt, and the device only goes down once telemetry confirms weight is off.
+     */
     private fun runPowerAction(action: com.swonal.kiosk.util.DevicePower.Action) {
         if (powerActionInFlight) return
         powerActionInFlight = true
         val repo = app.repository
+        repo.blockEngageForPowerAction()
         lifecycleScope.launch {
+            // Keep the block on once the command succeeds: the device may take a few seconds to go down.
+            var keepEngageBlock = false
             try {
-                if (repo.isWeightCurrentlyEngaged() && !repo.disableWeightAndAwait()) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Couldn't confirm weight is off, so Tonal won't ${action.failureVerb}. Press WEIGHT OFF and try again.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                if (!repo.disableWeightAndConfirmOff()) {
+                    showPowerActionStillEngaged(action)
                     return@launch
                 }
                 Toast.makeText(this@MainActivity, action.progressMessage, Toast.LENGTH_LONG).show()
+                // Last check right before going down: the separate server app can reach the daemon directly.
+                if (repo.isWeightCurrentlyEngaged()) {
+                    showPowerActionStillEngaged(action)
+                    return@launch
+                }
                 val res = com.swonal.kiosk.util.DevicePower.perform(action)
-                if (!res.isSuccess) {
+                if (res.isSuccess) {
+                    keepEngageBlock = true
+                } else {
                     val reason = res.stderr.ifBlank { "root access denied" }
                     Toast.makeText(
                         this@MainActivity,
@@ -1922,9 +1929,18 @@ class MainActivity : AppCompatActivity() {
                     ).show()
                 }
             } finally {
+                if (!keepEngageBlock) repo.clearPowerActionEngageBlock()
                 powerActionInFlight = false
             }
         }
+    }
+
+    private fun showPowerActionStillEngaged(action: com.swonal.kiosk.util.DevicePower.Action) {
+        Toast.makeText(
+            this,
+            "Tonal still reports weight engaged, so it won't ${action.failureVerb}. Press WEIGHT OFF and try again.",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun showDialogOnce(tag: String, factory: () -> androidx.fragment.app.DialogFragment) {

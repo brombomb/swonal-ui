@@ -3,7 +3,8 @@ package com.swonal.kiosk.util
 /**
  * Restart / Shut Down for the Tonal V1 (Quick Preferences → Power), run as root via [RootShell].
  *
- * Callers must disengage resistance first (see `SwonalRepository.disableWeightAndAwait`).
+ * Callers must block engaging and confirm resistance is off first (see
+ * `SwonalRepository.blockEngageForPowerAction` and `disableWeightAndConfirmOff`).
  */
 object DevicePower {
 
