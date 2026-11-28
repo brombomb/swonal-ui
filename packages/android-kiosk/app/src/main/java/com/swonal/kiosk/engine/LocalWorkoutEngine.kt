@@ -231,7 +231,7 @@ class LocalWorkoutEngine(
             recommendedRotation = recommendedRotation.coerceIn(ArmPositionSets.ROTATION_RANGE),
             recommendedAngle = recommendedAngle.coerceIn(ArmPositionSets.ANGLE_RANGE),
             unilateral = unilateral,
-            notes = notes?.trim(),
+            notes = sanitizeNotes(notes),
             mediaUrl = cleanMedia,
             allowedHeights = allowedHeights,
             allowedRotations = allowedRotations,
@@ -249,6 +249,8 @@ class LocalWorkoutEngine(
         recommendedAngle: Int? = null,
         unilateral: Boolean? = null,
         notes: String? = null,
+        /** True when the caller sent notes: then null or blank clears them (otherwise null keeps them). */
+        updateNotes: Boolean = false,
         mediaUrl: String? = null,
         updateMediaUrl: Boolean = false,
         allowedHeights: List<Int>? = null,
@@ -258,6 +260,7 @@ class LocalWorkoutEngine(
         val cleanMedia = if (updateMediaUrl) sanitizeMediaUrl(mediaUrl) else mediaUrl?.let { sanitizeMediaUrl(it) }
         return db.updateExercise(
             exerciseId = exerciseId,
+            updateNotes = updateNotes,
             name = name?.trim(),
             muscleGroup = muscleGroup?.trim(),
             accessory = accessory?.uppercase(Locale.US),
@@ -265,7 +268,7 @@ class LocalWorkoutEngine(
             recommendedRotation = recommendedRotation?.coerceIn(ArmPositionSets.ROTATION_RANGE),
             recommendedAngle = recommendedAngle?.coerceIn(ArmPositionSets.ANGLE_RANGE),
             unilateral = unilateral,
-            notes = notes?.trim(),
+            notes = sanitizeNotes(notes),
             mediaUrl = cleanMedia,
             updateMediaUrl = updateMediaUrl,
             allowedHeights = allowedHeights,
@@ -691,6 +694,15 @@ class LocalWorkoutEngine(
         return trimmed.take(500)
     }
 
+    /** Trimmed exercise notes; blank becomes null. Same 500-character limit as server-app. */
+    private fun sanitizeNotes(raw: String?): String? {
+        val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        require(trimmed.length <= MAX_EXERCISE_NOTES_LENGTH) {
+            "notes must be at most $MAX_EXERCISE_NOTES_LENGTH characters"
+        }
+        return trimmed
+    }
+
     companion object {
         const val SETTING_ACTIVE_USER_ID = "active_user_id"
         const val SETTING_AUTH_HASH = "auth_passcode_hash"
@@ -699,5 +711,6 @@ class LocalWorkoutEngine(
         const val SETTING_SESSION_SECRET = "local_session_secret"
         const val SETTING_SYNC_CURSOR_MS = "last_sync_cursor_ms"
         const val SETTING_INITIAL_SERVER_IMPORT_DONE = "initial_server_import_done"
+        const val MAX_EXERCISE_NOTES_LENGTH = 500
     }
 }

@@ -699,6 +699,8 @@ class SwonalDatabase(
         recommendedAngle: Int? = null,
         unilateral: Boolean? = null,
         notes: String? = null,
+        /** True: [notes] replaces the stored notes, null included. False: null [notes] keeps them. */
+        updateNotes: Boolean = false,
         mediaUrl: String? = null,
         updateMediaUrl: Boolean = false,
         allowedHeights: List<Int>? = null,
@@ -720,7 +722,7 @@ class SwonalDatabase(
             recommendedRotation = recommendedRotation ?: existing.recommendedRotation,
             recommendedAngle = recommendedAngle ?: existing.recommendedAngle,
             unilateral = unilateral ?: existing.unilateral,
-            notes = notes ?: existing.notes,
+            notes = if (updateNotes) notes else (notes ?: existing.notes),
             mediaUrl = if (updateMediaUrl) mediaUrl else (mediaUrl ?: existing.mediaUrl),
             allowedHeights = allowedHeights ?: existing.allowedHeights,
             allowedRotations = allowedRotations ?: existing.allowedRotations,

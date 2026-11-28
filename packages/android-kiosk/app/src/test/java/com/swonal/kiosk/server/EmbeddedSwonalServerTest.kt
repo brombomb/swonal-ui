@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -226,6 +227,41 @@ class EmbeddedSwonalServerTest {
                 val u = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
                 assertEquals("Jordan Chunked", u["name"]!!.jsonPrimitive.content)
             }
+
+            // 3c. Exercise notes: saved trimmed on create and PATCH; null or "" clears them; leaving them out keeps them.
+            fun exerciseCall(method: String, path: String, body: String): Pair<Int, String?> =
+                http.newCall(
+                    Request.Builder().url("$baseUrl$path").method(method, body.toRequestBody(jsonType)).build()
+                ).execute().use { r ->
+                    val obj = if (r.code in 200..299) SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject else null
+                    r.code to (if (method == "POST") obj?.get("id") else obj?.get("notes"))?.jsonPrimitive?.contentOrNull
+                }
+            fun storedNotes(id: String): String? =
+                http.newCall(Request.Builder().url("$baseUrl/api/state").get().build()).execute().use { r ->
+                    SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject["exercises"]!!.jsonArray
+                        .single { it.jsonObject["id"]?.jsonPrimitive?.content == id }
+                        .jsonObject["notes"]?.jsonPrimitive?.contentOrNull
+                }
+            val (createCode, notesExId) = exerciseCall("POST", "/api/exercises", """{"name":"Notes Curl","muscleGroup":"Arms","notes":"  Keep elbows pinned.  "}""")
+            assertEquals(201, createCode)
+            val notesId = notesExId!!
+            assertEquals("Keep elbows pinned.", storedNotes(notesId))
+            assertEquals(200 to "Slow eccentric.", exerciseCall("PATCH", "/api/exercises/$notesId", """{"notes":"Slow eccentric."}"""))
+            assertEquals(200 to "Slow eccentric.", exerciseCall("PATCH", "/api/exercises/$notesId", """{"muscleGroup":"Back"}"""))
+            assertEquals("Slow eccentric.", storedNotes(notesId))
+            assertEquals(200 to null, exerciseCall("PATCH", "/api/exercises/$notesId", """{"notes":null}"""))
+            assertEquals(null, storedNotes(notesId))
+            exerciseCall("PATCH", "/api/exercises/$notesId", """{"notes":"Back again."}""")
+            assertEquals(200 to null, exerciseCall("PATCH", "/api/exercises/$notesId", """{"notes":"   "}"""))
+            assertEquals(null, storedNotes(notesId))
+            val (blankCode, blankId) = exerciseCall("POST", "/api/exercises", """{"name":"Blank Notes Row","muscleGroup":"Back","notes":""}""")
+            assertEquals(201, blankCode)
+            assertEquals(null, storedNotes(blankId!!))
+            val tooLong = "x".repeat(501)
+            assertEquals(400, exerciseCall("POST", "/api/exercises", """{"name":"Too Long","muscleGroup":"Arms","notes":"$tooLong"}""").first)
+            exerciseCall("PATCH", "/api/exercises/$notesId", """{"notes":"Short."}""")
+            assertEquals(400, exerciseCall("PATCH", "/api/exercises/$notesId", """{"notes":"$tooLong"}""").first)
+            assertEquals("Short.", storedNotes(notesId))
 
             // 4. Create session, log set, export CSV
             val sessId: String
