@@ -817,8 +817,10 @@ suspend fun SwonalDatabase.applyPulledSync(
         }
     }
 
-    // 5. PersonalRecords (max-envelope merge)
+    // 5. PersonalRecords (max-envelope merge). A PR with no estimated 1RM came from a set with no
+    // completed reps: skip it so it can't create a PR or raise an existing PR's max weight.
     for (pr in pull.personalRecords) {
+        if (!(pr.oneRepMaxEst > 0.0)) continue
         c.prepare(
             """
             INSERT INTO personal_records(id, user_id, exercise_id, one_rep_max_est, max_weight_lb, updated_at, updated_at_ms, dirty_sync)
