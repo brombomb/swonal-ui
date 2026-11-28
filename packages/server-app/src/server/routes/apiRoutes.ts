@@ -102,6 +102,62 @@ const LogSetSchema = z.object({
   restSeconds: z.number().int().min(0).max(600).default(60),
 });
 
+/** Whether any string (key or value) anywhere in a parsed JSON value contains `needle`. */
+function jsonMentions(value: unknown, needle: string): boolean {
+  if (typeof value === 'string') return value.includes(needle);
+  if (Array.isArray(value)) return value.some((v) => jsonMentions(v, needle));
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).some(([k, v]) => k.includes(needle) || jsonMentions(v, needle));
+  }
+  return false;
+}
+
+/**
+ * Whether a blocks array (`[{ items: [{ exerciseId }] }]`) uses `exerciseId`, comparing
+ * decoded ids (so a JSON escape like `\u0061` can't hide one). Anything that isn't that
+ * shape (including an item without a string `exerciseId`) counts as a use if `mentionsIt`
+ * says the routine mentions the id anywhere: if we can't rule the reference out we fail closed.
+ */
+function blocksReferenceExercise(blocks: unknown, exerciseId: string, mentionsIt: () => boolean): boolean {
+  if (!Array.isArray(blocks)) return mentionsIt();
+  for (const block of blocks) {
+    const items = typeof block === 'object' && block !== null ? (block as { items?: unknown }).items : undefined;
+    if (!Array.isArray(items)) return mentionsIt();
+    for (const item of items) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return mentionsIt();
+      const id = (item as { exerciseId?: unknown }).exerciseId;
+      if (typeof id !== 'string') return mentionsIt();
+      if (id === exerciseId) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether serialized JSON holding blocks uses `exerciseId`. `pickBlocks` selects
+ * the blocks array from the parsed value (default: the value itself). JSON that
+ * can't be parsed counts as a use if its raw text mentions the id (fail closed).
+ */
+function jsonReferencesExercise(
+  raw: string,
+  exerciseId: string,
+  pickBlocks: (parsed: unknown) => unknown = (parsed) => parsed
+): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return raw.includes(exerciseId);
+  }
+  let blocks: unknown;
+  try {
+    blocks = pickBlocks(parsed);
+  } catch {
+    blocks = undefined;
+  }
+  return blocksReferenceExercise(blocks, exerciseId, () => jsonMentions(parsed, exerciseId));
+}
+
 export function createApiRouter(bridge: DaemonCommandSender): Router {
   const router = Router();
 
@@ -420,27 +476,90 @@ const PUBLIC_USER_SELECT = {
 
   router.delete('/exercises/:id', async (req, res, next) => {
     try {
-      const existing = await prisma.exercise.findFirst({
-        where: { id: req.params.id, deletedAt: null },
-        select: { id: true },
-      });
-      if (!existing) {
-        res.status(404).json({ error: 'Exercise not found' });
+      const exerciseId = req.params.id;
+      // Checks and soft-delete share one transaction so a routine saved
+      // concurrently can't land between the check and the write. (Prisma opens
+      // SQLite interactive transactions with BEGIN IMMEDIATE, so other writers
+      // wait until this one commits.)
+      const refusal = await prisma.$transaction(
+        async (tx): Promise<{ status: number; body: Record<string, unknown> } | null> => {
+          const existing = await tx.exercise.findFirst({
+            where: { id: exerciseId, deletedAt: null },
+            select: { id: true },
+          });
+          if (!existing) {
+            return { status: 404, body: { error: 'Exercise not found' } };
+          }
+          const usageCount = await tx.setLog.count({ where: { exerciseId } });
+          if (usageCount > 0) {
+            return { status: 409, body: { error: `Cannot delete exercise with ${usageCount} logged sets.` } };
+          }
+          // Routines reference exercises by id inside blocksJson; deleting one would
+          // silently drop that step from every routine that uses it. Every live routine is
+          // parsed (no text pre-filter): a JSON-escaped id wouldn't match a substring search.
+          const candidates = await tx.workoutTemplate.findMany({
+            where: { deletedAt: null },
+            select: { id: true, name: true, blocksJson: true },
+            orderBy: { name: 'asc' },
+          });
+          const usedBy = candidates
+            .filter((t) => jsonReferencesExercise(t.blocksJson, exerciseId))
+            .map((t) => ({ id: t.id, name: t.name }));
+          if (usedBy.length > 0) {
+            const one = usedBy.length === 1;
+            return {
+              status: 409,
+              body: {
+                error: `Cannot delete exercise: used by ${one ? 'routine' : 'routines'} ${usedBy
+                  .map((t) => `"${t.name}"`)
+                  .join(', ')}. Remove it from ${one ? 'that routine' : 'those routines'} first.`,
+                templates: usedBy,
+              },
+            };
+          }
+          // A queued workout (e.g. from MCP) carries its own copy of the blocks, so it
+          // still uses the exercise after its routine changes. It lives in memory and,
+          // until the kiosk acknowledges it, in AppSetting; check both.
+          const queuedRow = await tx.appSetting.findUnique({
+            where: { key: 'pending_queued_workout' },
+            select: { value: true },
+          });
+          const inMemoryQueued = sessionCoordinator.getState().queuedWorkout;
+          const queuedRaw = [queuedRow?.value, inMemoryQueued ? JSON.stringify(inMemoryQueued) : undefined].find(
+            (raw): raw is string =>
+              raw !== undefined &&
+              jsonReferencesExercise(raw, exerciseId, (parsed) => (parsed as { blocks?: unknown }).blocks)
+          );
+          if (queuedRaw !== undefined) {
+            let queued: { templateId?: unknown; templateName?: unknown } = {};
+            try {
+              queued = JSON.parse(queuedRaw) ?? {};
+            } catch {
+              // Unreadable payload: still refuse, just without a name.
+            }
+            const name = typeof queued.templateName === 'string' ? queued.templateName : null;
+            return {
+              status: 409,
+              body: {
+                error: `Cannot delete exercise: used by the queued workout${name ? ` "${name}"` : ''}. Start or dismiss it first.`,
+                queuedWorkout: {
+                  templateId: typeof queued.templateId === 'string' ? queued.templateId : null,
+                  templateName: name,
+                },
+              },
+            };
+          }
+          await tx.exercise.update({
+            where: { id: exerciseId },
+            data: { deletedAt: new Date() },
+          });
+          return null;
+        }
+      );
+      if (refusal) {
+        res.status(refusal.status).json(refusal.body);
         return;
       }
-      const usageCount = await prisma.setLog.count({
-        where: { exerciseId: req.params.id },
-      });
-      if (usageCount > 0) {
-        res.status(400).json({
-          error: `Cannot delete exercise with ${usageCount} logged sets.`,
-        });
-        return;
-      }
-      await prisma.exercise.update({
-        where: { id: req.params.id },
-        data: { deletedAt: new Date() },
-      });
       bridge.broadcastToClients({ type: 'exercises_updated' });
       res.json({ ok: true });
     } catch (err) {

@@ -274,7 +274,8 @@ class LocalWorkoutEngine(
         )
     }
 
-    suspend fun deleteExercise(exerciseId: String): Result<Unit> = db.deleteExerciseIfUnused(exerciseId)
+    suspend fun deleteExercise(exerciseId: String): Result<Unit> =
+        db.deleteExerciseIfUnused(exerciseId, queuedWorkout = { getSessionState().queuedWorkout })
 
     // --- Templates CRUD & Queue ---
 

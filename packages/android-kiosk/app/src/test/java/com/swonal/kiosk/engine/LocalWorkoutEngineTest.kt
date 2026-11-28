@@ -1,6 +1,7 @@
 package com.swonal.kiosk.engine
 
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.db.useStmt
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.model.WorkoutBlockItem
 import com.swonal.kiosk.util.Base64Compat
@@ -122,6 +123,159 @@ class LocalWorkoutEngineTest {
         assertNotNull(completed?.completedAt)
         assertNull(engine.getSessionState().activeSessionId)
         assertEquals(1580.0, completed!!.totalVolume, 0.01)
+    }
+
+    @Test
+    fun `refuses to delete an exercise a live routine uses, naming the routine`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val ex = engine.createExercise(name = "Guard Test Curl", muscleGroup = "Arms", accessory = "HANDLES")
+        val tpl = engine.createTemplate(
+            userId = alex.id,
+            name = "Guard Test Arms Day",
+            description = "",
+            unit = "LB",
+            blocks = listOf(
+                WorkoutBlock(
+                    blockType = "STRAIGHT_SET",
+                    restSeconds = 60,
+                    items = listOf(WorkoutBlockItem(exerciseId = ex.id, sets = 3, targetReps = 10, targetWeightLb = 30.0))
+                )
+            )
+        )
+
+        val refused = engine.deleteExercise(ex.id)
+        assertTrue(refused.isFailure)
+        assertTrue(refused.exceptionOrNull()!!.message!!.contains("Guard Test Arms Day"))
+        assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
+
+        // Once the routine is deleted, the exercise can go
+        assertTrue(engine.deleteTemplate(tpl.id))
+        assertTrue(engine.deleteExercise(ex.id).isSuccess)
+        assertTrue(engine.listExercises().none { it.id == ex.id })
+    }
+
+    @Test
+    fun `refuses to delete an exercise whose routine blocks mention it but cannot be read`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val ex = engine.createExercise(name = "Guard Test Corrupt", muscleGroup = "Arms", accessory = "HANDLES")
+        val tpl = engine.createTemplate(
+            userId = alex.id,
+            name = "Guard Test Corrupt Routine",
+            description = "",
+            unit = "LB",
+            blocks = listOf(
+                WorkoutBlock(
+                    blockType = "STRAIGHT_SET",
+                    restSeconds = 60,
+                    items = listOf(WorkoutBlockItem(exerciseId = ex.id, sets = 3, targetReps = 10, targetWeightLb = 30.0))
+                )
+            )
+        )
+        db.withDb { c ->
+            c.prepare("UPDATE workout_templates SET blocks_json = ? WHERE id = ?").useStmt { s ->
+                s.bindText(1, """[{"items":[{"exerciseId":"${ex.id}"""")
+                s.bindText(2, tpl.id)
+                s.step()
+            }
+        }
+
+        val refused = engine.deleteExercise(ex.id)
+        assertTrue(refused.isFailure)
+        assertTrue(refused.exceptionOrNull()!!.message!!.contains("Guard Test Corrupt Routine"))
+        assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
+    }
+
+    @Test
+    fun `refuses to delete an exercise when a routine mentioning it has blocks of the wrong shape`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val ex = engine.createExercise(name = "Guard Test Shape", muscleGroup = "Arms", accessory = "HANDLES")
+        val tpl = engine.createTemplate(
+            userId = alex.id,
+            name = "Guard Test Shape Routine",
+            description = "",
+            unit = "LB",
+            blocks = listOf(WorkoutBlock(blockType = "STRAIGHT_SET", restSeconds = 60, items = emptyList()))
+        )
+        fun setBlocksJson(json: String) = runBlocking {
+            db.withDb { c ->
+                c.prepare("UPDATE workout_templates SET blocks_json = ? WHERE id = ?").useStmt { s ->
+                    s.bindText(1, json)
+                    s.bindText(2, tpl.id)
+                    s.step()
+                }
+            }
+        }
+        val id = ex.id
+        // Each of these decodes into WorkoutBlock without error (unknown keys ignored,
+        // items defaulting to []), so a check on the decoded blocks would let them through.
+        val wrongShapes = listOf(
+            """[{"exerciseId":"$id"}]""",
+            """[{"items":null,"note":"$id"}]""",
+            """[{"items":[{"exerciseId":["$id"]}]}]""",
+            """[{"items":[{"note":"$id"}]}]""",
+            """[{"items":[["$id"]]}]""",
+            """{"items":[{"exerciseId":"$id"}]}""",
+        )
+        for (json in wrongShapes) {
+            setBlocksJson(json)
+            val refused = engine.deleteExercise(ex.id)
+            assertTrue(refused.isFailure, "delete must be refused for $json")
+            assertTrue(refused.exceptionOrNull()!!.message!!.contains("Guard Test Shape Routine"), json)
+        }
+        assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
+
+        // JSON may escape any character (\u0061 = "a"): the decoded id still counts, in a
+        // well-formed item and in a wrong-shaped routine alike.
+        val escapedId = "\\u%04x".format(id[0].code) + id.substring(1)
+        for (json in listOf(
+            """[{"items":[{"exerciseId":"$escapedId"}]}]""",
+            """[{"items":null,"note":"$escapedId"}]""",
+        )) {
+            setBlocksJson(json)
+            assertTrue(engine.deleteExercise(ex.id).isFailure, "delete must be refused for $json")
+        }
+
+        // Well-formed blocks that only mention the id outside an exerciseId don't block it
+        setBlocksJson("""[{"blockType":"STRAIGHT_SET","items":[],"note":"$id"},""" +
+            """{"blockType":"STRAIGHT_SET","items":[{"exerciseId":"some-other-id","note":"$id"}]}]""")
+        assertTrue(engine.deleteExercise(ex.id).isSuccess)
+    }
+
+    @Test
+    fun `refuses to delete an exercise the queued workout uses until it is dismissed`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val ex = engine.createExercise(name = "Guard Test Queued Curl", muscleGroup = "Arms", accessory = "HANDLES")
+        val tpl = engine.createTemplate(
+            userId = alex.id,
+            name = "Guard Test Queued Day",
+            description = "",
+            unit = "LB",
+            blocks = listOf(
+                WorkoutBlock(
+                    blockType = "STRAIGHT_SET",
+                    restSeconds = 60,
+                    items = listOf(WorkoutBlockItem(exerciseId = ex.id, sets = 3, targetReps = 10, targetWeightLb = 30.0))
+                )
+            )
+        )
+        assertNotNull(engine.queueTemplate(tpl.id))
+        // The queued copy keeps the exercise even once the routine itself is gone
+        assertTrue(engine.deleteTemplate(tpl.id))
+
+        val refused = engine.deleteExercise(ex.id)
+        assertTrue(refused.isFailure)
+        assertEquals(
+            "Cannot delete exercise: used by the queued workout \"Guard Test Queued Day\". Start or dismiss it first.",
+            refused.exceptionOrNull()!!.message
+        )
+        assertTrue(engine.listExercises().any { it.id == ex.id }, "exercise must still exist")
+
+        engine.clearQueuedWorkout()
+        assertTrue(engine.deleteExercise(ex.id).isSuccess)
     }
 
     @Test

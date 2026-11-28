@@ -7,6 +7,7 @@ import androidx.sqlite.execSQL
 import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.Exercise
 import com.swonal.kiosk.model.PersonalRecord
+import com.swonal.kiosk.model.QueuedWorkoutPayload
 import com.swonal.kiosk.model.SessionTemplateSummary
 import com.swonal.kiosk.model.SetLog
 import com.swonal.kiosk.model.SetLogExerciseSummary
@@ -23,6 +24,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.Closeable
 import java.io.File
 import java.util.UUID
@@ -753,13 +758,41 @@ class SwonalDatabase(
         next
     }
 
-    suspend fun deleteExerciseIfUnused(exerciseId: String): Result<Unit> = withTx { c ->
+    /**
+     * Soft-deletes the exercise unless logged sets, a live routine or the queued workout
+     * use it. [queuedWorkout] is read inside the transaction (it lives in memory).
+     */
+    suspend fun deleteExerciseIfUnused(
+        exerciseId: String,
+        queuedWorkout: () -> QueuedWorkoutPayload? = { null }
+    ): Result<Unit> = withTx { c ->
         val usage = c.prepare("SELECT COUNT(*) FROM set_logs WHERE exercise_id = ?").useStmt { s ->
             s.bindText(1, exerciseId)
             if (s.step()) s.getLong(0) else 0L
         }
         if (usage > 0L) {
             return@withTx Result.failure(IllegalStateException("Cannot delete exercise with $usage logged sets."))
+        }
+        // Routines reference exercises by id; deleting one would silently drop that step.
+        val usedBy = listTemplatesUnlocked(c)
+            .filter { t -> templateUsesExercise(t, exerciseId) }
+            .map { it.name }
+            .sorted()
+        if (usedBy.isNotEmpty()) {
+            val names = usedBy.joinToString(", ") { "\"$it\"" }
+            val (noun, ref) = if (usedBy.size == 1) "routine" to "that routine" else "routines" to "those routines"
+            return@withTx Result.failure(
+                IllegalStateException("Cannot delete exercise: used by $noun $names. Remove it from $ref first.")
+            )
+        }
+        // A queued workout carries its own copy of the blocks, so it can still use the
+        // exercise after its routine is edited or deleted.
+        val queued = queuedWorkout()
+        if (queued != null && queued.blocks.any { b -> b.items.any { it.exerciseId == exerciseId } }) {
+            val name = queued.templateName.takeIf { it.isNotBlank() }?.let { " \"$it\"" }.orEmpty()
+            return@withTx Result.failure(
+                IllegalStateException("Cannot delete exercise: used by the queued workout$name. Start or dismiss it first.")
+            )
         }
         val nowMs = System.currentTimeMillis()
         c.prepare("UPDATE exercises SET deleted_at_ms = ?, updated_at_ms = ?, dirty_sync = 1 WHERE id = ?").useStmt { s ->
@@ -1401,6 +1434,35 @@ class SwonalDatabase(
         allowedRotations = getAllowedList(s, 11, ArmPositionSets.ROTATION_RANGE),
         allowedAngles = getAllowedList(s, 12, ArmPositionSets.ANGLE_RANGE)
     )
+
+    /**
+     * Whether a routine uses the exercise. Reads the parsed JSON rather than decoded
+     * [WorkoutBlock]s: decoding ignores unknown keys and defaults a missing `items` to
+     * empty, which would hide a reference. Ids are compared decoded, so a JSON escape
+     * (`\u0061` for `a`) can't hide one. A routine that isn't the shape
+     * `[{ items: [{ exerciseId: "..." }] }]` counts as a use if any of its strings
+     * mentions the id, and unparseable JSON if its raw text does (fail closed), like
+     * server-app's blocksReferenceExercise.
+     */
+    private fun templateUsesExercise(t: WorkoutTemplate, exerciseId: String): Boolean {
+        val root = runCatching { SwonalJson.parseToJsonElement(t.blocksJson) }.getOrNull()
+            ?: return t.blocksJson.contains(exerciseId)
+        fun mentions(e: JsonElement): Boolean = when (e) {
+            is JsonPrimitive -> e.isString && e.content.contains(exerciseId)
+            is JsonArray -> e.any(::mentions)
+            is JsonObject -> e.any { (k, v) -> k.contains(exerciseId) || mentions(v) }
+        }
+        val blocks = root as? JsonArray ?: return mentions(root)
+        for (block in blocks) {
+            val items = (block as? JsonObject)?.get("items") as? JsonArray ?: return mentions(root)
+            for (item in items) {
+                val id = ((item as? JsonObject)?.get("exerciseId") as? JsonPrimitive)?.takeIf { it.isString }
+                    ?: return mentions(root)
+                if (id.content == exerciseId) return true
+            }
+        }
+        return false
+    }
 
     private fun readTemplateFromRow(s: SQLiteStatement): WorkoutTemplate {
         val blocksJson = s.getText(4)
