@@ -77,6 +77,19 @@ object Units {
         }
     }
 
+    fun clampModifierPctForMode(mode: String, pct: Int): Int {
+        return when (mode.lowercase(Locale.US)) {
+            "eccentric", "smart_flex" -> pct.coerceIn(5, 60)
+            "chains" -> pct.coerceIn(5, 100)
+            else -> 0
+        }
+    }
+
+    fun calculateDynamicAddedWeightLb(baseWeightLb: Double, mode: String, modifierPct: Int): Double {
+        val eff = effectiveModifierPct(mode, modifierPct)
+        return if (eff <= 0) 0.0 else round((baseWeightLb * eff / 100.0) * 2.0) / 2.0
+    }
+
     fun clampWeightForDynamicMode(weightLb: Double, profileMode: String, modifierPct: Int): Double {
         val clamped = (round(weightLb * 2.0) / 2.0).coerceIn(MIN_WEIGHT_LB, MAX_WEIGHT_LB)
         val effMod = effectiveModifierPct(profileMode, modifierPct)

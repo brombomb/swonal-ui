@@ -1373,8 +1373,32 @@ class SwonalRepository(
 
     fun setDynamicMode(mode: String) {
         if (_uiStateFlow.value.authRequired) return
-        val defaultPct = Units.dynamicModeDefaultPct(mode)
-        setWeight(_telemetryFlow.value.targetWeightLb, mode, defaultPct, allowWhileEngaged = true)
+        val current = _telemetryFlow.value
+        val norm = mode.lowercase(Locale.US)
+        val targetPct = if (current.profileMode.equals(norm, ignoreCase = true) && current.modifierPct > 0) {
+            Units.clampModifierPctForMode(norm, current.modifierPct)
+        } else {
+            Units.dynamicModeDefaultPct(norm)
+        }
+        setWeight(current.targetWeightLb, norm, targetPct, allowWhileEngaged = true)
+    }
+
+    fun stepModifierPct(deltaPct: Int) {
+        if (_uiStateFlow.value.authRequired) return
+        val current = _telemetryFlow.value
+        val norm = current.profileMode.lowercase(Locale.US)
+        if (norm !in setOf("eccentric", "chains", "smart_flex")) return
+        val bounded = Units.clampModifierPctForMode(norm, current.modifierPct + deltaPct)
+        setWeight(current.targetWeightLb, norm, bounded, allowWhileEngaged = true)
+    }
+
+    fun setModifierPct(pct: Int) {
+        if (_uiStateFlow.value.authRequired) return
+        val current = _telemetryFlow.value
+        val norm = current.profileMode.lowercase(Locale.US)
+        if (norm !in setOf("eccentric", "chains", "smart_flex")) return
+        val bounded = Units.clampModifierPctForMode(norm, pct)
+        setWeight(current.targetWeightLb, norm, bounded, allowWhileEngaged = true)
     }
 
     fun setAccessory(accessory: String) {

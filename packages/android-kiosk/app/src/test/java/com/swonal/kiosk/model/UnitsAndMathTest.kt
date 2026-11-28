@@ -249,4 +249,14 @@ class UnitsAndMathTest {
         assertTrue(unlocked.rightUnlocked)
         assertTrue(unlocked.badgeText.startsWith("LOCK R ARM"))
     }
+
+    @Test
+    fun `modifier clamping and dynamic added weight respect mode limits`() {
+        assertEquals(5, Units.clampModifierPctForMode("eccentric", 1))
+        assertEquals(60, Units.clampModifierPctForMode("smart_flex", 90))
+        assertEquals(100, Units.clampModifierPctForMode("chains", 150))
+        assertEquals(0, Units.clampModifierPctForMode("standard", 25))
+        assertEquals(25.0, Units.calculateDynamicAddedWeightLb(100.0, "eccentric", 25), 0.001)
+        assertEquals(0.0, Units.calculateDynamicAddedWeightLb(100.0, "spotter", 25), 0.001)
+    }
 }

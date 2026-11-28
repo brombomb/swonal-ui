@@ -1239,6 +1239,41 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                 })}
               </div>
 
+              {(telemetry.profile_mode === 'eccentric' ||
+                telemetry.profile_mode === 'chains' ||
+                telemetry.profile_mode === 'smart_flex') && (
+                <div className="elevated-pill rounded-xl px-3 py-2 flex items-center justify-between text-xs">
+                  <span className="font-bold uppercase tracking-wider opacity-75">
+                    {telemetry.profile_mode.replace('_', ' ')} Extra Load
+                  </span>
+                  <div className="flex items-center gap-2 font-mono font-bold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const maxPct = telemetry.profile_mode === 'chains' ? 100 : 60;
+                        const nextPct = Math.max(5, Math.min(maxPct, (telemetry.modifier_pct || 25) - 5));
+                        setWeight(telemetry.target_weight_lb, telemetry.profile_mode, nextPct);
+                      }}
+                      className="surface-card px-2.5 py-1 rounded-lg"
+                    >
+                      -5%
+                    </button>
+                    <span style={{ color: 'var(--accent-ink)' }}>+{telemetry.modifier_pct}%</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const maxPct = telemetry.profile_mode === 'chains' ? 100 : 60;
+                        const nextPct = Math.max(5, Math.min(maxPct, (telemetry.modifier_pct || 25) + 5));
+                        setWeight(telemetry.target_weight_lb, telemetry.profile_mode, nextPct);
+                      }}
+                      className="surface-card px-2.5 py-1 rounded-lg"
+                    >
+                      +5%
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Rest Timer & Set Logging */}
               <div className="border-t pt-4 space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
                 {restSecondsRemaining > 0 && (
@@ -1861,7 +1896,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                     updateBlockItem(bIdx, iIdx, {
                                       mode: m,
                                       modifierPct:
-                                        m === 'eccentric' || m === 'chains' ? 25 : 0,
+                                        m === 'eccentric' || m === 'chains' || m === 'smart_flex'
+                                          ? 25
+                                          : 0,
                                     });
                                   }}
                                   className="elevated-pill px-1.5 py-1.5 rounded-lg"
@@ -1874,6 +1911,40 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                 </select>
                               </label>
                             </div>
+                            {(item.mode === 'eccentric' ||
+                              item.mode === 'chains' ||
+                              item.mode === 'smart_flex') && (
+                              <div className="mt-2 flex items-center justify-between text-[11px] elevated-pill px-2.5 py-1.5 rounded-lg">
+                                <span className="opacity-75 font-bold uppercase">
+                                  Modifier %
+                                </span>
+                                <div className="flex items-center gap-2 font-mono font-bold">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const maxPct = item.mode === 'chains' ? 100 : 60;
+                                      const next = Math.max(5, Math.min(maxPct, (item.modifierPct || 25) - 5));
+                                      updateBlockItem(bIdx, iIdx, { modifierPct: next });
+                                    }}
+                                    className="surface-card px-2 py-0.5 rounded"
+                                  >
+                                    -5%
+                                  </button>
+                                  <span style={{ color: 'var(--accent-ink)' }}>+{item.modifierPct || 25}%</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const maxPct = item.mode === 'chains' ? 100 : 60;
+                                      const next = Math.max(5, Math.min(maxPct, (item.modifierPct || 25) + 5));
+                                      updateBlockItem(bIdx, iIdx, { modifierPct: next });
+                                    }}
+                                    className="surface-card px-2 py-0.5 rounded"
+                                  >
+                                    +5%
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
