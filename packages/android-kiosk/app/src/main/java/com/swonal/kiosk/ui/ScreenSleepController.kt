@@ -4,6 +4,7 @@ import android.app.Dialog
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
@@ -12,11 +13,13 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.swonal.kiosk.SwonalApp
+import com.swonal.kiosk.model.ArmPositions
 import com.swonal.kiosk.net.AppUpdateManager
 import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.theme.SwonalPalette
@@ -47,15 +50,16 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
     private var warningDialog: ScreenSleepWarningDialog? = null
     private var cableBaselineLeft: Double? = null
     private var cableBaselineRight: Double? = null
+    private var lastArmPositions: ArmPositions? = null
+    private var lastTickMs: Long? = null
+    private var screenWasOn = true
     private var sleepInFlight = false
 
     fun attach() {
         activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 // Returning to (or waking up into) the kiosk always starts a fresh countdown.
-                IdleActivityTracker.noteActivity()
-                cableBaselineLeft = null
-                cableBaselineRight = null
+                resetIdleState()
                 try {
                     while (isActive) {
                         tick()
@@ -70,13 +74,32 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
 
     private fun isScreenOn(): Boolean = powerManager.isInteractive
 
+    private fun resetIdleState() {
+        IdleActivityTracker.noteActivity()
+        cableBaselineLeft = null
+        cableBaselineRight = null
+        lastArmPositions = null
+        lastTickMs = null
+    }
+
     private fun tick() {
+        val now = SystemClock.elapsedRealtime()
+        val gap = ScreenSleepPolicy.isTickGap(lastTickMs, now)
+        lastTickMs = now
+
         if (!isScreenOn()) {
-            // Screen already off (power button or our own sleep): restart the countdown so the
-            // user gets the full timeout after waking the screen.
-            IdleActivityTracker.noteActivity()
+            // Screen already off (power button or our own sleep): nothing to do.
+            screenWasOn = false
             dismissWarning()
             return
+        }
+        if (!screenWasOn || gap) {
+            // Just woke up (or the CPU was suspended between ticks). elapsedRealtime kept counting
+            // through deep sleep, so the idle clock is stale: start a fresh countdown instead of
+            // sleeping again immediately.
+            screenWasOn = true
+            resetIdleState()
+            lastTickMs = now
         }
 
         val repo = app.repository
@@ -99,8 +122,15 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
             }
             is ScreenSleepPolicy.Decision.Warning -> showWarning(decision.secondsLeft)
             ScreenSleepPolicy.Decision.Sleep -> {
+                val warned = warningDialog?.isShowing == true
                 dismissWarning()
-                requestSleep()
+                if (warned) {
+                    requestSleep()
+                } else {
+                    // Never turn the screen off without the countdown having been on screen
+                    // (e.g. the dialog failed to show, or the main thread stalled through it).
+                    IdleActivityTracker.noteActivity()
+                }
             }
         }
     }
@@ -122,6 +152,12 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
             cableBaselineLeft = left
             cableBaselineRight = right
         }
+
+        // Raising/lowering/rotating the arms (or pulling a lock pin) is also someone at the machine.
+        val arms = frame.armPositions
+        val previousArms = lastArmPositions
+        if (previousArms != null && previousArms != arms) IdleActivityTracker.noteActivity()
+        lastArmPositions = arms
     }
 
     private fun showWarning(secondsLeft: Int) {
@@ -166,6 +202,14 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
                 delay(SLEEP_VERIFY_DELAY_MS)
                 if (isScreenOn()) {
                     Log.w(TAG, "Screen still on after KEYCODE_SLEEP (root unavailable?)")
+                    if (!failureToastShown && !activity.isFinishing && !activity.isDestroyed) {
+                        failureToastShown = true
+                        Toast.makeText(
+                            activity,
+                            "Screen sleep failed: root access is required",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             } finally {
                 // Success or failure, restart the countdown instead of retrying every second.
@@ -176,6 +220,10 @@ class ScreenSleepController(private val activity: AppCompatActivity) {
     }
 
     private companion object {
+        /** One toast per app process is enough to explain a missing root grant. */
+        @Volatile
+        var failureToastShown = false
+
         const val TAG = "ScreenSleep"
         const val TICK_MS = 1_000L
         const val SLEEP_VERIFY_DELAY_MS = 1_500L

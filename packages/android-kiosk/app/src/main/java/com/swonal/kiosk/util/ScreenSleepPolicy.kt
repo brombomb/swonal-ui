@@ -18,6 +18,12 @@ object ScreenSleepPolicy {
     /** Cable travel / velocity that counts as user activity (mirrors tonal-daemon's inactivity cutoff). */
     const val CABLE_ACTIVITY_THRESHOLD: Double = 2.0
 
+    /**
+     * The controller ticks every second while the screen is on. A much longer gap means the
+     * CPU was suspended (screen off) or the activity was stopped, so the idle clock is stale.
+     */
+    const val TICK_GAP_RESET_MS: Long = 5_000L
+
     sealed class Decision {
         /** Setting is Off: never sleep, never warn. */
         object Disabled : Decision()
@@ -61,6 +67,10 @@ object ScreenSleepPolicy {
             else -> Decision.Awake
         }
     }
+
+    /** True when the time since the previous tick is too long to trust the idle clock. */
+    fun isTickGap(previousTickMs: Long?, nowMs: Long): Boolean =
+        previousTickMs != null && (nowMs - previousTickMs) >= TICK_GAP_RESET_MS
 
     /**
      * True when the cables moved far enough from the last baseline (or are moving fast enough)

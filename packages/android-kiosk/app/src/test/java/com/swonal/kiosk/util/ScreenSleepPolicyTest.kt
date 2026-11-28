@@ -70,6 +70,16 @@ class ScreenSleepPolicyTest {
     }
 
     @Test
+    fun `tick gap detects suspended CPU or stopped activity`() {
+        assertFalse(ScreenSleepPolicy.isTickGap(null, 1_000_000L))
+        assertFalse(ScreenSleepPolicy.isTickGap(1_000L, 2_000L))
+        assertFalse(ScreenSleepPolicy.isTickGap(1_000L, 5_999L))
+        assertTrue(ScreenSleepPolicy.isTickGap(1_000L, 6_000L))
+        // e.g. screen off + deep sleep for two hours, then the power button
+        assertTrue(ScreenSleepPolicy.isTickGap(1_000L, 1_000L + 2 * 60 * minute))
+    }
+
+    @Test
     fun `cable movement uses the daemon's 2 unit threshold`() {
         assertFalse(ScreenSleepPolicy.cableMoved(null, null, 50.0, 50.0, 0.0, 0.0))
         assertFalse(ScreenSleepPolicy.cableMoved(10.0, 10.0, 11.9, 8.1, 1.9, -1.9))
