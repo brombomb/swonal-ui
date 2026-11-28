@@ -10,6 +10,7 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
   let baseUrl: string;
   const exerciseIds: string[] = [];
   const templateIds: string[] = [];
+  const sessionIds: string[] = [];
 
   async function createExercise(name: string): Promise<string> {
     const res = await fetch(`${baseUrl}/api/exercises`, {
@@ -75,6 +76,7 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
   });
 
   afterAll(async () => {
+    await prisma.workoutSession.deleteMany({ where: { id: { in: sessionIds } } });
     await prisma.workoutTemplate.deleteMany({ where: { id: { in: templateIds } } });
     await prisma.exercise.deleteMany({ where: { id: { in: exerciseIds } } });
     await srv.close();
@@ -93,6 +95,21 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
 
     const ex = await prisma.exercise.findUnique({ where: { id: exId } });
     expect(ex?.deletedAt).toBeNull();
+  });
+
+  it('refuses an exercise with logged sets with 409, like the routine guard', async () => {
+    const exId = await createExercise('Guard Test Logged');
+    const session = await prisma.workoutSession.create({
+      data: {
+        userId: DEFAULT_USERS.USER_ONE_ID,
+        setLogs: { create: [{ exerciseId: exId, setNumber: 1, weightLb: 30, repsCompleted: 10, volumeLb: 300 }] },
+      },
+    });
+    sessionIds.push(session.id);
+
+    const res = await deleteExercise(exId);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('Cannot delete exercise with 1 logged sets.');
   });
 
   it('allows the delete once no live routine uses the exercise', async () => {

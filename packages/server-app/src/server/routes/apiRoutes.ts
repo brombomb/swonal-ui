@@ -429,7 +429,7 @@ const PUBLIC_USER_SELECT = {
           }
           const usageCount = await tx.setLog.count({ where: { exerciseId } });
           if (usageCount > 0) {
-            return { status: 400, body: { error: `Cannot delete exercise with ${usageCount} logged sets.` } };
+            return { status: 409, body: { error: `Cannot delete exercise with ${usageCount} logged sets.` } };
           }
           // Routines reference exercises by id inside blocksJson; deleting one would
           // silently drop that step from every routine that uses it.
