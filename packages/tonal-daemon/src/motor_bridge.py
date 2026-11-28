@@ -514,12 +514,24 @@ class MotorBridge:
     async def initialize(self) -> None:
         """Start hardware or mock motor loop."""
         self.update_heartbeat()
+        self._link_io_errors = 0
         if self.mock_mode:
+            self._link_lost = False
             logger.info("Initializing Motor Bridge in MOCK MODE")
             self.state = "IDLE_WEIGHT_OFF"
             if self._loop_task is None or self._loop_task.done():
                 self._loop_task = asyncio.create_task(self._mock_telemetry_loop())
             return
+
+        if self._link_lost:
+            # release_port() clears this, so it is only still set if initialize() runs during an
+            # outage (e.g. /api/mode/custom while reconnecting) or the old handle failed to close.
+            # Don't just clear it: that would reuse the dead handle, or open a new link without a
+            # disengage while weight_enabled may still be True. Reconnect the way the telemetry
+            # loop does (close, reopen, disengage first), which clears the flag on success.
+            if await self._try_reconnect():
+                return
+            raise RuntimeError("Motor board link lost: reconnect failed (see log)")
 
         self.port = self._detect_port()
         logger.info("Connecting to physical Tonal motor on %s", self.port)
@@ -1105,6 +1117,8 @@ class MotorBridge:
     async def _try_reconnect(self) -> bool:
         """Close the dead controller, reopen the (re-enumerated) port, disengage first."""
         async with self._cmd_lock:
+            if not self._link_lost:
+                return True  # another caller (initialize() or the loop) reconnected while we waited
             old, self._controller = self._controller, None
             if old is not None and hasattr(old, "close"):
                 try:
@@ -1388,4 +1402,8 @@ class MotorBridge:
             if self._controller:
                 await _invoke_controller(self._controller.close)
                 self._controller = None
+            # Link-loss state belonged to the controller just closed; the next initialize()
+            # (switch_to_custom) opens a fresh link and must not start in recovery.
+            self._link_lost = False
+            self._link_io_errors = 0
             self.state = "STOCK_MODE"

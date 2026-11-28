@@ -828,3 +828,66 @@ async def test_ble_buttons_during_link_loss_are_broadcast_and_reconnect_disengag
         with pytest.raises(asyncio.CancelledError):
             await bridge._loop_task
 
+
+async def test_release_port_and_initialize_do_not_inherit_stale_link_lost(monkeypatch):
+    # The telemetry loop never reconnects by itself here, so only release_port()/initialize() act.
+    monkeypatch.setattr(motor_bridge_mod, "LINK_RECONNECT_INTERVAL_SEC", 1e9)
+    log: list = []
+    made: list = []
+
+    def factory(port: str):
+        ctrl = LinkFakeController("c%d" % len(made), log)
+        made.append(ctrl)
+        return ctrl
+
+    first = LinkFakeController("first", log)
+    bridge = MotorBridge(
+        make_test_config(mock_mode=False, watchdog_timeout_sec=60.0),
+        controller=first,
+        controller_factory=factory,
+    )
+    events: list = []
+    bridge.register_telemetry_callback(lambda ev: events.append(ev))
+
+    def lost_count() -> int:
+        return sum(1 for e in events if e.get("reason") == "MOTOR_LINK_LOST")
+
+    await bridge.initialize()
+    try:
+        # 1. switch_to_stock() -> switch_to_custom() during an outage: release_port, initialize
+        first.break_link()
+        assert await _wait_for(lambda: lost_count() == 1)
+        await bridge.release_port()
+        assert bridge._link_lost is False
+        assert bridge._link_io_errors == 0
+        assert bridge.state == "STOCK_MODE"
+
+        mark = len(events)
+        await bridge.initialize()
+        assert await _wait_for(
+            lambda: sum(1 for e in events[mark:] if e.get("type") == "telemetry") >= 3
+        )
+        assert not any(e.get("link_lost") for e in events[mark:])
+        assert lost_count() == 1
+        assert bridge.state == "IDLE_WEIGHT_OFF"
+        assert bridge._controller is made[0] and made[0].closed is False
+
+        # 2. initialize() while still link-lost (no release_port, e.g. /api/mode/custom):
+        #    goes through the reconnect path, so the new link's first command is a disengage.
+        made[0].break_link()
+        assert await _wait_for(lambda: lost_count() == 2)
+        await bridge.initialize()
+        assert bridge._link_lost is False
+        assert bridge.state == "IDLE_WEIGHT_OFF"
+        assert made[0].closed is True
+        assert [what for name, what in log if name == "c1"][:2] == ["bring_up", "disable_resistance"]
+        mark = len(events)
+        assert await _wait_for(
+            lambda: sum(1 for e in events[mark:] if e.get("type") == "telemetry") >= 3
+        )
+        assert not any(e.get("link_lost") for e in events[mark:])
+        assert lost_count() == 2
+    finally:
+        bridge._loop_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await bridge._loop_task
