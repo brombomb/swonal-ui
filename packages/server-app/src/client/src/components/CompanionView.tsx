@@ -40,6 +40,7 @@ import { MusicPickerDialog } from './MusicPickerDialog';
 import { ProgressionAnalytics } from './ProgressionAnalytics';
 import { BlockType, CoachSuggestedAction, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
 import { soundEngine } from '../utils/soundEngine';
+import { acceptedPositions, armsMatchExercise, formatArmTarget } from '../utils/armPositions';
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
 import {
   executeCoachSuggestedAction,
@@ -980,20 +981,17 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     </button>
                     {activeExercise && (() => {
                       const arms = telemetry.arm_positions;
-                      const tH = activeExercise.recommendedHeight;
-                      const tR = activeExercise.recommendedRotation;
-                      const tA = activeExercise.recommendedAngle;
+                      const okH = acceptedPositions(activeExercise.allowedHeights, activeExercise.recommendedHeight);
+                      const okR = acceptedPositions(activeExercise.allowedRotations, activeExercise.recommendedRotation);
+                      const okA = acceptedPositions(activeExercise.allowedAngles, activeExercise.recommendedAngle);
+                      const target = formatArmTarget(activeExercise);
                       const lH = Math.round(arms?.height?.left ?? 0);
                       const rH = Math.round(arms?.height?.right ?? 0);
                       const lR = Math.round(arms?.rotation?.left ?? 0);
                       const rR = Math.round(arms?.rotation?.right ?? 0);
                       const lA = Math.round(arms?.angle?.left ?? 0);
                       const rA = Math.round(arms?.angle?.right ?? 0);
-                      const armsSynced =
-                        daemonConnected &&
-                        lH === tH && rH === tH &&
-                        lR === tR && rR === tR &&
-                        lA === tA && rA === tA;
+                      const armsSynced = daemonConnected && armsMatchExercise(activeExercise, arms);
                       return (
                         <div className="relative inline-block">
                           <button
@@ -1008,7 +1006,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                             }`}
                           >
                             <span>
-                              {activeExercise.accessory} • H{tH} R{tR} A{tA}
+                              {activeExercise.accessory} • {target}
                             </span>
                             <Info size={12} />
                           </button>
@@ -1021,16 +1019,16 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                 </span>
                               </div>
                               <div className="space-y-0.5 text-[11px]">
-                                <p className="opacity-75">Target  H{tH}  R{tR}  A{tA}</p>
+                                <p className="opacity-75">Target  {target}</p>
                                 <p>
-                                  Left    <span className={lH === tH ? 'text-emerald-400' : 'text-rose-400'}>H{lH}</span>  <span className={lR === tR ? 'text-emerald-400' : 'text-rose-400'}>R{lR}</span>  <span className={lA === tA ? 'text-emerald-400' : 'text-rose-400'}>A{lA}</span>
+                                  Left    <span className={okH.includes(lH) ? 'text-emerald-400' : 'text-rose-400'}>H{lH}</span>  <span className={okR.includes(lR) ? 'text-emerald-400' : 'text-rose-400'}>R{lR}</span>  <span className={okA.includes(lA) ? 'text-emerald-400' : 'text-rose-400'}>A{lA}</span>
                                 </p>
                                 <p>
-                                  Right   <span className={rH === tH ? 'text-emerald-400' : 'text-rose-400'}>H{rH}</span>  <span className={rR === tR ? 'text-emerald-400' : 'text-rose-400'}>R{rR}</span>  <span className={rA === tA ? 'text-emerald-400' : 'text-rose-400'}>A{rA}</span>
+                                  Right   <span className={okH.includes(rH) ? 'text-emerald-400' : 'text-rose-400'}>H{rH}</span>  <span className={okR.includes(rR) ? 'text-emerald-400' : 'text-rose-400'}>R{rR}</span>  <span className={okA.includes(rA) ? 'text-emerald-400' : 'text-rose-400'}>A{rA}</span>
                                 </p>
                               </div>
                               <p className="font-sans text-[10px] opacity-65 pt-1 border-t border-[var(--border-subtle)]">
-                                H: Height (1–6) • R: Rotation (1–3) • A: Angle (1–2)
+                                H: Height 1 bottom–9 top • R: Rotation 2–6 latches (1 stowed) • A: Angle 1 down–5 up (0 folded)
                               </p>
                             </div>
                           )}

@@ -66,11 +66,23 @@ def quantize_arm_rotation_notch(raw_value: int, prev_notch: int = 1) -> int:
     return 3
 
 
-def decode_telescope_angle_notch(raw_telescope: int) -> int:
-    """Convert raw 0x1025 telescope_position (2..6 on Tonal V1) into discrete angle notch A1..A5."""
-    if raw_telescope >= 2:
-        return max(1, min(5, int(raw_telescope) - 1))
-    return max(1, min(5, int(raw_telescope)))
+ANGLE_FOLDED = 0
+
+
+def decode_telescope_angle_notch(raw_telescope: int) -> Optional[int]:
+    """Convert the raw 0x1025 angle detent (swolectl's telescope_position) into the reported angle.
+
+    Seen on a Tonal V1 (firmware 5.2.18.0), setting each detent by hand: raw 1 = arm folded,
+    2 = pointing down (~36 deg) ... 6 = pointing up (~135 deg), 0 = between detents.
+    Reported: folded -> 0 (ANGLE_FOLDED), 2..6 -> A1..A5, between -> None (keep the last value).
+    Folded used to read A1, the same as pointing down, so a folded arm looked aligned.
+    """
+    raw = int(raw_telescope)
+    if raw <= 0:
+        return None
+    if raw == 1:
+        return ANGLE_FOLDED
+    return min(5, raw - 1)
 
 
 def decode_cart_position(payload: bytes) -> tuple[int, int]:
@@ -312,15 +324,17 @@ class MotorBridge:
                     "left": max(1, min(12, int(arms.height.get("left", 1)))),
                     "right": max(1, min(12, int(arms.height.get("right", 1)))),
                 }
+                # Same scales as the live path: raw rotation detent 1..7 passed through,
+                # angle 0 (folded) .. 5.
                 arms.rotation = ArmRotationState(
-                    left=quantize_arm_rotation_notch(int(arms.rotation.left), 1),
-                    right=quantize_arm_rotation_notch(int(arms.rotation.right), 1),
+                    left=max(1, min(7, int(arms.rotation.left))),
+                    right=max(1, min(7, int(arms.rotation.right))),
                     left_unlocked=False,
                     right_unlocked=False,
                 )
                 arms.angle = {
-                    "left": max(1, min(5, int(arms.angle.get("left", 1)))),
-                    "right": max(1, min(5, int(arms.angle.get("right", 1)))),
+                    "left": max(ANGLE_FOLDED, min(5, int(arms.angle.get("left", 1)))),
+                    "right": max(ANGLE_FOLDED, min(5, int(arms.angle.get("right", 1)))),
                 }
                 return arms
             except Exception:
@@ -368,7 +382,9 @@ class MotorBridge:
         elif message_type == MSG_ARM_POSITION:
             decoded = decode_arm_position(payload)
             side = decoded["side"]
-            angle[side] = int(decoded["angle"])
+            quant_angle = decode_telescope_angle_notch(decoded["telescope_position"])
+            if quant_angle is not None:
+                angle[side] = quant_angle
             unlocked = not (
                 decoded["is_rotation_locked"] and decoded["is_rotation_and_telescope_locked"]
             )
@@ -411,7 +427,8 @@ class MotorBridge:
         # 1. Horizontal Column Rotation (R) & Moving/Unlocked state from raw 0x1021
         # Disassembled from Tonal McbDevice::processUpstreamMessage (libmcb-service.so @ 0x4d328):
         #   byte 0 = left_unlocked  (0=locked, non-zero=moving/unlocked)
-        #   byte 1 = left_position  (raw column detent, 1..5 where 5=narrowest/R1, 3=mid/R2, 1..2=wide/R3)
+        #   byte 1 = left_position  (raw column detent: 1 = stowed, 2..6 = latching positions, 0 = between;
+        #            seen on a Tonal V1, fw 5.2.18.0; passed through as R1..R6)
         #   byte 2 = right_unlocked (0=locked, non-zero=moving/unlocked)
         #   byte 3 = right_position (raw column detent)
         col_rot = getattr(ctrl, "column_rotation", None)
@@ -462,18 +479,17 @@ class MotorBridge:
             if 1 <= cand_r <= 12:
                 height["right"] = cand_r
 
-        # 3. Vertical Arm Angle (A: 1..5 from 0x1025 telescope_position 2..6 -> 1..5)
+        # 3. Vertical Arm Angle (0x1025 detent: folded -> A0, 2..6 -> A1..A5, between -> keep last)
         if isinstance(arm_map, dict):
             for side in ("left", "right"):
                 arm = arm_map.get(side)
                 if arm is None:
                     continue
-                side_unlk = left_unlk if side == "left" else right_unlk
 
                 if hasattr(arm, "telescope_position"):
                     raw_tele = int(getattr(arm, "telescope_position", 2))
                     quant_angle = decode_telescope_angle_notch(raw_tele)
-                    if not side_unlk or quant_angle != angle[side]:
+                    if quant_angle is not None:
                         angle[side] = quant_angle
                 elif raw_1021 is None:
                     # Fallback for mock controllers that only expose rotation_position

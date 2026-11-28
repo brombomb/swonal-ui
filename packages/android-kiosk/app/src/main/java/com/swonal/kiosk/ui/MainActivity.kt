@@ -38,6 +38,7 @@ import com.swonal.kiosk.SwonalApp
 import com.swonal.kiosk.audio.SwonalSoundEngine
 import com.swonal.kiosk.databinding.ActivityKioskBinding
 import com.swonal.kiosk.model.ArmAlignmentHelper
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.ArmAlignmentStatus
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.model.SymmetryStatus
@@ -1211,7 +1212,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvUpNextTitle.text = nextEx.name
             binding.tvUpNextMeta.visibility = View.VISIBLE
             binding.tvUpNextMeta.text =
-                "${nextEx.accessory} • H${nextEx.recommendedHeight} R${nextEx.recommendedRotation} A${nextEx.recommendedAngle} • ${nextStep.targetReps} reps"
+                "${nextEx.accessory} • ${ArmPositionSets.targetCoords(nextEx)} • ${nextStep.targetReps} reps"
         } else {
             binding.tvUpNextMeta.visibility = View.GONE
             binding.tvUpNextTitle.text = if (inRoutine) {
@@ -1351,7 +1352,7 @@ class MainActivity : AppCompatActivity() {
             lastArmStatus = alignment.status
         }
 
-        val key = "${ex.recommendedHeight}:${ex.recommendedRotation}:${ex.recommendedAngle}|" +
+        val key = "${ArmPositionSets.targetCoords(ex)}:${ex.unilateral}|" +
             "${arms.height.left}:${arms.rotation.left}:${arms.angle.left}:${alignment.leftUnlocked}|" +
             "${arms.height.right}:${arms.rotation.right}:${arms.angle.right}:${alignment.rightUnlocked}|" +
             "${alignment.status}"
@@ -1380,10 +1381,10 @@ class MainActivity : AppCompatActivity() {
         appendColored(
             String.format(
                 Locale.US,
-                "Target  H%-2d R%d  A%d\n",
-                ex.recommendedHeight,
-                ex.recommendedRotation,
-                ex.recommendedAngle
+                "Target  H%-2s R%s  A%s\n",
+                ArmPositionSets.formatHeight(ex),
+                ArmPositionSets.formatRotation(ex),
+                ArmPositionSets.formatAngle(ex)
             ),
             p.textMuted
         )
@@ -1393,17 +1394,17 @@ class MainActivity : AppCompatActivity() {
             appendColored(label, p.textPrimary)
             val hColor = when {
                 moving -> colorYellow
-                h == ex.recommendedHeight -> colorGreen
+                ArmPositionSets.heightMatches(ex, h) -> colorGreen
                 else -> colorRed
             }
             val rColor = when {
                 moving -> colorYellow
-                r == ex.recommendedRotation -> colorGreen
+                ArmPositionSets.rotationMatches(ex, r) -> colorGreen
                 else -> colorRed
             }
             val aColor = when {
                 moving -> colorYellow
-                a == ex.recommendedAngle -> colorGreen
+                ArmPositionSets.angleMatches(ex, a) -> colorGreen
                 else -> colorRed
             }
             appendColored(String.format(Locale.US, "H%-2d ", h), hColor)
@@ -1416,8 +1417,8 @@ class MainActivity : AppCompatActivity() {
         appendArmRow("Right   ", arms.height.right, arms.rotation.right, arms.angle.right, alignment.rightUnlocked, false)
 
         binding.tvArmSync.text = sb
-        val allMatched = alignment.leftMatched && alignment.rightMatched
-        val anyMoving = alignment.leftUnlocked || alignment.rightUnlocked
+        val allMatched = alignment.armsMatched
+        val anyMoving = alignment.status == ArmAlignmentStatus.UNLOCKED
         when {
             anyMoving -> {
                 binding.btnArmSync.background = p.warningPillDrawable(d, 10f, interactive = true)

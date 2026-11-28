@@ -12,6 +12,7 @@ from src.ble_handles import BLEHandleManager
 import src.main as daemon_main
 from src.mode_switcher import ModeSwitcher
 from src.motor_bridge import (
+    ANGLE_FOLDED,
     MSG_ARM_POSITION,
     MSG_CART_POSITION,
     MSG_COLUMN_ROTATION,
@@ -19,6 +20,7 @@ from src.motor_bridge import (
     decode_arm_position,
     decode_cart_position,
     decode_column_rotation,
+    decode_telescope_angle_notch,
 )
 
 
@@ -492,6 +494,58 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
 
     await bridge.release_port()
     assert ctrl.closed is True
+
+
+def test_arm_angle_detent_folded_is_distinct_from_pointing_down():
+    # Tonal V1 (fw 5.2.18.0) detents: 1 = folded, 2 = down ... 6 = up, 0 = between
+    assert decode_telescope_angle_notch(1) == ANGLE_FOLDED == 0
+    assert decode_telescope_angle_notch(2) == 1
+    assert decode_telescope_angle_notch(4) == 3
+    assert decode_telescope_angle_notch(6) == 5
+    assert decode_telescope_angle_notch(7) == 5
+    assert decode_telescope_angle_notch(0) is None
+
+
+@pytest.mark.asyncio
+async def test_swolectl_folded_arm_reports_angle_zero_and_between_keeps_last():
+    arms = {
+        side: SimpleNamespace(
+            telescope_position=2,
+            rotation_position=36,
+            is_rotation_locked=False,
+            is_rotation_and_telescope_locked=False,
+        )
+        for side in ("left", "right")
+    }
+    ctrl = SimpleNamespace(
+        cart_position=SimpleNamespace(left=1, right=1),
+        column_rotation=None,
+        arm_positions=arms,
+    )
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=ctrl)
+    assert bridge._read_swolectl_arm_positions().angle == {"left": 1, "right": 1}
+
+    arms["left"].telescope_position = 1  # folded
+    arms["right"].telescope_position = 0  # between detents
+    assert bridge._read_swolectl_arm_positions().angle == {"left": 0, "right": 1}
+
+    # Raw 0x1025 packet path: folded left arm (detent 1, degrees byte 4)
+    folded_word = (1) | (4 << 8) | (0 << 16)
+    bridge.update_hardware_arm_packet(MSG_ARM_POSITION, folded_word.to_bytes(4, "little"))
+    assert bridge._hardware_arm_positions.angle["left"] == 0
+
+
+def test_cached_arm_positions_keep_real_rotation_and_folded_angle(tmp_path):
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=SimpleNamespace())
+    bridge._arm_cache_path = tmp_path / "arms.json"
+    bridge._arm_cache_path.write_text(
+        '{"height": {"left": 9, "right": 1}, "rotation": {"left": 5, "right": 4},'
+        ' "angle": {"left": 0, "right": 3}}',
+        encoding="utf-8",
+    )
+    arms = bridge._load_cached_arm_positions()
+    assert (arms.rotation.left, arms.rotation.right) == (5, 4)
+    assert arms.angle == {"left": 0, "right": 3}
 
 
 def test_librespot_bridge_endpoints(monkeypatch):
