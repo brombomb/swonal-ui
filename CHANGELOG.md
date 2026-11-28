@@ -2,6 +2,14 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.1.3](https://github.com/brombomb/swonal-ui/compare/v2.1.2...v2.1.3) (2026-11-28)
+
+
+### Bug Fixes
+
+* **daemon,installer:** load config.yaml on Termux and warn when the motor is LAN-exposed ([4cc67f6](https://github.com/brombomb/swonal-ui/commit/4cc67f69aa340f89221b2db4978651081c4dbd80))
+* **server-app:** run the seed script entry only when invoked directly ([36a9ebc](https://github.com/brombomb/swonal-ui/commit/36a9ebca0b1a2fc55a96c82cc120353e1709d301))
+
 ## [2.1.2](https://github.com/brombomb/swonal-ui/compare/v2.1.1...v2.1.2) (2026-11-26)
 
 

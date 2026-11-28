@@ -565,3 +565,38 @@ def test_target_weight_starts_at_configured_minimum():
     cfg["safety"]["minimum_resistance_lb"] = 7.0
     cfg["safety"]["maximum_resistance_lb"] = 60.0
     assert MotorBridge(cfg).target_weight_lb == 7.0
+
+def test_load_config_reads_yaml_and_logs_source(tmp_path, caplog):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text('daemon:\n  host: "127.0.0.1"\nsafety:\n  allow_motor_commands: false\n')
+    with caplog.at_level("INFO", logger="tonal-daemon"):
+        cfg = daemon_main.load_config(str(cfg_file))
+    assert cfg["daemon"]["host"] == "127.0.0.1"
+    assert cfg["safety"]["allow_motor_commands"] is False
+    assert f"Loaded daemon config from {cfg_file}" in caplog.text
+
+
+def test_load_config_without_pyyaml_reports_ignored_file(tmp_path, monkeypatch, caplog):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text('safety:\n  allow_motor_commands: false\n')
+    monkeypatch.setattr(daemon_main, "yaml", None)
+    with caplog.at_level("INFO", logger="tonal-daemon"):
+        cfg = daemon_main.load_config(str(cfg_file))
+    # Falls back to built-in defaults, but says so loudly instead of silently.
+    assert cfg["safety"]["allow_motor_commands"] is True
+    assert "PyYAML is not installed" in caplog.text
+    assert "IGNORED" in caplog.text
+
+
+def test_lan_exposure_warning(monkeypatch):
+    monkeypatch.delenv("DAEMON_API_TOKEN", raising=False)
+    lan_no_token = {"daemon": {"host": "0.0.0.0"}}
+    assert "no api_token" in daemon_main._lan_exposure_warning(lan_no_token, mock_mode=False)
+    assert daemon_main._lan_exposure_warning({}, mock_mode=False) is not None  # default host is 0.0.0.0
+    assert daemon_main._lan_exposure_warning(lan_no_token, mock_mode=True) is None
+    assert daemon_main._lan_exposure_warning({"daemon": {"host": "127.0.0.1"}}, mock_mode=False) is None
+    assert daemon_main._lan_exposure_warning(
+        {"daemon": {"host": "0.0.0.0", "api_token": "s3cret"}}, mock_mode=False
+    ) is None
+    monkeypatch.setenv("DAEMON_API_TOKEN", "s3cret")
+    assert daemon_main._lan_exposure_warning(lan_no_token, mock_mode=False) is None
