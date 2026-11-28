@@ -21,10 +21,10 @@ const SEED_EXERCISES: SeedExercise[] = [
   { name: 'Bench Press', muscleGroup: 'Chest', accessory: 'BAR', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [4, 5], unilateral: false, notes: 'Flat bench barbell press with Smart Bar.' },
   { name: 'Incline Bench Press', muscleGroup: 'Chest', accessory: 'BAR', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [4, 5], unilateral: false, notes: 'Upper chest focus on 30-degree incline bench.' },
   { name: 'Decline Bench Press', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [4, 5], unilateral: false, notes: 'Lower pectoral press using Smart Handles.' },
-  { name: 'Cable Fly', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 3, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4], allowedRotations: [3, 4], unilateral: false, notes: 'Wide arm sweep keeping soft bend in elbows.' },
+  { name: 'Cable Fly', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 4, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4, 5, 6], allowedRotations: [3, 4], unilateral: false, notes: 'Wide arm sweep keeping soft bend in elbows.' },
   { name: 'Incline Cable Fly', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [3, 4], unilateral: false, notes: 'Low-to-high fly targeting clavicular chest fibers.' },
   { name: 'Decline Cable Fly', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 9, recommendedRotation: 4, recommendedAngle: 4, allowedRotations: [3, 4], unilateral: false, notes: 'High-to-low cable crossover.' },
-  { name: 'Single-Arm Chest Press', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 3, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4], allowedRotations: [4, 5], unilateral: true, notes: 'Anti-rotation unilateral standing press.' },
+  { name: 'Single-Arm Chest Press', muscleGroup: 'Chest', accessory: 'HANDLES', recommendedHeight: 4, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4, 5, 6], allowedRotations: [4, 5], unilateral: true, notes: 'Anti-rotation unilateral standing press.' },
   { name: 'Push-Up', muscleGroup: 'Chest', accessory: 'BODYWEIGHT', recommendedHeight: 1, recommendedRotation: 1, recommendedAngle: 1, unilateral: false, notes: 'Bodyweight warmup and chest finisher.' },
 
   // Back
@@ -35,7 +35,7 @@ const SEED_EXERCISES: SeedExercise[] = [
   { name: 'Bent-Over Barbell Row', muscleGroup: 'Back', accessory: 'BAR', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [4, 5], unilateral: false, notes: 'Hinge at hips 45 degrees and row bar to navel.' },
   { name: 'Face Pull', muscleGroup: 'Back', accessory: 'ROPE', recommendedHeight: 9, recommendedRotation: 4, recommendedAngle: 4, allowedRotations: [4, 5], unilateral: false, notes: 'External rotation rear-delt and upper-back health.' },
   { name: 'Straight-Arm Pulldown', muscleGroup: 'Back', accessory: 'ROPE', recommendedHeight: 9, recommendedRotation: 4, recommendedAngle: 4, allowedRotations: [4, 5], unilateral: false, notes: 'Lock elbows slightly and sweep rope to thighs.' },
-  { name: 'Standing Reverse Fly', muscleGroup: 'Back', accessory: 'HANDLES', recommendedHeight: 3, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4], allowedRotations: [3, 4], unilateral: false, notes: 'Cross cables for rear deltoid and rhomboid activation.' },
+  { name: 'Standing Reverse Fly', muscleGroup: 'Back', accessory: 'HANDLES', recommendedHeight: 4, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4, 5, 6], allowedRotations: [3, 4], unilateral: false, notes: 'Cross cables for rear deltoid and rhomboid activation.' },
   { name: 'Single-Arm Lat Pulldown', muscleGroup: 'Back', accessory: 'HANDLES', recommendedHeight: 9, recommendedRotation: 4, recommendedAngle: 4, allowedRotations: [4, 5], unilateral: true, notes: 'Unilateral overhead pull.' },
 
   // Shoulders
@@ -76,7 +76,7 @@ const SEED_EXERCISES: SeedExercise[] = [
   { name: 'Cable Pull-Through', muscleGroup: 'Legs / Posterior', accessory: 'ROPE', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [4, 5], unilateral: false, notes: 'Explosive hip extension with rope between legs.' },
 
   // Core
-  { name: 'Pallof Press', muscleGroup: 'Core', accessory: 'HANDLES', recommendedHeight: 3, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4], allowedRotations: [4, 5], unilateral: true, notes: 'Anti-rotation core stability press.' },
+  { name: 'Pallof Press', muscleGroup: 'Core', accessory: 'HANDLES', recommendedHeight: 4, recommendedRotation: 4, recommendedAngle: 3, allowedHeights: [3, 4, 5, 6], allowedRotations: [4, 5], unilateral: true, notes: 'Anti-rotation core stability press.' },
   { name: 'Standing Woodchopper', muscleGroup: 'Core', accessory: 'HANDLES', recommendedHeight: 9, recommendedRotation: 4, recommendedAngle: 4, allowedRotations: [4, 5], unilateral: true, notes: 'Diagonal oblique rotation across torso.' },
   { name: 'Kneeling Cable Crunch', muscleGroup: 'Core', accessory: 'ROPE', recommendedHeight: 9, recommendedRotation: 4, recommendedAngle: 4, allowedRotations: [4, 5], unilateral: false, notes: 'Flex spine rather than hips under load.' },
   { name: 'Rotational Lift', muscleGroup: 'Core', accessory: 'HANDLES', recommendedHeight: 1, recommendedRotation: 4, recommendedAngle: 1, allowedRotations: [4, 5], unilateral: true, notes: 'Low-to-high athletic rotational core drive.' },

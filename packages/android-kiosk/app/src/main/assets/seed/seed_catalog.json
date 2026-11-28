@@ -53,12 +53,14 @@
       "name": "Cable Fly",
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
-      "recommendedHeight": 3,
+      "recommendedHeight": 4,
       "recommendedRotation": 4,
       "recommendedAngle": 3,
       "allowedHeights": [
         3,
-        4
+        4,
+        5,
+        6
       ],
       "allowedRotations": [
         3,
@@ -105,12 +107,14 @@
       "name": "Single-Arm Chest Press",
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
-      "recommendedHeight": 3,
+      "recommendedHeight": 4,
       "recommendedRotation": 4,
       "recommendedAngle": 3,
       "allowedHeights": [
         3,
-        4
+        4,
+        5,
+        6
       ],
       "allowedRotations": [
         4,
@@ -249,12 +253,14 @@
       "name": "Standing Reverse Fly",
       "muscleGroup": "Back",
       "accessory": "HANDLES",
-      "recommendedHeight": 3,
+      "recommendedHeight": 4,
       "recommendedRotation": 4,
       "recommendedAngle": 3,
       "allowedHeights": [
         3,
-        4
+        4,
+        5,
+        6
       ],
       "allowedRotations": [
         3,
@@ -749,12 +755,14 @@
       "name": "Pallof Press",
       "muscleGroup": "Core",
       "accessory": "HANDLES",
-      "recommendedHeight": 3,
+      "recommendedHeight": 4,
       "recommendedRotation": 4,
       "recommendedAngle": 3,
       "allowedHeights": [
         3,
-        4
+        4,
+        5,
+        6
       ],
       "allowedRotations": [
         4,
