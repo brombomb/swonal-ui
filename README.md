@@ -166,7 +166,7 @@ Swonal Kiosk runs **100% standalone** directly on the Tonal tablet with zero sep
 - **Native Fullscreen Kiosk (`:53013` Embedded LAN Server)**: Deploys Swonal Kiosk with on-device SQLite persistence, built-in Web SPA (`http://<TONAL_IP>:53013/companion`), Nostr Swocial, Spotify Keymaster PKCE, and native Routine Builder.
 - **Embedded Browser Engine**: Prepares GeckoView ESR for high-performance rendering of `/history`, `/settings`, and `/admin` completely offline.
 - **Hardware Motor Bridge**: Configures the high-speed background service (`:8765`) that controls motor resistance and streams real-time 30Hz cable telemetry.
-- **Persistent Wireless ADB**: Keeps wireless access active across reboots so you can manage and update your Tonal without cables.
+- **Persistent Wireless ADB**: Keeps wireless access active across reboots so you can manage and update your Tonal without cables (kiosk setting **Keep Wi-Fi ADB enabled on boot**; see [SECURITY.md](SECURITY.md#kiosk-boot-hook-wi-fi-adb--motor-handoff)).
 - **Automatic Storage Maintenance**: Cleans temporary installation files, caches, and logs automatically so your Tonal never runs low on disk space.
 - **Fast Incremental Updates (`--sync`)**: Pushes only changed files in seconds when deploying updates:
   ```bash

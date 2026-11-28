@@ -120,6 +120,7 @@ class MainActivity : AppCompatActivity() {
     private var lastFatigueAlert: Boolean? = null
     private var lastHardwareStatusKey: String = ""
     private var lastPartnerKey: String = ""
+    private var bootMotorOutcomeListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,6 +152,12 @@ class MainActivity : AppCompatActivity() {
 
         app.repository.start()
         observeStateFlows()
+        renderBootMotorNotice()
+        // The boot hook records its result after its root commands finish, which can be long after
+        // this activity opened: refresh the notice when it lands.
+        bootMotorOutcomeListener = app.prefs.registerBootMotorOutcomeListener {
+            runOnUiThread { if (!isFinishing && !isDestroyed) renderBootMotorNotice() }
+        }
 
         // Release any stale daemon maintenance lock left over from a completed update on fresh launch
         lifecycleScope.launch {
@@ -167,6 +174,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         applyImmersiveFullscreen()
         syncDeviceVolumeSlider()
+        renderBootMotorNotice()
         // If the user returned after cancelling or dismissing the fallback system installer,
         // release the maintenance lock and clear update ownership.
         if (com.swonal.kiosk.net.AppUpdateManager.pendingFallbackInstall.compareAndSet(true, false)) {
@@ -241,6 +249,27 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleLaunchIntent(intent)
+        renderBootMotorNotice()
+    }
+
+    /**
+     * Shows why the boot hook did not hand the motor to the swonal daemon (daemon not found,
+     * setting off, or no root), until dismissed. [com.swonal.kiosk.receiver.BootReceiver]
+     * records the outcome and relaunches this activity, so onNewIntent/onResume refresh it.
+     */
+    private fun renderBootMotorNotice() {
+        val prefs = app.prefs
+        val outcome = prefs.lastBootMotorOutcome
+        val notice = outcome?.let {
+            com.swonal.kiosk.receiver.BootPlanner.notice(it, prefs.lastBootDaemonPresence)
+        }
+        if (notice == null || prefs.bootMotorNoticeDismissed) {
+            binding.bootMotorNoticeBanner.visibility = View.GONE
+            return
+        }
+        binding.tvBootMotorNoticeTitle.text = notice.title
+        binding.tvBootMotorNoticeBody.text = notice.body
+        binding.bootMotorNoticeBanner.visibility = View.VISIBLE
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -354,6 +383,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        bootMotorOutcomeListener?.let { app.prefs.unregisterBootMotorOutcomeListener(it) }
+        bootMotorOutcomeListener = null
         stopInlineVoiceControl()
         runCatching { offlineVoiceRecognizer?.close() }
         offlineVoiceRecognizer = null
@@ -557,6 +588,10 @@ class MainActivity : AppCompatActivity() {
         binding.btnDismissQueued.setOnClickListener { repo.clearQueuedWorkout() }
         binding.btnStartQueued.setOnClickListener { repo.startQueuedWorkout() }
         binding.btnAckSafety.setOnClickListener { repo.acknowledgeSafetyEvent() }
+        binding.btnDismissBootMotorNotice.setOnClickListener {
+            app.prefs.bootMotorNoticeDismissed = true
+            renderBootMotorNotice()
+        }
 
         // Exercise Header Action Column
         binding.btnWorkoutLibrary.setOnClickListener {
@@ -746,6 +781,7 @@ class MainActivity : AppCompatActivity() {
             binding.btnDismissQueued,
             binding.btnStartQueued,
             binding.btnAckSafety,
+            binding.btnDismissBootMotorNotice,
             binding.btnWorkoutLibrary,
             binding.btnTodayRoutine,
             binding.btnArmSync,
@@ -1630,6 +1666,13 @@ class MainActivity : AppCompatActivity() {
         binding.tvSafetyBody.setTextColor(p.criticalText)
         binding.btnAckSafety.background = p.criticalBannerDrawable(d, 10f, interactive = true)
         binding.btnAckSafety.setTextColor(p.textPrimary)
+
+        binding.bootMotorNoticeBanner.background = p.warningPillDrawable(d, 14f)
+        binding.ivBootMotorNoticeIcon.setColorFilter(p.warningText)
+        binding.tvBootMotorNoticeTitle.setTextColor(p.warningText)
+        binding.tvBootMotorNoticeBody.setTextColor(p.textPrimary)
+        binding.btnDismissBootMotorNotice.background = p.elevatedPillDrawable(d, 10f)
+        binding.btnDismissBootMotorNotice.setTextColor(p.textPrimary)
 
         // Top Bar Icon Pills
         binding.btnCompanionQr.background = p.elevatedPillDrawable(d, 12f)

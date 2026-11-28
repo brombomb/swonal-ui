@@ -19,6 +19,21 @@ Please include:
 - **Protect `tonal-daemon` (`:8765`):** Keep the Tonal on a trusted LAN/VLAN and optionally configure `DAEMON_API_TOKEN` so non-loopback requests require a shared bearer token.
 - **Use HTTPS for Remote Access:** Terminate TLS at your reverse proxy or tunnel when accessing Swonal or the optional sync server remotely.
 
+## Kiosk Boot Hook (Wi-Fi ADB & Motor Handoff)
+Swonal Kiosk runs a few commands as root on every boot (`BootReceiver`). Two of them are settings under **Application Settings → Admin & System → Boot & Motor Handoff**, both on by default, and take effect at the next reboot:
+
+- **Keep Wi-Fi ADB enabled on boot:** sets `persist.adb.tcp.port` / `service.adb.tcp.port` to `5555` and restarts `adbd`, so ADB listens on your Wi-Fi. On the V1s checked so far `ro.adb.secure=1`, so a computer still needs an authorized ADB key (`/data/misc/adb/adb_keys`) to connect; keep the Tonal on a trusted network. Turning the setting **off** only stops the kiosk from re-enabling ADB; it never turns ADB off, so a setting change can't lock you out of recovery. `persist.adb.tcp.port` survives reboots and the daemon's boot scripts (`00-swonal-adbd.sh`, `98-swonal-daemon.sh`) also set it, so port 5555 usually stays open until you clear it yourself (have USB ADB working first).
+- **Take over motor on boot:** when **on** and the Swonal daemon is installed (the kiosk checks with a root shell for `/data/adb/service.d/98-swonal-daemon.sh`, `/data/swonal/packages/tonal-daemon/src/main.py`, or the runbook's manual `/data/adb/service.d/99-swonal.sh` / `/data/local/swonal-daemon/src/main.py`), the kiosk disables the stock motor service (`pm disable com.riptlabs.mcb.service`), stops it, and makes `/dev/ttyACM0` `root:root 0600` so only the daemon can open the motor port. If no daemon is found, or the root shell fails or does not answer within 30 s, stock Tonal is left alone and the kiosk shows a notice. When **off**, the kiosk runs `pm enable com.riptlabs.mcb.service` at boot and leaves `/dev/ttyACM0` alone. While the daemon is installed its own boot scripts still claim the motor, so to go back to stock remove the daemon too.
+
+**Going back to stock Tonal by hand:** `pm disable` persists across reboots, including after you uninstall the kiosk. Re-enable the stock motor service and reboot:
+
+```bash
+adb shell "su -c 'pm enable com.riptlabs.mcb.service'"
+adb reboot
+```
+
+Also remove the daemon's Magisk boot scripts (`/data/adb/service.d/00-swonal-adbd.sh`, `98-swonal-daemon.sh`, and `/data/adb/post-fs-data.d/00-swonal-adbd.sh`), or they will take the motor again on the next boot.
+
 ## Standalone On-Device & Sync Security Architecture
 - **Encrypted Credentials at Rest:** BYOK AI keys, Spotify Keymaster OAuth tokens, Home Assistant tokens, and Nostr `nsec` private keys stored on the Tonal tablet in `swonal_local.db` are encrypted using **Android Keystore AES-256-GCM** (`SecretCipher`, hardware/OS-backed key storage on API 23+).
 - **Embedded `:53013` HTTP & Optional `:53443` HTTPS LAN Server Hardening:**

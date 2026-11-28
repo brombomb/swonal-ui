@@ -305,6 +305,59 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- Boot Motor Handoff Notice (motor not handed to the swonal daemon at boot) -->
+        <LinearLayout
+            android:id="@+id/bootMotorNoticeBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="18dp"
+            android:paddingVertical="12dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/ivBootMotorNoticeIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_alert_triangle" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvBootMotorNoticeTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvBootMotorNoticeBody"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/btnDismissBootMotorNotice"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="12dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="Dismiss"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <!-- 3A. EXERCISE HEADER CARD -->
         <LinearLayout
             android:id="@+id/exerciseHeaderCard"
