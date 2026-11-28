@@ -814,6 +814,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                // 1b. COMPLETED REPS: the held set count (kept after weight off, when the V1 board zeroes
+                // its counter). A StateFlow, so this only runs when the count changes.
+                launch {
+                    repo.setRepCountFlow.collect { reps -> renderCompletedReps(reps) }
+                }
+
                 // 2. High-Frequency 30Hz VBT & Symmetry Metrics
                 launch {
                     repo.vbtFlow.collect { vbt ->
@@ -874,6 +880,13 @@ class MainActivity : AppCompatActivity() {
         lastPartnerKey = ""
     }
 
+    private fun renderCompletedReps(reps: Int) {
+        if (reps != lastRepCount) {
+            lastRepCount = reps
+            binding.tvCompletedReps.text = reps.toString()
+        }
+    }
+
     /** 30Hz hot path: updates custom Canvas views directly; skips all unchanged Drawables & text! */
     private fun renderTelemetryHotPath(frame: TelemetryFrame, ui: KioskUiState) {
         val unit = ui.activeUnit
@@ -885,11 +898,6 @@ class MainActivity : AppCompatActivity() {
         )
         binding.leftCableBar.updateCable(frame.leftCable, unit)
         binding.rightCableBar.updateCable(frame.rightCable, unit)
-
-        if (frame.repCount != lastRepCount) {
-            lastRepCount = frame.repCount
-            binding.tvCompletedReps.text = frame.repCount.toString()
-        }
 
         val pr1Rm = ui.activeExercisePr?.oneRepMaxEst
         val centerInfo = when {

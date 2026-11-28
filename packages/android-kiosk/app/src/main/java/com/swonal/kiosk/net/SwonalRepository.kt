@@ -403,6 +403,13 @@ class SwonalRepository(
     private val _vbtFlow = MutableStateFlow(VbtMetrics())
     val vbtFlow: StateFlow<VbtMetrics> = _vbtFlow.asStateFlow()
 
+    /**
+     * Reps of the current set (COMPLETED REPS). Unlike the raw [TelemetryFrame.repCount] it is kept
+     * after the weight turns off, when the V1 board zeroes its counter, until the set is logged.
+     */
+    private val _setRepCountFlow = MutableStateFlow(0)
+    val setRepCountFlow: StateFlow<Int> = _setRepCountFlow.asStateFlow()
+
     private val initialCachedUsers: List<User> = runCatching {
         prefs.cachedUsersJson?.let { SwonalJson.decodeFromString<List<User>>(it) }
     }.getOrNull().orEmpty()
@@ -433,6 +440,7 @@ class SwonalRepository(
 
     private val telemetryLock = Any()
     private val vbtTracker = VbtTracker()
+    private val setRepTracker = SetRepTracker()
     private var prevWeightEnabled = false
     private var prevRepCount = 0
     private var activeTelemetrySource = TelemetrySource.NONE
@@ -1166,6 +1174,11 @@ class SwonalRepository(
             val wasEnabled = prevWeightEnabled
             val oldReps = prevRepCount
 
+            // Before _telemetryFlow so collectors of either flow see this frame's set count.
+            val ui = _uiStateFlow.value
+            val setReps = setRepTracker.onFrame(frame.repCount, setKeyOf(ui))
+            _setRepCountFlow.value = setReps
+
             _telemetryFlow.value = frame
             _vbtFlow.value = vbtTracker.update(frame)
 
@@ -1176,12 +1189,13 @@ class SwonalRepository(
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.WEIGHT_ENGAGE))
                 } else if (wasEnabled && !frame.weightEnabled) {
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.WEIGHT_DISENGAGE))
-                    val ui = _uiStateFlow.value
                     val step = ui.currentStep
                     val stepKey = "${ui.sessionState.activeSessionId}:${ui.currentStepIdx}:${step?.exerciseId}"
-                    if (step != null && frame.repCount >= step.targetReps && stepKey != lastAutoLoggedStepKey) {
+                    // The V1 board already reads 0 in this disengage frame: use the held set count.
+                    val autoReps = step?.let { SetRepTracker.autoLogReps(setReps, it.targetReps) }
+                    if (autoReps != null && stepKey != lastAutoLoggedStepKey) {
                         lastAutoLoggedStepKey = stepKey
-                        shouldAutoLogReps = frame.repCount
+                        shouldAutoLogReps = autoReps
                     }
                 }
                 if (frame.repCount > oldReps) {
@@ -1196,6 +1210,18 @@ class SwonalRepository(
         val repsToLog = shouldAutoLogReps
         if (repsToLog != null) {
             scope.launch { logCompletedSetInternal(repsToLog) }
+        }
+    }
+
+    /** A change of session, routine step or exercise starts a new set for [setRepTracker]. */
+    private fun setKeyOf(ui: KioskUiState): String =
+        "${ui.sessionState.activeSessionId}:${ui.currentStepIdx}:${ui.activeExerciseId}"
+
+    /** Start the next set's rep count at 0 (set logged, reps reset, workout ended). */
+    private fun resetSetReps() {
+        synchronized(telemetryLock) {
+            setRepTracker.reset()
+            _setRepCountFlow.value = setRepTracker.setReps
         }
     }
 
@@ -1394,6 +1420,7 @@ class SwonalRepository(
 
     fun resetReps() {
         if (_uiStateFlow.value.authRequired) return
+        resetSetReps()
         val sentLocal = if (localDaemon.connected.value) localDaemon.resetRepsDirect() else false
         if (!sentLocal && canSendMotorViaServer()) {
             sendWs(buildJsonObject { put("type", "reset_reps") })
@@ -1743,7 +1770,9 @@ class SwonalRepository(
             val telemetry = _telemetryFlow.value
             val step = ui.currentStep
 
-            val reps = when (val decision = SetRepsPolicy.decide(repsOverride, telemetry.repCount, step?.targetReps)) {
+            // The held set count, not telemetry.repCount: the V1 board zeroes that when the weight turns off.
+            val countedReps = _setRepCountFlow.value
+            val reps = when (val decision = SetRepsPolicy.decide(repsOverride, countedReps, step?.targetReps)) {
                 is SetRepsPolicy.Decision.Log -> decision.reps
                 is SetRepsPolicy.Decision.Confirm -> {
                     // Nothing counted and no explicit count: never log a guessed rep count; ask instead.
@@ -1780,6 +1809,8 @@ class SwonalRepository(
                 _effectsFlow.tryEmit(KioskEffect.ShowMessage(err.message ?: "Failed to log set"))
                 return
             }
+            // Logged (counted, entered or auto-logged): the next set starts at 0.
+            resetSetReps()
 
             emitLocalBroadcast("set_logged") {
                 put("setLog", SwonalJson.encodeToJsonElement(SetLog.serializer(), resp.setLog))
@@ -1876,6 +1907,7 @@ class SwonalRepository(
                 sessionState = it.sessionState.copy(activeSessionId = null, restTimerEndsAt = null)
             )
         }
+        resetSetReps()
         if (completed != null) {
             _uiStateFlow.value.activeUser?.id?.let { uid ->
                 runCatching { localEngine.listSessions(uid) }.onSuccess { sessions ->
