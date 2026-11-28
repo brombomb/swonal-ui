@@ -2,6 +2,13 @@
 
 Short, human-readable release notes for Swonal UI. Each version section below is automatically published to GitHub Releases and displayed inside the Android Kiosk **App Update** dialog.
 
+## [2.3.3](https://github.com/brombomb/swonal-ui/compare/v2.3.2...v2.3.3) (2026-11-28)
+
+
+### Bug Fixes
+
+* **server-app,kiosk:** a set with 0 completed reps never becomes a PR ([#18](https://github.com/brombomb/swonal-ui/issues/18)) ([08d8959](https://github.com/brombomb/swonal-ui/commit/08d8959324c4aaf39373bb7da7086107209238fa))
+
 ## [2.3.2](https://github.com/brombomb/swonal-ui/compare/v2.3.1...v2.3.2) (2026-11-28)
 
 
