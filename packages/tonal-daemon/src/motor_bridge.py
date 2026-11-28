@@ -191,7 +191,9 @@ class MotorBridge:
         self.state = "DISCONNECTED"
         self.weight_enabled = False
         self.maintenance_locked = False
-        self.target_weight_lb = 45.0
+        # Start at the configured minimum, not a fixed 45 lb: a handle/bar press right after the
+        # daemon starts (or the board engaging on its own) must not apply a weight nobody chose.
+        self.target_weight_lb = self.min_weight
         self.profile_mode = "standard"
         self.modifier_pct = 0
         self.rep_count = 0
