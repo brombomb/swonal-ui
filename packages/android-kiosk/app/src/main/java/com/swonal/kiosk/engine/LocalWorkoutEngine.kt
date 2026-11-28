@@ -12,6 +12,7 @@ import com.swonal.kiosk.model.QueuedWorkoutPayload
 import com.swonal.kiosk.model.SetLogResponse
 import com.swonal.kiosk.model.SharedSessionState
 import com.swonal.kiosk.model.SwonalJson
+import com.swonal.kiosk.model.UnknownExerciseException
 import com.swonal.kiosk.model.Units
 import com.swonal.kiosk.model.User
 import com.swonal.kiosk.model.WorkoutBlock
@@ -325,6 +326,9 @@ class LocalWorkoutEngine(
 
     suspend fun queueTemplate(templateId: String, userIdOverride: String? = null): QueuedWorkoutPayload? {
         val template = db.getTemplateById(templateId) ?: return null
+        // The routine may predate validation, or one of its exercises was deleted since it was saved.
+        // Refuse (UnknownExerciseException -> HTTP 400) before it reaches the Tonal, like the server.
+        db.requireKnownExercises(template.blocks, UnknownExerciseException.QUEUE_PREFIX)
         val uid = userIdOverride?.takeIf { it.isNotBlank() } ?: template.userId
         val payload = QueuedWorkoutPayload(
             userId = uid,

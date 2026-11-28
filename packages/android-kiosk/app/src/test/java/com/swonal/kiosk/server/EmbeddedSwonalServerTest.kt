@@ -5,11 +5,13 @@ import android.content.SharedPreferences
 import com.swonal.kiosk.db.RestoreBundleDto
 import com.swonal.kiosk.db.upsertFriendActivity
 import com.swonal.kiosk.model.SwonalJson
-import com.swonal.kiosk.util.IsoTime
+import com.swonal.kiosk.model.WorkoutBlock
+import com.swonal.kiosk.model.WorkoutBlockItem
 import com.swonal.kiosk.net.LocalDaemonFailSafeClient
 import com.swonal.kiosk.net.SwonalPreferences
 import com.swonal.kiosk.net.SwonalRepository
 import com.swonal.kiosk.util.IdleActivityTracker
+import com.swonal.kiosk.util.IsoTime
 import com.swonal.kiosk.util.PlaintextTestCipher
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
@@ -229,7 +231,7 @@ class EmbeddedSwonalServerTest {
                 assertEquals("Jordan Chunked", u["name"]!!.jsonPrimitive.content)
             }
 
-            // 3c. Shared routines match exercises by name; unknown ones get the
+            // 3c. Shared routines match exercises by name; unknown ones (import or queue) get the
             //     server app's 400 body: error + unknownExerciseIds + missingExercises.
             val refusedEventId = "e".repeat(64)
             val matchedEventId = "f".repeat(64)
@@ -262,6 +264,22 @@ class EmbeddedSwonalServerTest {
                 val item = tpl["blocks"]!!.jsonArray[0].jsonObject["items"]!!.jsonArray[0].jsonObject
                 assertEquals("ex-bench", item["exerciseId"]!!.jsonPrimitive.content)
             }
+            val staleTplId = runBlocking {
+                // Lenient write (like sync/restore) so the routine can point at an exercise that doesn't exist.
+                repo.localDb.createTemplate(
+                    "u-alex", "Stale", null,
+                    listOf(WorkoutBlock(items = listOf(WorkoutBlockItem(exerciseId = "ex-gone"))))
+                ).id
+            }
+            http.newCall(
+                Request.Builder().url("$baseUrl/api/templates/$staleTplId/queue").post("{}".toRequestBody(jsonType)).build()
+            ).execute().use { r ->
+                assertEquals(400, r.code)
+                val body = SwonalJson.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+                assertEquals(listOf("ex-gone"), body["unknownExerciseIds"]!!.jsonArray.map { it.jsonPrimitive.content })
+                assertTrue(body["error"]!!.jsonPrimitive.content.startsWith("Can't queue this routine"))
+            }
+            assertEquals(null, repo.localEngine.getSessionState().queuedWorkout)
 
             // 4. Create session, log set, export CSV
             val sessId: String

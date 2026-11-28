@@ -911,6 +911,11 @@ class SwonalDatabase(
         if (missing.isNotEmpty()) throw UnknownExerciseException(missing.map { MissingExercise(it) }, prefix)
     }
 
+    /** Same check outside a write, e.g. before queueing a stored routine. */
+    suspend fun requireKnownExercises(blocks: List<WorkoutBlock>, prefix: String) = withDb { c ->
+        requireKnownExercisesUnlocked(c, blocks, prefix)
+    }
+
     private fun unknownExerciseIdsUnlocked(c: SQLiteConnection, ids: List<String>): List<String> {
         if (ids.isEmpty()) return emptyList()
         val found = HashSet<String>()

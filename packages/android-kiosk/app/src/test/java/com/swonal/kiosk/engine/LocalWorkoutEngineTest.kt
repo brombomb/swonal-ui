@@ -1,6 +1,7 @@
 package com.swonal.kiosk.engine
 
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.model.UnknownExerciseException
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.model.WorkoutBlockItem
 import com.swonal.kiosk.util.Base64Compat
@@ -230,6 +231,31 @@ class LocalWorkoutEngineTest {
         assertThrows(IllegalArgumentException::class.java) {
             runBlocking { engine.createTemplate(alex.id, "Uses deleted", null, singleItemBlock(doomed.id)) }
         }
+    }
+
+    @Test
+    fun `queueTemplate refuses a routine whose exercise was deleted, and queues nothing`() = runBlocking<Unit> {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val alex = engine.listUsers()[0]
+        val valid = engine.getAppState(daemonConnected = true).exercises.first()
+        val doomed = engine.createExercise(name = "Queued then deleted", muscleGroup = "Test", accessory = "HANDLES")
+        assertTrue(engine.deleteExercise(doomed.id).isSuccess)
+        // Saved without validation (as sync/restore and older versions did), so it still points at
+        // the deleted exercise.
+        val tpl = db.createTemplate(alex.id, "Stale routine", null, singleItemBlock(valid.id) + singleItemBlock(doomed.id))
+        engine.clearQueuedWorkout()
+
+        val err = assertThrows(UnknownExerciseException::class.java) {
+            runBlocking { engine.queueTemplate(tpl.id, alex.id) }
+        }
+        assertEquals(listOf(doomed.id), err.exerciseIds)
+        assertEquals("${UnknownExerciseException.QUEUE_PREFIX}: ${doomed.id}", err.message)
+        assertNull(engine.getSessionState().queuedWorkout)
+
+        // A routine whose exercises all exist still queues.
+        val ok = engine.createTemplate(alex.id, "Fine routine", null, singleItemBlock(valid.id))
+        assertEquals(ok.id, engine.queueTemplate(ok.id, alex.id)?.templateId)
+        assertEquals(ok.id, engine.getSessionState().queuedWorkout?.templateId)
     }
 
     @Test
