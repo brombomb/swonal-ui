@@ -4,6 +4,7 @@ import com.swonal.kiosk.db.SwonalDatabase
 import com.swonal.kiosk.model.AppStateResponse
 import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.AuthStatus
+import com.swonal.kiosk.model.AutoCompleteSetTimer
 import com.swonal.kiosk.model.Exercise
 import com.swonal.kiosk.model.OverloadSuggestion
 import com.swonal.kiosk.model.PartnerRotation
@@ -198,6 +199,18 @@ class LocalWorkoutEngine(
 
     suspend fun getDemoPip(userId: String): Boolean = db.getDemoPip(userId)
     suspend fun setDemoPip(userId: String, enabled: Boolean): Boolean = db.setDemoPip(userId, enabled)
+
+    /** Per-profile "Auto-Complete Set" timer in seconds (0 = Off, the default). Device-local setting. */
+    suspend fun getAutoCompleteTimerSec(userId: String): Int {
+        val raw = db.getSetting(SETTING_AUTO_COMPLETE_TIMER_PREFIX + userId)
+        return AutoCompleteSetTimer.normalizeSeconds(raw?.trim()?.toIntOrNull() ?: 0)
+    }
+
+    suspend fun setAutoCompleteTimerSec(userId: String, seconds: Int): Int {
+        val normalized = AutoCompleteSetTimer.normalizeSeconds(seconds)
+        db.setSetting(SETTING_AUTO_COMPLETE_TIMER_PREFIX + userId, normalized.toString())
+        return normalized
+    }
 
     // --- Exercises CRUD ---
 
@@ -699,5 +712,6 @@ class LocalWorkoutEngine(
         const val SETTING_SESSION_SECRET = "local_session_secret"
         const val SETTING_SYNC_CURSOR_MS = "last_sync_cursor_ms"
         const val SETTING_INITIAL_SERVER_IMPORT_DONE = "initial_server_import_done"
+        const val SETTING_AUTO_COMPLETE_TIMER_PREFIX = "auto_complete_set_timer_sec:"
     }
 }
