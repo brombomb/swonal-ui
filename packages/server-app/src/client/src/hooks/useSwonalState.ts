@@ -292,6 +292,14 @@ export function useSwonalState() {
     return exercises[0] ?? null;
   }, [exercises, currentStep, selectedExerciseId]);
 
+  // The step's (or selection's) exercise id when it isn't in the library (deleted, or a routine from
+  // another install). Null while exercises are still loading.
+  const missingExerciseId = useMemo(() => {
+    const targetId = currentStep?.exerciseId || selectedExerciseId;
+    if (!targetId || exercises.length === 0) return null;
+    return exercises.some((e) => e.id === targetId) ? null : targetId;
+  }, [exercises, currentStep, selectedExerciseId]);
+
   const activeExercisePr = useMemo(() => {
     if (!activeExercise) return null;
     return personalRecords.find((pr) => pr.exerciseId === activeExercise.id) ?? null;
@@ -1411,6 +1419,7 @@ export function useSwonalState() {
     showDemoPip,
     setShowDemoPip,
     activeExercise,
+    missingExerciseId,
     activeExercisePr,
     overloadSuggestion,
     vbtMetrics,

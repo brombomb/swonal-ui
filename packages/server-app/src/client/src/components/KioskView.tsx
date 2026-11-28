@@ -147,6 +147,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     showDemoPip,
     setShowDemoPip,
     activeExercise,
+    missingExerciseId,
     activeExercisePr,
     overloadSuggestion,
     vbtMetrics,
@@ -1586,10 +1587,15 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               )}
             </div>
             <h1 className="text-4xl font-black tracking-tight leading-tight">
-              {activeExercise?.name ?? 'Select Movement'}
+              {activeExercise?.name ?? (missingExerciseId ? 'Exercise not found' : 'Select Movement')}
             </h1>
             <div className="mt-2 text-lg font-bold opacity-85">
-              {currentStep ? (
+              {!activeExercise && missingExerciseId ? (
+                <span>
+                  This movement was deleted or isn&apos;t in this library. Skip this step or edit the
+                  routine.
+                </span>
+              ) : currentStep ? (
                 <span>
                   Set {currentStep.setNumber} of {currentStep.totalSetsInItem} • Target{' '}
                   {currentStep.targetReps} reps
@@ -2232,7 +2238,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
               <button
                 type="button"
                 onClick={() => void logCompletedSet()}
-                className="min-h-[64px] px-8 py-4 rounded-2xl font-black text-lg transition hover:scale-[1.02]"
+                disabled={!activeExercise}
+                title={activeExercise ? undefined : 'No exercise to log this set against'}
+                className="min-h-[64px] px-8 py-4 rounded-2xl font-black text-lg transition hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
                 style={{
                   backgroundColor: 'var(--accent-primary)',
                   color: accentTextColor,
