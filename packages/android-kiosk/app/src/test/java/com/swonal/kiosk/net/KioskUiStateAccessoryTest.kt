@@ -44,7 +44,7 @@ class KioskUiStateAccessoryTest {
     }
 
     @Test
-    fun `another lifter's default applies when resolving for them, e.g. the next Work-In partner`() {
+    fun `another lifter's default applies when resolving for them, like the next Work-In partner`() {
         assertEquals("HANDLES", state.accessoryFor(bench, steps[0], userId = "ben"))
         assertEquals("BAR", state.accessoryFor(bench, steps[0], userId = "ana"))
     }
