@@ -453,6 +453,38 @@ const PUBLIC_USER_SELECT = {
               },
             };
           }
+          // A queued workout (e.g. from MCP) carries its own copy of the blocks, so it
+          // still uses the exercise after its routine changes. It lives in memory and,
+          // until the kiosk acknowledges it, in AppSetting; check both.
+          const queuedRow = await tx.appSetting.findUnique({
+            where: { key: 'pending_queued_workout' },
+            select: { value: true },
+          });
+          const inMemoryQueued = sessionCoordinator.getState().queuedWorkout;
+          const queuedRaw = [queuedRow?.value, inMemoryQueued ? JSON.stringify(inMemoryQueued) : undefined].find(
+            (raw): raw is string =>
+              raw !== undefined &&
+              jsonReferencesExercise(raw, exerciseId, (parsed) => (parsed as { blocks?: unknown }).blocks)
+          );
+          if (queuedRaw !== undefined) {
+            let queued: { templateId?: unknown; templateName?: unknown } = {};
+            try {
+              queued = JSON.parse(queuedRaw) ?? {};
+            } catch {
+              // Unreadable payload: still refuse, just without a name.
+            }
+            const name = typeof queued.templateName === 'string' ? queued.templateName : null;
+            return {
+              status: 409,
+              body: {
+                error: `Cannot delete exercise: used by the queued workout${name ? ` "${name}"` : ''}. Start or dismiss it first.`,
+                queuedWorkout: {
+                  templateId: typeof queued.templateId === 'string' ? queued.templateId : null,
+                  templateName: name,
+                },
+              },
+            };
+          }
           await tx.exercise.update({
             where: { id: exerciseId },
             data: { deletedAt: new Date() },

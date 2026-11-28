@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_USERS } from '../prisma/seed';
 import { prisma } from '../src/server/db';
 import { createSwonalServer, SwonalServerHandle } from '../src/server/index';
+import { clearPendingQueuedWorkout } from '../src/server/mcp/mcpServer';
+import { sessionCoordinator } from '../src/server/services/sessionState';
 
 describe('Deleting an exercise that a saved routine uses is refused', () => {
   let srv: SwonalServerHandle;
@@ -187,6 +189,36 @@ describe('Deleting an exercise that a saved routine uses is refused', () => {
       // The PUT then runs after the delete has committed. Rejecting a routine
       // that names a deleted exercise is the template-side check's job, not this one.
       await putDone;
+    }
+  });
+
+  it('refuses while a queued workout uses the exercise, in memory or only persisted', async () => {
+    const exId = await createExercise('Guard Test Queued');
+    const tplId = await createTemplate('Guard Test Queued Routine', exId);
+    try {
+      const queue = await fetch(`${baseUrl}/api/templates/${tplId}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(queue.status).toBe(200);
+      // The queued copy keeps the exercise even once the routine itself is gone.
+      expect((await fetch(`${baseUrl}/api/templates/${tplId}`, { method: 'DELETE' })).status).toBe(200);
+
+      const res = await deleteExercise(exId);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; queuedWorkout: { templateId: string; templateName: string } };
+      expect(body.error).toContain('queued workout "Guard Test Queued Routine"');
+      expect(body.queuedWorkout).toEqual({ templateId: tplId, templateName: 'Guard Test Queued Routine' });
+
+      // After a restart only the AppSetting row is left.
+      sessionCoordinator.clearQueuedWorkout();
+      expect((await deleteExercise(exId)).status).toBe(409);
+
+      await clearPendingQueuedWorkout();
+      expect((await deleteExercise(exId)).status).toBe(200);
+    } finally {
+      await clearPendingQueuedWorkout();
     }
   });
 
