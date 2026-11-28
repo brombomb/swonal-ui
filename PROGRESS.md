@@ -1,13 +1,10 @@
 # swonal-ui Implementation Progress
 
 ## Current Status
-# swonal-ui Implementation Progress
-
-## Current Status
-- **Active Milestone:** Milestone 8 Complete — Standalone-First Architecture + Optional Home/Cloud Server Sync
-- **Last Completed Task:** Embedded `:3000` Kiosk server, native SQLite engine (`BundledSQLiteDriver`), native Routine Builder, Spotify PKCE, local AI Voice Coach, Nostr Swocial, Home Assistant webhooks, idempotent `/api/sync/*` + `/ws/sync` server sync, and security/audit hardening on `feat/standalone-first-sync`
+- **Active Milestone:** Milestone 8+ Complete — Standalone-First Architecture + Path-Filtered `CI Gate` & Contributor Guides
+- **Last Completed Task:** Embedded `:53013` HTTP / `:53443` HTTPS Kiosk server, native SQLite engine (`BundledSQLiteDriver`), native dialogs (`RoutineBuilderDialog`, `HistoryDialog`, `AppSettingsDialog`, `AdminDialog`), offline Vosk voice STT, Spotify PKCE, local AI Voice Coach, Nostr Swocial, Home Assistant webhooks, idempotent `/api/sync/*` + `/ws/sync` server sync, and path-filtered `CI Gate` (`ci.yml` + `labeler.yml` + `CONTRIBUTING.md`)
 - **Next Immediate Task:** None — ready for review/merge
-- **Verification / Test Status:** Pending final `./scripts/ci-local.sh` & `:app:assembleRelease` verification pass after audit hardening
+- **Verification / Test Status:** Verified via `./scripts/ci-local.sh` (workflows, bash syntax, clean-room `server-app` Vitest, `tonal-daemon` pytest + Python 3.8 AST, `android-kiosk` unit tests/debug build) and `:app:assembleRelease` (`lintVitalRelease` + R8)
 
 ---
 
@@ -126,6 +123,7 @@
 - [x] **MCP Streamable HTTP (`2025-03-26`) Transport:** Added stateful `POST`/`GET`/`DELETE /mcp` Streamable HTTP transport (`StreamableHTTPServerTransport`) alongside legacy `/mcp/sse` (`2024-11-05`) in `packages/server-app` so modern MCP clients connect directly without `mcp-remote`.
 - [x] **Optional On-Device HTTPS for Companion (`:53443`):** Added opt-in on-device HTTPS listener (`LocalTlsCertManager` + `SwonalApp.reconfigureLocalHttps` + toggle in `AppSettingsDialog`) with a local Root CA, LAN IP SANs, and downloadable `GET /api/tls/ca.crt` profile for mobile browser mic/Web Speech support without a reverse proxy.
 - [x] **Bundled Offline Voice STT (Vosk over `AudioRecord`):** Integrated `vosk-android` (`OfflineVoiceRecognizer`) over 16 kHz `AudioRecord` so the Kiosk's inline **Voice** toggle works 100% natively on stock AOSP 6.0 (API 23) Tonal V1 ROMs without Google Speech Services (downloads the ~40 MB English model once into `filesDir` with zip-slip protection, then runs offline).
+- [x] **Copy Block in Routine Builders:** Added a Copy button to each block in the Kiosk `RoutineBuilderDialog` and the Companion routine builder that inserts a deep copy (block type, rest, and every exercise with its sets/reps/weight/mode/modifier) directly below the original for faster routine creation.
 - [ ] **Local AI Coach Deep-Dive & Docs (`how does local AI work`):** Document how `LocalAiCoachEngine` works out of the box (offline regex command parser + local VBT/progression heuristics vs. BYOK OpenAI/Anthropic/Gemini/Ollama) and evaluate richer local/on-device LLM options.
 - [ ] **Tonal V1 Hidden MCB Control Modes (Upstream `swolectl` PR):** Confirmed `CONTROL_MODE_FLYWHEEL` (`FLYWHEEL_FLUID`/`FLYWHEEL_MASS`, `flywheel_mass`/`flywheel_drag`), `CONTROL_MODE_ISOKINETIC`, and `CONTROL_MODE_PILATES` (`pilates_max_weight`/`pilates_spring_constant`) exist inside Tonal V1's `com.riptlabs.mcb.service` (`libmcb-service.so`). Decode their exact MCB serial packet formats, verify safely at 5–10 lb, and upstream to `swolectl` before exposing in Swonal.
 - [ ] **Extended `0x0013` ROM Weight Curve Profiles (Upstream `swolectl` PR):** `swolectl` currently exposes `flags` curve `0` (Chains) and `4` (Smart Flex / Flat w/ Eccentric). Investigate, low-weight test, and upstream the remaining MCB `rom_weight_mode` curves (`1` Bell w/ Eccentric, `2` Reverse Chains w/ Eccentric, `3` Chains w/ Eccentric, `5` Quadratic Ascending w/ Eccentric, `6` Perturbation, `7` Reverse Chains, `8` Eccentric Reduction).

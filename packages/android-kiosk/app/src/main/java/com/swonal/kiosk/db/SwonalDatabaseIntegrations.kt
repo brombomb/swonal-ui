@@ -1,6 +1,7 @@
 package com.swonal.kiosk.db
 
 import androidx.sqlite.SQLiteConnection
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.util.IsoTime
@@ -390,7 +391,7 @@ suspend fun SwonalDatabase.collectSyncPushRequest(deviceId: String = "tonal-kios
 
     val exercises = mutableListOf<StoredExerciseSyncRecord>()
     c.prepare(
-        "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, deleted_at_ms FROM exercises WHERE dirty_sync = 1"
+        "SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, deleted_at_ms, allowed_heights, allowed_rotations, allowed_angles FROM exercises WHERE dirty_sync = 1"
     ).useStmt { s ->
         while (s.step()) {
             exercises += StoredExerciseSyncRecord(
@@ -398,7 +399,10 @@ suspend fun SwonalDatabase.collectSyncPushRequest(deviceId: String = "tonal-kios
                 accessory = s.getText(3), recommendedHeight = s.getInt(4), recommendedRotation = s.getInt(5),
                 recommendedAngle = s.getInt(6), unilateral = s.getInt(7) != 0,
                 notes = getNullableText(s, 8), mediaUrl = getNullableText(s, 9),
-                updatedAtMs = s.getLong(10), deletedAtMs = getNullableLong(s, 11)
+                updatedAtMs = s.getLong(10), deletedAtMs = getNullableLong(s, 11),
+                allowedHeights = getAllowedList(s, 12, ArmPositionSets.HEIGHT_RANGE),
+                allowedRotations = getAllowedList(s, 13, ArmPositionSets.ROTATION_RANGE),
+                allowedAngles = getAllowedList(s, 14, ArmPositionSets.ANGLE_RANGE)
             )
         }
     }
@@ -517,14 +521,17 @@ suspend fun SwonalDatabase.markPushedClean(
 }
 
 private fun SwonalDatabase.remapExerciseIdUnlocked(c: SQLiteConnection, oldId: String, newId: String) {
-    val existingOld = c.prepare("SELECT name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms FROM exercises WHERE id = ?").useStmt { s ->
+    val existingOld = c.prepare("SELECT name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, allowed_heights, allowed_rotations, allowed_angles FROM exercises WHERE id = ?").useStmt { s ->
         s.bindText(1, oldId)
         if (s.step()) {
             StoredExerciseSyncRecord(
                 id = oldId, name = s.getText(0), muscleGroup = s.getText(1), accessory = s.getText(2),
                 recommendedHeight = s.getInt(3), recommendedRotation = s.getInt(4), recommendedAngle = s.getInt(5),
                 unilateral = s.getInt(6) != 0, notes = getNullableText(s, 7), mediaUrl = getNullableText(s, 8),
-                updatedAtMs = s.getLong(9)
+                updatedAtMs = s.getLong(9),
+                allowedHeights = getAllowedList(s, 10, ArmPositionSets.HEIGHT_RANGE),
+                allowedRotations = getAllowedList(s, 11, ArmPositionSets.ROTATION_RANGE),
+                allowedAngles = getAllowedList(s, 12, ArmPositionSets.ANGLE_RANGE)
             )
         } else null
     } ?: return
@@ -556,8 +563,9 @@ private fun SwonalDatabase.remapExerciseIdUnlocked(c: SQLiteConnection, oldId: S
         """
         INSERT OR IGNORE INTO exercises(
             id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle,
-            unilateral, notes, media_url, updated_at_ms, dirty_sync
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            unilateral, notes, media_url, updated_at_ms, dirty_sync,
+            allowed_heights, allowed_rotations, allowed_angles
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         """.trimIndent()
     ).useStmt { s ->
         s.bindText(1, newId)
@@ -571,6 +579,7 @@ private fun SwonalDatabase.remapExerciseIdUnlocked(c: SQLiteConnection, oldId: S
         bindNullableText(s, 9, existingOld.notes)
         bindNullableText(s, 10, existingOld.mediaUrl)
         s.bindLong(11, existingOld.updatedAtMs)
+        bindAllowedSets(s, 12, existingOld.toPublicExercise())
         s.step()
     }
     c.prepare("UPDATE set_logs SET exercise_id = ? WHERE exercise_id = ?").useStmt { s ->
@@ -669,8 +678,9 @@ suspend fun SwonalDatabase.applyPulledSync(
             """
             INSERT INTO exercises(
                 id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle,
-                unilateral, notes, media_url, updated_at_ms, deleted_at_ms, dirty_sync
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                unilateral, notes, media_url, updated_at_ms, deleted_at_ms, dirty_sync,
+                allowed_heights, allowed_rotations, allowed_angles
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = CASE WHEN $exWins THEN excluded.name ELSE exercises.name END,
                 muscle_group = CASE WHEN $exWins THEN excluded.muscle_group ELSE exercises.muscle_group END,
@@ -681,6 +691,9 @@ suspend fun SwonalDatabase.applyPulledSync(
                 unilateral = CASE WHEN $exWins THEN excluded.unilateral ELSE exercises.unilateral END,
                 notes = CASE WHEN $exWins THEN excluded.notes ELSE exercises.notes END,
                 media_url = CASE WHEN $exWins THEN excluded.media_url ELSE exercises.media_url END,
+                allowed_heights = CASE WHEN $exWins AND ? = 1 THEN excluded.allowed_heights ELSE exercises.allowed_heights END,
+                allowed_rotations = CASE WHEN $exWins AND ? = 1 THEN excluded.allowed_rotations ELSE exercises.allowed_rotations END,
+                allowed_angles = CASE WHEN $exWins AND ? = 1 THEN excluded.allowed_angles ELSE exercises.allowed_angles END,
                 deleted_at_ms = CASE WHEN $exWins THEN excluded.deleted_at_ms ELSE exercises.deleted_at_ms END,
                 updated_at_ms = CASE WHEN $exWins THEN excluded.updated_at_ms ELSE exercises.updated_at_ms END,
                 dirty_sync = CASE WHEN $exWins THEN 0 ELSE exercises.dirty_sync END
@@ -698,6 +711,11 @@ suspend fun SwonalDatabase.applyPulledSync(
             bindNullableText(s, 10, ex.mediaUrl)
             s.bindLong(11, ex.updatedAtMs)
             bindNullableLong(s, 12, ex.deletedAtMs)
+            // Missing allowed* -> '' for brand-new rows; existing rows keep local sets (flags 16-18).
+            bindAllowedSets(s, 13, ex.toPublicExercise())
+            s.bindInt(16, if (ex.allowedHeights != null) 1 else 0)
+            s.bindInt(17, if (ex.allowedRotations != null) 1 else 0)
+            s.bindInt(18, if (ex.allowedAngles != null) 1 else 0)
             s.step()
         }
     }
@@ -841,8 +859,10 @@ suspend fun SwonalDatabase.applyPulledSync(
         }
     }
 
-    // 5. PersonalRecords (max-envelope merge)
+    // 5. PersonalRecords (max-envelope merge). A PR with no estimated 1RM came from a set with no
+    // completed reps: skip it so it can't create a PR or raise an existing PR's max weight.
     for (pr in pull.personalRecords) {
+        if (!(pr.oneRepMaxEst > 0.0)) continue
         c.prepare(
             """
             INSERT INTO personal_records(id, user_id, exercise_id, one_rep_max_est, max_weight_lb, updated_at, updated_at_ms, dirty_sync)
@@ -907,13 +927,16 @@ suspend fun SwonalDatabase.exportRestoreBundle(): RestoreBundleDto = withDb { c 
         }
     }
     val exercises = mutableListOf<StoredExerciseSyncRecord>()
-    c.prepare("SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, deleted_at_ms FROM exercises").useStmt { s ->
+    c.prepare("SELECT id, name, muscle_group, accessory, recommended_height, recommended_rotation, recommended_angle, unilateral, notes, media_url, updated_at_ms, deleted_at_ms, allowed_heights, allowed_rotations, allowed_angles FROM exercises").useStmt { s ->
         while (s.step()) {
             exercises += StoredExerciseSyncRecord(
                 id = s.getText(0), name = s.getText(1), muscleGroup = s.getText(2), accessory = s.getText(3),
                 recommendedHeight = s.getInt(4), recommendedRotation = s.getInt(5), recommendedAngle = s.getInt(6),
                 unilateral = s.getInt(7) != 0, notes = getNullableText(s, 8), mediaUrl = getNullableText(s, 9),
-                updatedAtMs = s.getLong(10), deletedAtMs = getNullableLong(s, 11)
+                updatedAtMs = s.getLong(10), deletedAtMs = getNullableLong(s, 11),
+                allowedHeights = getAllowedList(s, 12, ArmPositionSets.HEIGHT_RANGE),
+                allowedRotations = getAllowedList(s, 13, ArmPositionSets.ROTATION_RANGE),
+                allowedAngles = getAllowedList(s, 14, ArmPositionSets.ANGLE_RANGE)
             )
         }
     }

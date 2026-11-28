@@ -92,6 +92,7 @@ import {
   HomeAssistantBusStatus,
 } from '../types';
 import { soundEngine } from '../utils/soundEngine';
+import { armsMatchExercise, formatArmTarget } from '../utils/armPositions';
 import {
   formatDisplayWeight,
   getContrastTextColor,
@@ -942,16 +943,8 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
   // Arm alignment check against current exercise
   const armsAligned = useMemo(() => {
     if (!activeExercise) return true;
-    const h = telemetry.arm_positions.height;
-    const r = telemetry.arm_positions.rotation;
-    const a = telemetry.arm_positions.angle;
     return (
-      h.left === activeExercise.recommendedHeight &&
-      h.right === activeExercise.recommendedHeight &&
-      r.left === activeExercise.recommendedRotation &&
-      r.right === activeExercise.recommendedRotation &&
-      a.left === activeExercise.recommendedAngle &&
-      a.right === activeExercise.recommendedAngle &&
+      armsMatchExercise(activeExercise, telemetry.arm_positions) &&
       telemetry.accessory === activeExercise.accessory
     );
   }, [activeExercise, telemetry.arm_positions, telemetry.accessory]);
@@ -1646,8 +1639,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 >
                   <CheckCircle2 size={18} />
                   <span>
-                    ARMS {armsAligned ? 'ALIGNED' : 'ADJUST'} • H{activeExercise.recommendedHeight}{' '}
-                    R{activeExercise.recommendedRotation} A{activeExercise.recommendedAngle} •{' '}
+                    ARMS {armsAligned ? 'ALIGNED' : 'ADJUST'} • {formatArmTarget(activeExercise)} •{' '}
                     {activeExercise.accessory}
                   </span>
                   <button
@@ -1678,9 +1670,10 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                         <X size={14} />
                       </button>
                     </div>
-                    <p><strong>H (Height):</strong> Vertical rail notch (1 low – 6 high)</p>
-                    <p><strong>R (Rotation):</strong> Horizontal arm swing (1 – 3)</p>
-                    <p><strong>A (Angle):</strong> Pivot angle tilt (1 – 2)</p>
+                    <p><strong>H (Height):</strong> Vertical rail notch (1 bottom – 9 top)</p>
+                    <p><strong>R (Rotation):</strong> Arm swing latch (2 – 6; 1 = stowed)</p>
+                    <p><strong>A (Angle):</strong> Arm tilt (1 pointing down – 5 pointing up; 0 = folded)</p>
+                    <p className="opacity-70">A range like R4–5 means any of those positions works.</p>
                   </div>
                 )}
               </div>
@@ -2261,8 +2254,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                 <>
                   <p className="font-black text-base truncate">{nextExercise.name}</p>
                   <p className="text-xs font-mono font-bold opacity-80">
-                    {nextExercise.accessory} • H{nextExercise.recommendedHeight} R
-                    {nextExercise.recommendedRotation} A{nextExercise.recommendedAngle} •{' '}
+                    {nextExercise.accessory} • {formatArmTarget(nextExercise)} •{' '}
                     {nextStep.targetReps} reps
                   </p>
                 </>
@@ -2684,8 +2676,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                               </div>
                               <div className="flex items-center justify-between text-[11px] opacity-75 mt-1">
                                 <span>
-                                  H{ex.recommendedHeight} R{ex.recommendedRotation} A
-                                  {ex.recommendedAngle}
+                                  {formatArmTarget(ex)}
                                 </span>
                                 {pr && (
                                   <span

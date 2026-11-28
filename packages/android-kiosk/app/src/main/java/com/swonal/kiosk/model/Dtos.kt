@@ -115,7 +115,11 @@ data class Exercise(
     val recommendedAngle: Int = 1,
     val unilateral: Boolean = false,
     val notes: String? = null,
-    val mediaUrl: String? = null
+    val mediaUrl: String? = null,
+    /** Acceptable positions (see ArmPositionSets); empty = only the recommended value. */
+    val allowedHeights: List<Int> = emptyList(),
+    val allowedRotations: List<Int> = emptyList(),
+    val allowedAngles: List<Int> = emptyList()
 )
 
 @Serializable

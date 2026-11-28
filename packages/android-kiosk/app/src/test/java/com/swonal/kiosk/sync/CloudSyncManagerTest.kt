@@ -385,4 +385,50 @@ class CloudSyncManagerTest {
         assertEquals(1, prs.size)
         assertEquals(120.0, prs.first().maxWeightLb)
     }
+
+    @Test
+    fun `applyPulledSync skips PRs with no estimated 1RM (0-rep leftovers) and keeps real ones`() = runBlocking {
+        val db = SwonalDatabase(":memory:", PlaintextTestCipher)
+        db.seedIfEmpty(
+            """
+            {
+              "users": [ { "id": "u-1", "name": "Alex", "weightUnit": "LB" } ],
+              "exercises": [
+                { "id": "ex-pr", "name": "Bench Press", "muscleGroup": "Chest", "accessory": "HANDLES", "recommendedHeight": 2, "recommendedRotation": 0, "recommendedAngle": 0, "unilateral": false },
+                { "id": "ex-fresh", "name": "Seated Row", "muscleGroup": "Back", "accessory": "HANDLES", "recommendedHeight": 2, "recommendedRotation": 0, "recommendedAngle": 0, "unilateral": false },
+                { "id": "ex-real", "name": "Goblet Squat", "muscleGroup": "Legs", "accessory": "HANDLES", "recommendedHeight": 2, "recommendedRotation": 0, "recommendedAngle": 0, "unilateral": false }
+              ],
+              "personalRecords": [
+                { "id": "pr-existing", "userId": "u-1", "exerciseId": "ex-pr", "oneRepMaxEst": 85.0, "maxWeightLb": 65.0 }
+              ]
+            }
+            """.trimIndent(),
+            includeDemoUsersAndRoutines = true
+        )
+
+        val now = System.currentTimeMillis()
+        fun pr(id: String, exerciseId: String, oneRm: Double, maxW: Double) = StoredPrSyncRecord(
+            id = id, userId = "u-1", exerciseId = exerciseId,
+            oneRepMaxEst = oneRm, maxWeightLb = maxW,
+            updatedAt = "2026-01-02T00:00:00Z", updatedAtMs = now
+        )
+        // Same path the cloud pull, cloud restore and local JSON restore all use
+        db.applyPulledSync(
+            SyncPullResponse(
+                serverTimeMs = now,
+                personalRecords = listOf(
+                    pr("pr-zero-new", "ex-fresh", 0.0, 150.0), // would create a PR from nothing
+                    pr("pr-zero-heavy", "ex-pr", 0.0, 200.0), // would raise the real PR's max weight
+                    pr("pr-real", "ex-real", 53.3, 40.0)
+                )
+            )
+        )
+
+        val prs = db.listPrs("u-1").associateBy { it.exerciseId }
+        assertNull(prs["ex-fresh"])
+        assertEquals(65.0, prs["ex-pr"]?.maxWeightLb)
+        assertEquals(85.0, prs["ex-pr"]?.oneRepMaxEst)
+        assertEquals(53.3, prs["ex-real"]?.oneRepMaxEst)
+        assertEquals(40.0, prs["ex-real"]?.maxWeightLb)
+    }
 }

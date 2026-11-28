@@ -22,6 +22,10 @@ export interface Exercise {
   recommendedHeight: number;
   recommendedRotation: number;
   recommendedAngle: number;
+  /** Acceptable arm positions; empty/missing = only the recommended value counts. */
+  allowedHeights?: number[];
+  allowedRotations?: number[];
+  allowedAngles?: number[];
   unilateral: boolean;
   notes?: string | null;
   mediaUrl?: string | null;

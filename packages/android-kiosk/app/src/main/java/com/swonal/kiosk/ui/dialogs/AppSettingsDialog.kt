@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.swonal.kiosk.BuildConfig
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.net.AppUpdateManager
 import com.swonal.kiosk.net.BugReportContext
@@ -30,6 +31,7 @@ import com.swonal.kiosk.theme.SwonalFonts
 import com.swonal.kiosk.theme.SwonalThemeTokens
 import com.swonal.kiosk.ui.PressFeedback
 import com.swonal.kiosk.util.IsoTime
+import com.swonal.kiosk.util.ScreenSleepPolicy
 import kotlinx.coroutines.launch
 
 /**
@@ -863,15 +865,17 @@ open class AppSettingsDialog : BaseSwonalDialog() {
     // -------------------------------------------------------------------------
     // TAB 3: ADMIN & SYSTEM (ALL EMBEDDED INLINE — NO MODAL JUMPS!)
     //   1. App Version & Latest GitHub Release (main)
-    //   2. Embedded Hardware Diagnostics & Motor Controls
-    //   3. Embedded Cloud & Home Server Sync
-    //   4. Embedded Exercise Catalog
-    //   5. Embedded Send Bug Report
+    //   2. Display & Screen Sleep
+    //   3. Embedded Hardware Diagnostics & Motor Controls
+    //   4. Embedded Cloud & Home Server Sync
+    //   5. Embedded Exercise Catalog
+    //   6. Embedded Send Bug Report
     // -------------------------------------------------------------------------
 
     private fun renderAdminSystemTab() {
         repo.refreshDiagnostics()
         renderVersionUpdateCard()
+        renderScreenSleepCard()
         renderEmbeddedHardwareDiagnosticsCard()
         renderEmbeddedCloudSyncCard()
         renderEmbeddedExerciseCatalogCard()
@@ -953,6 +957,28 @@ open class AppSettingsDialog : BaseSwonalDialog() {
 
         // Auto-check latest release on main when opening Admin & System
         runVersionCheck(openIfAvailable = false)
+    }
+
+    private fun renderScreenSleepCard() {
+        val card = createSurfaceCard()
+        card.addView(makeCardHeading(
+            "Display & Screen Sleep",
+            "Blank the screen after a period of inactivity. A 30-second countdown appears first — " +
+                "tap anywhere to stay awake. Tap the dark screen to wake it. " +
+                "Never sleeps while weight is engaged or a rest timer is running."
+        ))
+        var minutes = app.prefs.screenSleepTimeoutMinutes
+        val (row, valueTv) = makeLargeToggleRow(
+            "Sleep screen after inactivity",
+            ScreenSleepPolicy.label(minutes)
+        )
+        row.setOnClickListener {
+            minutes = ScreenSleepPolicy.nextTimeout(minutes)
+            app.prefs.screenSleepTimeoutMinutes = minutes
+            valueTv.text = ScreenSleepPolicy.label(minutes)
+        }
+        card.addView(row)
+        bodyContainer.addView(card)
     }
 
     private fun renderEmbeddedHardwareDiagnosticsCard() {
@@ -1393,7 +1419,7 @@ open class AppSettingsDialog : BaseSwonalDialog() {
                     })
                 })
                 topRow.addView(TextView(requireContext()).apply {
-                    text = "H${ex.recommendedHeight}  R${ex.recommendedRotation}  A${ex.recommendedAngle}"
+                    text = ArmPositionSets.targetCoords(ex, sep = "  ")
                     textSize = 14f
                     typeface = SwonalFonts.monoBold(requireContext())
                     setTextColor(p.accentInk)

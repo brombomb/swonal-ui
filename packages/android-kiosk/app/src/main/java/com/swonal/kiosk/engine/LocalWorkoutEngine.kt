@@ -2,6 +2,7 @@ package com.swonal.kiosk.engine
 
 import com.swonal.kiosk.db.SwonalDatabase
 import com.swonal.kiosk.model.AppStateResponse
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.AuthStatus
 import com.swonal.kiosk.model.Exercise
 import com.swonal.kiosk.model.ExercisePref
@@ -217,19 +218,25 @@ class LocalWorkoutEngine(
         recommendedAngle: Int = 1,
         unilateral: Boolean = false,
         notes: String? = null,
-        mediaUrl: String? = null
+        mediaUrl: String? = null,
+        allowedHeights: List<Int> = emptyList(),
+        allowedRotations: List<Int> = emptyList(),
+        allowedAngles: List<Int> = emptyList()
     ): Exercise {
         val cleanMedia = sanitizeMediaUrl(mediaUrl)
         return db.createExercise(
             name = name.trim(),
             muscleGroup = muscleGroup.trim(),
             accessory = accessory.uppercase(Locale.US),
-            recommendedHeight = recommendedHeight.coerceIn(1, 12),
-            recommendedRotation = recommendedRotation.coerceIn(1, 3),
-            recommendedAngle = recommendedAngle.coerceIn(1, 5),
+            recommendedHeight = recommendedHeight.coerceIn(ArmPositionSets.HEIGHT_RANGE),
+            recommendedRotation = recommendedRotation.coerceIn(ArmPositionSets.ROTATION_RANGE),
+            recommendedAngle = recommendedAngle.coerceIn(ArmPositionSets.ANGLE_RANGE),
             unilateral = unilateral,
             notes = notes?.trim(),
-            mediaUrl = cleanMedia
+            mediaUrl = cleanMedia,
+            allowedHeights = allowedHeights,
+            allowedRotations = allowedRotations,
+            allowedAngles = allowedAngles
         )
     }
 
@@ -244,7 +251,10 @@ class LocalWorkoutEngine(
         unilateral: Boolean? = null,
         notes: String? = null,
         mediaUrl: String? = null,
-        updateMediaUrl: Boolean = false
+        updateMediaUrl: Boolean = false,
+        allowedHeights: List<Int>? = null,
+        allowedRotations: List<Int>? = null,
+        allowedAngles: List<Int>? = null
     ): Exercise? {
         val cleanMedia = if (updateMediaUrl) sanitizeMediaUrl(mediaUrl) else mediaUrl?.let { sanitizeMediaUrl(it) }
         return db.updateExercise(
@@ -252,13 +262,16 @@ class LocalWorkoutEngine(
             name = name?.trim(),
             muscleGroup = muscleGroup?.trim(),
             accessory = accessory?.uppercase(Locale.US),
-            recommendedHeight = recommendedHeight?.coerceIn(1, 12),
-            recommendedRotation = recommendedRotation?.coerceIn(1, 3),
-            recommendedAngle = recommendedAngle?.coerceIn(1, 5),
+            recommendedHeight = recommendedHeight?.coerceIn(ArmPositionSets.HEIGHT_RANGE),
+            recommendedRotation = recommendedRotation?.coerceIn(ArmPositionSets.ROTATION_RANGE),
+            recommendedAngle = recommendedAngle?.coerceIn(ArmPositionSets.ANGLE_RANGE),
             unilateral = unilateral,
             notes = notes?.trim(),
             mediaUrl = cleanMedia,
-            updateMediaUrl = updateMediaUrl
+            updateMediaUrl = updateMediaUrl,
+            allowedHeights = allowedHeights,
+            allowedRotations = allowedRotations,
+            allowedAngles = allowedAngles
         )
     }
 

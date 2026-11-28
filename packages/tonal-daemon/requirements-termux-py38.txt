@@ -7,3 +7,6 @@ pydantic==1.10.27
 websockets==10.4
 pyserial==3.5
 pyserial-asyncio==0.6
+# Needed to read config.yaml; without it the daemon silently runs on built-in defaults.
+# Install with --no-build-isolation (pure-Python build; avoids compiling Cython on-device).
+pyyaml==6.0.1

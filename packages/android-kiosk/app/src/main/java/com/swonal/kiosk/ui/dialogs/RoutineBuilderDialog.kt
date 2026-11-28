@@ -1,6 +1,7 @@
 package com.swonal.kiosk.ui.dialogs
 
 import android.app.AlertDialog
+import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -9,10 +10,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
+import com.swonal.kiosk.R
 import com.swonal.kiosk.model.AutoAdjust
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.model.Units
@@ -307,6 +310,14 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
                     marginEnd = dp(6)
                 }
             })
+            topRow.addView(makePillButton("Copy", mono = true) {
+                duplicateBlock(bIdx)
+            }.apply {
+                textSize = 10.5f
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply {
+                    if (draftBlocks.size > 1) marginEnd = dp(6)
+                }
+            })
             if (draftBlocks.size > 1) {
                 topRow.addView(makePillButton("✕") {
                     draftBlocks.removeAt(bIdx)
@@ -449,6 +460,17 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
         }
     }
 
+    /** Inserts a deep copy of the block directly below the original, so it can be tweaked in place. */
+    private fun duplicateBlock(bIdx: Int) {
+        val src = draftBlocks.getOrNull(bIdx) ?: return
+        draftBlocks.add(
+            bIdx + 1,
+            src.copy(items = src.items.map { it.copy() }.toMutableList())
+        )
+        renderBlocks()
+        Toast.makeText(requireContext(), "Copied as Block ${bIdx + 2}", Toast.LENGTH_SHORT).show()
+    }
+
     private fun makeStepperButton(label: String, onClick: () -> Unit): TextView =
         makePillButton(label, mono = true, onClick = onClick).apply { textSize = 10.5f }
 
@@ -459,12 +481,53 @@ class RoutineBuilderDialog : BaseSwonalDialog() {
         val exercises = repo.uiStateFlow.value.exercises
         if (exercises.isEmpty()) return
         val names = exercises.map { "${it.name} (${it.muscleGroup})" }.toTypedArray()
-        AlertDialog.Builder(requireContext())
-            .setTitle("Select Exercise")
+        val builder = AlertDialog.Builder(requireContext())
+        var picker: AlertDialog? = null
+        builder
+            .setCustomTitle(makePickerTitle(builder, "Select Exercise") { picker?.dismiss() })
             .setItems(names) { _, which ->
                 exercises.getOrNull(which)?.let { onChosen(it.id) }
             }
-            .show()
+        picker = builder.show()
+    }
+
+    /**
+     * Title row for a system AlertDialog with an X close button on the right.
+     * Colors come from the AlertDialog's own theme so the title and X match the
+     * dialog's light/dark background.
+     */
+    private fun makePickerTitle(builder: AlertDialog.Builder, title: String, onClose: () -> Unit): View {
+        val ctx = builder.context
+        val attrs = ctx.obtainStyledAttributes(
+            intArrayOf(android.R.attr.textColorPrimary, android.R.attr.selectableItemBackgroundBorderless)
+        )
+        val textColor = attrs.getColor(0, Color.BLACK)
+        val closeBackground = attrs.getDrawable(1)
+        attrs.recycle()
+
+        return LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(24), dp(14), dp(12), dp(4))
+            addView(TextView(ctx).apply {
+                text = title
+                textSize = 20f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(textColor)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_close)
+                setColorFilter(textColor)
+                background = closeBackground
+                contentDescription = "Close"
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+                setOnClickListener { onClose() }
+            })
+        }
     }
 
     private fun saveRoutine(unit: String) {

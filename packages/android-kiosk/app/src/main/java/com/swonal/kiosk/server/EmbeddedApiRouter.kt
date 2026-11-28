@@ -25,7 +25,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -85,6 +88,14 @@ class EmbeddedApiRouter(
             "tls" -> handleTls(m, segs)
             else -> server.jsonError(Status.NOT_FOUND, "Unknown API route: $path")
         }
+    }
+
+    /** JSON int array (or "4,5" string) -> list; absent/null -> null (field untouched on update). */
+    private fun parseIntList(el: JsonElement?): List<Int>? = when (el) {
+        null, JsonNull -> null
+        is JsonArray -> el.mapNotNull { (it as? JsonPrimitive)?.intOrNull }
+        is JsonPrimitive -> el.contentOrNull?.split(',')?.mapNotNull { it.trim().toIntOrNull() }
+        else -> null
     }
 
     private fun parseJsonBody(session: IHTTPSession, maxBytes: Long = EmbeddedSwonalServer.DEFAULT_JSON_MAX_BYTES): JsonObject {
@@ -310,7 +321,10 @@ class EmbeddedApiRouter(
                 recommendedRotation = b["recommendedRotation"]?.jsonPrimitive?.intOrNull ?: 2,
                 recommendedAngle = b["recommendedAngle"]?.jsonPrimitive?.intOrNull ?: 1,
                 notes = b["notes"]?.jsonPrimitive?.contentOrNull,
-                mediaUrl = b["mediaUrl"]?.jsonPrimitive?.contentOrNull
+                mediaUrl = b["mediaUrl"]?.jsonPrimitive?.contentOrNull,
+                allowedHeights = parseIntList(b["allowedHeights"]).orEmpty(),
+                allowedRotations = parseIntList(b["allowedRotations"]).orEmpty(),
+                allowedAngles = parseIntList(b["allowedAngles"]).orEmpty()
             )
             repo.refreshAppState()
             repo.notifyDirtySync()
@@ -341,7 +355,10 @@ class EmbeddedApiRouter(
                 recommendedRotation = b["recommendedRotation"]?.jsonPrimitive?.intOrNull,
                 recommendedAngle = b["recommendedAngle"]?.jsonPrimitive?.intOrNull,
                 notes = b["notes"]?.jsonPrimitive?.contentOrNull,
-                mediaUrl = b["mediaUrl"]?.jsonPrimitive?.contentOrNull
+                mediaUrl = b["mediaUrl"]?.jsonPrimitive?.contentOrNull,
+                allowedHeights = parseIntList(b["allowedHeights"]),
+                allowedRotations = parseIntList(b["allowedRotations"]),
+                allowedAngles = parseIntList(b["allowedAngles"])
             ) ?: return server.jsonError(Status.NOT_FOUND, "Exercise not found")
             repo.refreshAppState()
             repo.notifyDirtySync()

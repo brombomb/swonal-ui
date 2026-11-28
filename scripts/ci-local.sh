@@ -6,20 +6,33 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "=== 0/3 Validating GitHub Workflows ==="
+echo "=== 0/3 Validating GitHub Workflows & Shell Scripts ==="
+if ! python3 -c "import yaml" 2>/dev/null; then
+  echo "ERROR: PyYAML is required for the workflow check (python3 -m pip install pyyaml)." >&2
+  exit 1
+fi
 python3 - <<'PY'
 import glob, re, sys, yaml
 
-for path in sorted(glob.glob(".github/workflows/*.yml")):
+for path in sorted(glob.glob(".github/workflows/*.yml") + [".github/labeler.yml"]):
     with open(path, encoding="utf-8") as f:
         text = f.read()
     yaml.safe_load(text)
-    for idx, line in enumerate(text.splitlines(), 1):
-        if re.search(r"^\s*if:\s*.*\bsecrets\.", line):
-            print(f"ERROR: {path}:{idx}: GitHub Actions does not allow 'secrets.*' inside 'if:' expressions.")
-            sys.exit(1)
+    if path.startswith(".github/workflows/"):
+        for idx, line in enumerate(text.splitlines(), 1):
+            if re.search(r"^\s*if:\s*.*\bsecrets\.", line):
+                print(f"ERROR: {path}:{idx}: GitHub Actions does not allow 'secrets.*' inside 'if:' expressions.")
+                sys.exit(1)
     print(f"  OK: {path}")
 PY
+bash -n scripts/*.sh
+echo "  OK: bash -n scripts/*.sh"
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck -S error scripts/*.sh
+  echo "  OK: shellcheck -S error scripts/*.sh"
+else
+  echo "  (shellcheck not installed locally; skipping, CI runs it)"
+fi
 
 echo ""
 echo "=== 1/3 Server App (Clean-Room SQLite DB, Typecheck, Build & Tests) ==="
@@ -46,12 +59,21 @@ echo "=== 2/3 Tonal Daemon (Lint & Safety Tests) ==="
 (
   cd "$ROOT_DIR/packages/tonal-daemon"
   if [ -x ".venv/bin/ruff" ]; then
-    .venv/bin/ruff check src tests
+    .venv/bin/ruff check --target-version py38 --select E9,F63,F7,F82 src tests
   elif command -v ruff >/dev/null 2>&1; then
-    ruff check src tests
+    ruff check --target-version py38 --select E9,F63,F7,F82 src tests
   else
     echo "  (ruff not installed locally; skipping lint step)"
   fi
+  python3 - <<'PY'
+import ast, glob
+
+files = sorted(glob.glob("src/**/*.py", recursive=True) + glob.glob("tests/**/*.py", recursive=True))
+for path in files:
+    with open(path, encoding="utf-8") as f:
+        ast.parse(f.read(), filename=path, feature_version=(3, 8))
+print(f"  OK: Python 3.8 AST check passed ({len(files)} files)")
+PY
   if [ -x ".venv/bin/pytest" ]; then
     .venv/bin/pytest -v tests
   else

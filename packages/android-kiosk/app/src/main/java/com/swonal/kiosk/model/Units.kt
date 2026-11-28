@@ -108,8 +108,10 @@ object Units {
         return ((position / MAX_CABLE_POSITION) * 100.0).coerceIn(0.0, 100.0).toFloat()
     }
 
+    /** Epley 1RM. A set with no completed reps proves nothing about strength, so it estimates 0. */
     fun estimateEpley1Rm(weightLb: Double, reps: Int): Double {
-        val raw = if (reps <= 1) weightLb else weightLb * (1.0 + reps / 30.0)
+        if (reps < 1) return 0.0
+        val raw = if (reps == 1) weightLb else weightLb * (1.0 + reps / 30.0)
         return round(raw * 10.0) / 10.0
     }
 

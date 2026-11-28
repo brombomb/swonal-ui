@@ -40,6 +40,7 @@ import { MusicPickerDialog } from './MusicPickerDialog';
 import { ProgressionAnalytics } from './ProgressionAnalytics';
 import { BlockType, CoachSuggestedAction, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
 import { soundEngine } from '../utils/soundEngine';
+import { acceptedPositions, armsMatchExercise, formatArmTarget } from '../utils/armPositions';
 import { formatDisplayWeight, getContrastTextColor, KG_TO_LB, stepDisplayWeight } from '../utils/units';
 import {
   executeCoachSuggestedAction,
@@ -378,6 +379,8 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     },
   ]);
   const [exerciseSearch, setExerciseSearch] = useState('');
+  // Which block's "add exercise" box the search text belongs to; other blocks show the full list.
+  const [searchBlockIdx, setSearchBlockIdx] = useState<number | null>(null);
   const [dragBlockIdx, setDragBlockIdx] = useState<number | null>(null);
 
   const showToast = (msg: string) => {
@@ -613,16 +616,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
   );
   const displayTargetWeight = formatDisplayWeight(telemetry.target_weight_lb, activeUnit);
 
-  const groupedExercises = useMemo(() => {
-    const q = exerciseSearch.trim().toLowerCase();
-    const list = q
-      ? exercises.filter(
-          (e) =>
-            e.name.toLowerCase().includes(q) ||
-            e.muscleGroup.toLowerCase().includes(q) ||
-            e.accessory.toLowerCase().includes(q)
-        )
-      : exercises;
+  const groupByBodyArea = (list: typeof exercises) => {
     const groups = new Map<string, typeof exercises>();
     for (const ex of list) {
       const group = ex.muscleGroup || 'Other';
@@ -631,7 +625,29 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       groups.set(group, arr);
     }
     return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [exercises, exerciseSearch]);
+  };
+
+  const allGroupedExercises = useMemo(() => groupByBodyArea(exercises), [exercises]);
+
+  const searchedGroupedExercises = useMemo(() => {
+    const q = exerciseSearch.trim().toLowerCase();
+    if (!q) return allGroupedExercises;
+    return groupByBodyArea(
+      exercises.filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) ||
+          e.muscleGroup.toLowerCase().includes(q) ||
+          e.accessory.toLowerCase().includes(q)
+      )
+    );
+  }, [exercises, exerciseSearch, allGroupedExercises]);
+
+  // Called whenever blocks shift position or a different routine loads, so search text
+  // never ends up attached to the wrong block.
+  const clearBlockSearch = () => {
+    setExerciseSearch('');
+    setSearchBlockIdx(null);
+  };
 
   const loadTemplateIntoBuilder = (tpl: WorkoutTemplate) => {
     setEditingTemplateId(tpl.id);
@@ -643,6 +659,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
         items: b.items.map((item) => ({ ...item })),
       }))
     );
+    clearBlockSearch();
     showToast(`Editing "${tpl.name}"`);
   };
 
@@ -651,6 +668,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     setRoutineName('');
     setRoutineDesc('');
     setBlocks([{ blockType: 'STRAIGHT_SET', restSeconds: 60, items: [] }]);
+    clearBlockSearch();
   };
 
   const addBlock = () => {
@@ -662,6 +680,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
 
   const moveBlock = (fromIdx: number, toIdx: number) => {
     if (toIdx < 0 || toIdx >= blocks.length || fromIdx === toIdx) return;
+    clearBlockSearch();
     setBlocks((prev) => {
       const next = [...prev];
       const [moved] = next.splice(fromIdx, 1);
@@ -670,7 +689,21 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     });
   };
 
+  // Inserts a deep copy of the block directly below the original, so it can be tweaked in place.
+  const duplicateBlock = (idx: number) => {
+    setBlocks((prev) => {
+      const src = prev[idx];
+      if (!src) return prev;
+      const next = [...prev];
+      next.splice(idx + 1, 0, { ...src, items: src.items.map((item) => ({ ...item })) });
+      return next;
+    });
+    clearBlockSearch();
+    showToast('Block copied below');
+  };
+
   const removeBlock = (idx: number) => {
+    clearBlockSearch();
     setBlocks((prev) => prev.filter((_, i) => i !== idx));
   };
 
@@ -980,20 +1013,17 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     </button>
                     {activeExercise && (() => {
                       const arms = telemetry.arm_positions;
-                      const tH = activeExercise.recommendedHeight;
-                      const tR = activeExercise.recommendedRotation;
-                      const tA = activeExercise.recommendedAngle;
+                      const okH = acceptedPositions(activeExercise.allowedHeights, activeExercise.recommendedHeight);
+                      const okR = acceptedPositions(activeExercise.allowedRotations, activeExercise.recommendedRotation);
+                      const okA = acceptedPositions(activeExercise.allowedAngles, activeExercise.recommendedAngle);
+                      const target = formatArmTarget(activeExercise);
                       const lH = Math.round(arms?.height?.left ?? 0);
                       const rH = Math.round(arms?.height?.right ?? 0);
                       const lR = Math.round(arms?.rotation?.left ?? 0);
                       const rR = Math.round(arms?.rotation?.right ?? 0);
                       const lA = Math.round(arms?.angle?.left ?? 0);
                       const rA = Math.round(arms?.angle?.right ?? 0);
-                      const armsSynced =
-                        daemonConnected &&
-                        lH === tH && rH === tH &&
-                        lR === tR && rR === tR &&
-                        lA === tA && rA === tA;
+                      const armsSynced = daemonConnected && armsMatchExercise(activeExercise, arms);
                       return (
                         <div className="relative inline-block">
                           <button
@@ -1008,7 +1038,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                             }`}
                           >
                             <span>
-                              {activeExercise.accessory} • H{tH} R{tR} A{tA}
+                              {activeExercise.accessory} • {target}
                             </span>
                             <Info size={12} />
                           </button>
@@ -1021,16 +1051,16 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                                 </span>
                               </div>
                               <div className="space-y-0.5 text-[11px]">
-                                <p className="opacity-75">Target  H{tH}  R{tR}  A{tA}</p>
+                                <p className="opacity-75">Target  {target}</p>
                                 <p>
-                                  Left    <span className={lH === tH ? 'text-emerald-400' : 'text-rose-400'}>H{lH}</span>  <span className={lR === tR ? 'text-emerald-400' : 'text-rose-400'}>R{lR}</span>  <span className={lA === tA ? 'text-emerald-400' : 'text-rose-400'}>A{lA}</span>
+                                  Left    <span className={okH.includes(lH) ? 'text-emerald-400' : 'text-rose-400'}>H{lH}</span>  <span className={okR.includes(lR) ? 'text-emerald-400' : 'text-rose-400'}>R{lR}</span>  <span className={okA.includes(lA) ? 'text-emerald-400' : 'text-rose-400'}>A{lA}</span>
                                 </p>
                                 <p>
-                                  Right   <span className={rH === tH ? 'text-emerald-400' : 'text-rose-400'}>H{rH}</span>  <span className={rR === tR ? 'text-emerald-400' : 'text-rose-400'}>R{rR}</span>  <span className={rA === tA ? 'text-emerald-400' : 'text-rose-400'}>A{rA}</span>
+                                  Right   <span className={okH.includes(rH) ? 'text-emerald-400' : 'text-rose-400'}>H{rH}</span>  <span className={okR.includes(rR) ? 'text-emerald-400' : 'text-rose-400'}>R{rR}</span>  <span className={okA.includes(rA) ? 'text-emerald-400' : 'text-rose-400'}>A{rA}</span>
                                 </p>
                               </div>
                               <p className="font-sans text-[10px] opacity-65 pt-1 border-t border-[var(--border-subtle)]">
-                                H: Height (1–6) • R: Rotation (1–3) • A: Angle (1–2)
+                                H: Height 1 bottom–9 top • R: Rotation 2–6 latches (1 stowed) • A: Angle 1 down–5 up (0 folded)
                               </p>
                             </div>
                           )}
@@ -1725,6 +1755,15 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                         >
                           <ArrowDown size={14} />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => duplicateBlock(bIdx)}
+                          className="surface-card p-1.5 rounded-lg"
+                          title="Copy Block"
+                          aria-label="Copy Block"
+                        >
+                          <Copy size={14} />
+                        </button>
                         {blocks.length > 1 && (
                           <button
                             type="button"
@@ -1844,19 +1883,26 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                     <div className="pt-1 space-y-2">
                       <input
                         type="search"
-                        value={exerciseSearch}
-                        onChange={(e) => setExerciseSearch(e.target.value)}
+                        value={searchBlockIdx === bIdx ? exerciseSearch : ''}
+                        onChange={(e) => {
+                          setSearchBlockIdx(bIdx);
+                          setExerciseSearch(e.target.value);
+                        }}
                         placeholder="Search exercise to add to this block..."
                         className="w-full surface-card px-3 py-2 rounded-xl text-xs outline-none"
                       />
                       <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
-                        {groupedExercises.length === 0 ? (
+                        {(searchBlockIdx === bIdx ? searchedGroupedExercises : allGroupedExercises)
+                          .length === 0 ? (
                           <p className="text-xs opacity-65 px-2 py-1">No matching exercises.</p>
                         ) : (
-                          groupedExercises.map(([bodyArea, list]) => (
+                          (searchBlockIdx === bIdx
+                            ? searchedGroupedExercises
+                            : allGroupedExercises
+                          ).map(([bodyArea, list]) => (
                             <details
                               key={bodyArea}
-                              open={Boolean(exerciseSearch.trim())}
+                              open={searchBlockIdx === bIdx && Boolean(exerciseSearch.trim())}
                               className="surface-card rounded-xl overflow-hidden"
                             >
                               <summary className="px-3 py-2 text-xs font-extrabold uppercase tracking-wider cursor-pointer select-none flex items-center justify-between">
