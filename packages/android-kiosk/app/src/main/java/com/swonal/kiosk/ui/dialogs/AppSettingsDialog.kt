@@ -285,6 +285,14 @@ open class AppSettingsDialog : BaseSwonalDialog() {
         }
         prefsCard.addView(vbtRow)
 
+        fun formatAutoSet(sec: Int) = if (sec <= 0) "Off (Manual)" else "${sec}s"
+        val (autoSetRow, autoSetValTv) = makeLargeToggleRow("Auto-Complete Set Timer", formatAutoSet(ui.autoSetDetectSeconds))
+        autoSetRow.setOnClickListener {
+            repo.cycleAutoSetDetectSeconds()
+            autoSetValTv.text = formatAutoSet(repo.uiStateFlow.value.autoSetDetectSeconds)
+        }
+        prefsCard.addView(autoSetRow)
+
         // Accent Color Swatches
         prefsCard.addView(makeSectionLabel("Accent Color"))
         SwonalThemeTokens.ACCENT_SWATCHES.chunked(4).forEach { rowSwatches ->

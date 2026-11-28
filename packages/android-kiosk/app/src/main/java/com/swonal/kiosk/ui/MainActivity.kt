@@ -645,6 +645,8 @@ class MainActivity : AppCompatActivity() {
 
         // Set Control Deck
         binding.btnCompleteSet.setOnClickListener { repo.logCompletedSet() }
+        binding.btnAutoLogNow.setOnClickListener { repo.confirmAutoLogNow() }
+        binding.btnAutoLogCancel.setOnClickListener { repo.cancelAutoLogCountdownByUser() }
         binding.btnFinishWorkout.setOnClickListener { repo.finishWorkout() }
         binding.btnModeStandard.setOnClickListener { repo.setDynamicMode("standard") }
         binding.btnModeEccentric.setOnClickListener { repo.setDynamicMode("eccentric") }
@@ -773,6 +775,8 @@ class MainActivity : AppCompatActivity() {
             binding.btnModeChains,
             binding.btnModeSpotter,
             binding.btnModeBurnout,
+            binding.btnAutoLogNow,
+            binding.btnAutoLogCancel,
             binding.btnOpenCoachModal,
             binding.btnCoachSuggestedAction,
             binding.btnDismissMusicError,
@@ -1202,7 +1206,17 @@ class MainActivity : AppCompatActivity() {
             binding.overloadReadyPill.visibility = View.GONE
         }
 
-        // 12. Set Control Deck
+        // 12. Set Control Deck & Auto-Set Completion Countdown
+        if (ui.autoLogRemainingMs > 0L && ui.autoLogTotalMs > 0L) {
+            binding.autoLogCountdownBanner.visibility = View.VISIBLE
+            val secLeft = ((ui.autoLogRemainingMs + 999L) / 1000L).toInt().coerceAtLeast(1)
+            binding.tvAutoLogLabel.text = "Auto-logging ${ui.autoLogPendingReps} reps in ${secLeft}s..."
+            val pctProgress = ((ui.autoLogRemainingMs * 1000L) / ui.autoLogTotalMs).toInt().coerceIn(0, 1000)
+            binding.autoLogProgress.progress = pctProgress
+        } else {
+            binding.autoLogCountdownBanner.visibility = View.GONE
+        }
+
         if (step != null) {
             binding.tvTargetReps.visibility = View.VISIBLE
             binding.tvTargetReps.text = "/ ${step.targetReps}"
@@ -1715,6 +1729,15 @@ class MainActivity : AppCompatActivity() {
         binding.tvZapSpotter.setTextColor(p.warningText)
 
         // Set Control Deck
+        val barFillColorDeck = if (p.isDark) p.accentPrimary else p.accentInk
+        binding.autoLogCountdownBanner.background = p.accentMutedDrawable(d, 12f, 1.5f, interactive = false)
+        binding.tvAutoLogLabel.setTextColor(p.accentInk)
+        binding.autoLogProgress.progressDrawable = createRoundedTrackDrawable(p.bgElevated, barFillColorDeck, 4f * d)
+        binding.btnAutoLogNow.background = p.accentPillDrawable(d, 8f)
+        binding.btnAutoLogNow.setTextColor(p.accentTextColor)
+        binding.btnAutoLogCancel.background = p.elevatedPillDrawable(d, 8f)
+        binding.btnAutoLogCancel.setTextColor(p.textPrimary)
+
         binding.tvRepsLabel.setTextColor(p.textMuted)
         binding.tvCompletedReps.setTextColor(p.textPrimary)
         binding.tvTargetReps.setTextColor(p.textMuted)
