@@ -8,6 +8,8 @@ import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -27,6 +29,7 @@ import com.swonal.kiosk.theme.SwonalPalette
 import com.swonal.kiosk.theme.SwonalThemeTokens
 import com.swonal.kiosk.ui.InAppWebLauncher
 import com.swonal.kiosk.ui.PressFeedback
+import com.swonal.kiosk.util.IdleActivityTracker
 import kotlin.math.min
 
 /**
@@ -71,7 +74,18 @@ abstract class BaseSwonalDialog : DialogFragment() {
         } else {
             R.style.Theme_SwonalKiosk_Dialog
         }
-        val dialog = Dialog(requireContext(), themeRes)
+        // Dialog windows bypass Activity.onUserInteraction, so feed the screen sleep idle clock here.
+        val dialog = object : Dialog(requireContext(), themeRes) {
+            override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+                IdleActivityTracker.noteActivity()
+                return super.dispatchTouchEvent(ev)
+            }
+
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                IdleActivityTracker.noteActivity()
+                return super.dispatchKeyEvent(event)
+            }
+        }
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setCanceledOnTouchOutside(if (isFullScreen) false else cancelableOnOutside)
         isCancelable = cancelableOnOutside

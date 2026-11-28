@@ -75,11 +75,23 @@ def quantize_arm_rotation_notch(raw_value: int, prev_notch: int = 1) -> int:
     return 3
 
 
-def decode_telescope_angle_notch(raw_telescope: int) -> int:
-    """Convert raw 0x1025 telescope_position (2..6 on Tonal V1) into discrete angle notch A1..A5."""
-    if raw_telescope >= 2:
-        return max(1, min(5, int(raw_telescope) - 1))
-    return max(1, min(5, int(raw_telescope)))
+ANGLE_FOLDED = 0
+
+
+def decode_telescope_angle_notch(raw_telescope: int) -> Optional[int]:
+    """Convert the raw 0x1025 angle detent (swolectl's telescope_position) into the reported angle.
+
+    Seen on a Tonal V1 (firmware 5.2.18.0), setting each detent by hand: raw 1 = arm folded,
+    2 = pointing down (~36 deg) ... 6 = pointing up (~135 deg), 0 = between detents.
+    Reported: folded -> 0 (ANGLE_FOLDED), 2..6 -> A1..A5, between -> None (keep the last value).
+    Folded used to read A1, the same as pointing down, so a folded arm looked aligned.
+    """
+    raw = int(raw_telescope)
+    if raw <= 0:
+        return None
+    if raw == 1:
+        return ANGLE_FOLDED
+    return min(5, raw - 1)
 
 
 def decode_cart_position(payload: bytes) -> tuple[int, int]:
@@ -109,6 +121,20 @@ def decode_arm_position(payload: bytes) -> dict[str, Any]:
         "is_rotation_locked": bool(packed & (1 << 20)),
         "is_rotation_and_telescope_locked": bool(packed & (1 << 21)),
     }
+
+
+def _is_accessory_button_press(payload: bytes) -> bool:
+    """True only for a handle/bar button press in a 0x2003 frame (see _on_swolectl_frame).
+
+    Seen on a Tonal V1 (firmware 5.2.18.0): byte 8 = (button << 4) | event, byte 9 = 0x01 on
+    press for handles and the bar button, 0x21 for the arm rotation-release button (rejected:
+    it only unlocks the arm). Each handle has two buttons, one at each end, which both toggle
+    weight on the stock app: button 1 = 0x01, button 2 = 0x11. The motor board also engages
+    by itself on a button-2 press, so ignoring it leaves resistance the daemon doesn't track.
+    """
+    if len(payload) < 10:
+        return False
+    return payload[8] in (0x01, 0x11) and payload[9] == 0x01
 
 
 async def _to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -211,7 +237,9 @@ class MotorBridge:
         self.state = "DISCONNECTED"
         self.weight_enabled = False
         self.maintenance_locked = False
-        self.target_weight_lb = 45.0
+        # Start at the configured minimum, not a fixed 45 lb: a handle/bar press right after the
+        # daemon starts (or the board engaging on its own) must not apply a weight nobody chose.
+        self.target_weight_lb = self.min_weight
         self.profile_mode = "standard"
         self.modifier_pct = 0
         self.rep_count = 0
@@ -235,6 +263,12 @@ class MotorBridge:
         self._hardware_arm_0x1025_unlocked = {"left": False, "right": False}
         self._ble_button_callbacks: list[Callable[[dict], Any]] = []
         self._last_mcb_button_ts: float = 0.0
+        # Uncommanded-engage guard: the motor board can latch resistance on by itself
+        # (e.g. a handle button it handles in firmware) while weight_enabled stays False,
+        # which would bypass the watchdog and inactivity cutoffs.
+        self._last_enable_cmd_ts: float = 0.0
+        self._uncommanded_latch_since: Optional[float] = None
+        self._last_uncommanded_alert_ts: float = 0.0
         self._connected_ble_accessories: dict[int, dict[str, Any]] = {}
         self._recent_aux_frames: list[dict[str, Any]] = []
         self._raw_column_rotation_bytes: Optional[bytes] = None
@@ -300,8 +334,12 @@ class MotorBridge:
             logger.info("MCB BLE_BUTTON (%s) src=%d payload=%s", hex(int(msg_type)), source, payload.hex())
             now = time.monotonic()
             if msg_type == MSG_BLE_BUTTON_V2:
-                # Physical Tonal V1 0x2003 payload: [0:8]=device_id, [8]=event (0x01=press, 0x03=release)
-                if len(payload) >= 9 and payload[8] != 0x01:
+                # Physical Tonal V1 0x2003 payload: [0:8]=device_id, [8]=(button << 4) | event
+                # (event 0x1=press, 0x3=release), [9]=button state.
+                # Handles and the bar button report [9]=0x01 on press / 0x00 on release.
+                # The arm modules' rotation-release button uses the same message with
+                # [9]=0x21/0x20; pressing it to adjust an arm must never toggle resistance.
+                if not _is_accessory_button_press(payload):
                     return
             else:
                 if len(payload) >= 2 and payload[1] == 0:
@@ -332,15 +370,17 @@ class MotorBridge:
                     "left": max(1, min(12, int(arms.height.get("left", 1)))),
                     "right": max(1, min(12, int(arms.height.get("right", 1)))),
                 }
+                # Same scales as the live path: raw rotation detent 1..7 passed through,
+                # angle 0 (folded) .. 5.
                 arms.rotation = ArmRotationState(
-                    left=quantize_arm_rotation_notch(int(arms.rotation.left), 1),
-                    right=quantize_arm_rotation_notch(int(arms.rotation.right), 1),
+                    left=max(1, min(7, int(arms.rotation.left))),
+                    right=max(1, min(7, int(arms.rotation.right))),
                     left_unlocked=False,
                     right_unlocked=False,
                 )
                 arms.angle = {
-                    "left": max(1, min(5, int(arms.angle.get("left", 1)))),
-                    "right": max(1, min(5, int(arms.angle.get("right", 1)))),
+                    "left": max(ANGLE_FOLDED, min(5, int(arms.angle.get("left", 1)))),
+                    "right": max(ANGLE_FOLDED, min(5, int(arms.angle.get("right", 1)))),
                 }
                 return arms
             except Exception:
@@ -388,7 +428,9 @@ class MotorBridge:
         elif message_type == MSG_ARM_POSITION:
             decoded = decode_arm_position(payload)
             side = decoded["side"]
-            angle[side] = int(decoded["angle"])
+            quant_angle = decode_telescope_angle_notch(decoded["telescope_position"])
+            if quant_angle is not None:
+                angle[side] = quant_angle
             unlocked = not (
                 decoded["is_rotation_locked"] and decoded["is_rotation_and_telescope_locked"]
             )
@@ -431,7 +473,8 @@ class MotorBridge:
         # 1. Horizontal Column Rotation (R) & Moving/Unlocked state from raw 0x1021
         # Disassembled from Tonal McbDevice::processUpstreamMessage (libmcb-service.so @ 0x4d328):
         #   byte 0 = left_unlocked  (0=locked, non-zero=moving/unlocked)
-        #   byte 1 = left_position  (raw column detent, 1..5 where 5=narrowest/R1, 3=mid/R2, 1..2=wide/R3)
+        #   byte 1 = left_position  (raw column detent: 1 = stowed, 2..6 = latching positions, 0 = between;
+        #            seen on a Tonal V1, fw 5.2.18.0; passed through as R1..R6)
         #   byte 2 = right_unlocked (0=locked, non-zero=moving/unlocked)
         #   byte 3 = right_position (raw column detent)
         col_rot = getattr(ctrl, "column_rotation", None)
@@ -482,18 +525,17 @@ class MotorBridge:
             if 1 <= cand_r <= 12:
                 height["right"] = cand_r
 
-        # 3. Vertical Arm Angle (A: 1..5 from 0x1025 telescope_position 2..6 -> 1..5)
+        # 3. Vertical Arm Angle (0x1025 detent: folded -> A0, 2..6 -> A1..A5, between -> keep last)
         if isinstance(arm_map, dict):
             for side in ("left", "right"):
                 arm = arm_map.get(side)
                 if arm is None:
                     continue
-                side_unlk = left_unlk if side == "left" else right_unlk
 
                 if hasattr(arm, "telescope_position"):
                     raw_tele = int(getattr(arm, "telescope_position", 2))
                     quant_angle = decode_telescope_angle_notch(raw_tele)
-                    if not side_unlk or quant_angle != angle[side]:
+                    if quant_angle is not None:
                         angle[side] = quant_angle
                 elif raw_1021 is None:
                     # Fallback for mock controllers that only expose rotation_position
@@ -743,6 +785,7 @@ class MotorBridge:
             raise RuntimeError("Cannot enable resistance: Motor controller in FAULT state")
         if self.state == "STOCK_MODE":
             raise RuntimeError("Cannot enable resistance while in STOCK_MODE")
+        self._last_enable_cmd_ts = time.monotonic()
         if self._controller and not self.mock_mode:
             if getattr(self._controller, "configured_profile", None) is None:
                 await self._set_target_weight_unlocked(
@@ -1163,6 +1206,42 @@ class MotorBridge:
             self._last_reconnect_attempt = now
             await self._try_reconnect()
 
+    UNCOMMANDED_LATCH_GRACE_SEC = 0.5
+    ENABLE_CMD_SETTLE_SEC = 1.5
+
+    async def _check_uncommanded_engage(self, hw_enabled: bool) -> bool:
+        """Disengage if the motor board reports resistance on that the daemon did not command."""
+        now = time.monotonic()
+        if not hw_enabled or self.weight_enabled or self.mock_mode or self.state == "STOCK_MODE":
+            self._uncommanded_latch_since = None
+            return False
+        if now - self._last_enable_cmd_ts < self.ENABLE_CMD_SETTLE_SEC:
+            return False
+        if self._uncommanded_latch_since is None:
+            self._uncommanded_latch_since = now
+            return False
+        if now - self._uncommanded_latch_since < self.UNCOMMANDED_LATCH_GRACE_SEC:
+            return False
+        if now - self._last_uncommanded_alert_ts < 2.0:
+            return False
+        self._last_uncommanded_alert_ts = now
+        logger.critical(
+            "Motor board reports resistance ENGAGED that the daemon did not command "
+            "(e.g. a handle button handled by firmware). Disengaging."
+        )
+        self._emit_event(
+            {
+                "type": "safety_event",
+                "reason": "UNCOMMANDED_HARDWARE_ENGAGE",
+                "timestamp": time.time(),
+            }
+        )
+        try:
+            await self.disable_resistance()
+        except Exception as exc:
+            logger.critical("Could not disengage uncommanded resistance: %s", exc)
+        return True
+
     async def _hardware_telemetry_loop(self) -> None:
         while True:
             try:
@@ -1184,6 +1263,7 @@ class MotorBridge:
                 else:
                     frame = self._build_frame_from_swolectl()
 
+                await self._check_uncommanded_engage(bool(frame.weight_enabled))
                 await self._check_bar_tilt_safety(
                     frame.left_cable.position, frame.right_cable.position
                 )

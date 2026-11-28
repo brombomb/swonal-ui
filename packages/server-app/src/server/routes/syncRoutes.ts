@@ -6,6 +6,7 @@ import {
   getPendingQueuedWorkout,
 } from '../mcp/mcpServer';
 import { getDemoPipEnabled, setDemoPipEnabled } from '../services/runtimeSettings';
+import { normalizeSyncedAllowedPositions, parsePositionSet } from '../utils/armPositions';
 
 type BroadcastFn = (payload: Record<string, unknown>) => void;
 
@@ -36,6 +37,11 @@ const SyncExerciseSchema = z.object({
   recommendedHeight: z.number().int().default(4),
   recommendedRotation: z.number().int().default(2),
   recommendedAngle: z.number().int().default(1),
+  // Lenient on purpose: out-of-range values are dropped and recommended* is added on accept.
+  // Omitted (older kiosks) = keep the stored set; new rows default to [].
+  allowedHeights: z.array(z.number()).nullish(),
+  allowedRotations: z.array(z.number()).nullish(),
+  allowedAngles: z.array(z.number()).nullish(),
   unilateral: z.boolean().default(false),
   notes: z.string().nullable().optional(),
   mediaUrl: z.string().nullable().optional(),
@@ -275,6 +281,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
                 recommendedHeight: ex.recommendedHeight,
                 recommendedRotation: ex.recommendedRotation,
                 recommendedAngle: ex.recommendedAngle,
+                ...normalizeSyncedAllowedPositions(ex),
                 unilateral: ex.unilateral,
                 notes: ex.notes ?? null,
                 mediaUrl: ex.mediaUrl ?? null,
@@ -295,6 +302,7 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
                 recommendedHeight: ex.recommendedHeight,
                 recommendedRotation: ex.recommendedRotation,
                 recommendedAngle: ex.recommendedAngle,
+                ...normalizeSyncedAllowedPositions(ex, existing),
                 unilateral: ex.unilateral,
                 notes: ex.notes ?? null,
                 mediaUrl: ex.mediaUrl ?? null,
@@ -592,6 +600,9 @@ export function createSyncRouter(deps: SyncRouterDeps): Router {
         recommendedHeight: e.recommendedHeight,
         recommendedRotation: e.recommendedRotation,
         recommendedAngle: e.recommendedAngle,
+        allowedHeights: parsePositionSet(e.allowedHeights),
+        allowedRotations: parsePositionSet(e.allowedRotations),
+        allowedAngles: parsePositionSet(e.allowedAngles),
         unilateral: e.unilateral,
         notes: e.notes,
         mediaUrl: e.mediaUrl,

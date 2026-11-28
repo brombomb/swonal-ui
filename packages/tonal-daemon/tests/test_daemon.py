@@ -12,6 +12,7 @@ from src.ble_handles import BLEHandleManager
 import src.main as daemon_main
 from src.mode_switcher import ModeSwitcher
 from src.motor_bridge import (
+    ANGLE_FOLDED,
     MSG_ARM_POSITION,
     MSG_CART_POSITION,
     MSG_COLUMN_ROTATION,
@@ -19,6 +20,7 @@ from src.motor_bridge import (
     decode_arm_position,
     decode_cart_position,
     decode_column_rotation,
+    decode_telescope_angle_notch,
 )
 
 
@@ -449,25 +451,37 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
     assert frame_r53.arm_positions.rotation["left"] == 5
     assert frame_r53.arm_positions.rotation["right"] == 3
 
-    # Verify Smart Handle 0x2003 button press (byte 8 == 0x01) triggers toggle_weight while release (0x03) is ignored
+    # 0x2003 button frames (Tonal V1, fw 5.2.18.0): [8] = (button << 4) | event (1=press, 3=release),
+    # [9] = 0x01/0x00 for handles + bar button, 0x21/0x20 for the arm rotation-release button.
     btn_events = []
     bridge.register_ble_button_callback(lambda ev: btn_events.append(ev))
-    bridge._on_swolectl_frame(
-        SimpleNamespace(
-            message_type=0x2003,
-            payload=bytes.fromhex("ed232000c800030001210000fe130100fe130100"),
-            source=2,
+
+    def send_button(hex_payload: str) -> None:
+        bridge._last_mcb_button_ts = 0.0  # bypass the 0.4 s debounce between test frames
+        bridge._on_swolectl_frame(
+            SimpleNamespace(message_type=0x2003, payload=bytes.fromhex(hex_payload), source=2)
         )
-    )
-    bridge._on_swolectl_frame(
-        SimpleNamespace(
-            message_type=0x2003,
-            payload=bytes.fromhex("ed232000c8000300032000009815010098150100"),
-            source=2,
-        )
-    )
+
+    # Arm rotation-release button (adjusting an arm): press + release must NOT toggle weight
+    send_button("ed232000c800030001210000fe130100fe130100")
+    send_button("ed232000c8000300032000009815010098150100")
+    send_button("ed232000c800030002210000a0150100a0150100")
+    assert btn_events == []
+
+    # Handle button 1 (one end): press toggles, release does not
+    send_button("aabbcc002c01030001010000ffffffff65010000")
+    send_button("aabbcc002c010300030000001101000065010000")
     assert len(btn_events) == 1
     assert btn_events[0]["action"] == "toggle_weight"
+
+    # Handle button 2 (other end, [8] = 0x11 press / 0x13 release): also toggles, like the stock app
+    send_button("aabbcc002c01030011010000ffffffff65010000")
+    send_button("aabbcc002c010300130000001101000065010000")
+    assert len(btn_events) == 2
+
+    # Bar button press toggles
+    send_button("ddeeff004c040200010100002505000025050000")
+    assert len(btn_events) == 3
 
     # Simulate physical user unlocking right arm telescope/rotation pin (raw_flags bit 20/21 set)
     ctrl.arm_positions["right"].is_rotation_locked = True
@@ -492,6 +506,58 @@ async def test_swolectl_arm_sensor_packets_and_sync_controller_telemetry():
 
     await bridge.release_port()
     assert ctrl.closed is True
+
+
+def test_arm_angle_detent_folded_is_distinct_from_pointing_down():
+    # Tonal V1 (fw 5.2.18.0) detents: 1 = folded, 2 = down ... 6 = up, 0 = between
+    assert decode_telescope_angle_notch(1) == ANGLE_FOLDED == 0
+    assert decode_telescope_angle_notch(2) == 1
+    assert decode_telescope_angle_notch(4) == 3
+    assert decode_telescope_angle_notch(6) == 5
+    assert decode_telescope_angle_notch(7) == 5
+    assert decode_telescope_angle_notch(0) is None
+
+
+@pytest.mark.asyncio
+async def test_swolectl_folded_arm_reports_angle_zero_and_between_keeps_last():
+    arms = {
+        side: SimpleNamespace(
+            telescope_position=2,
+            rotation_position=36,
+            is_rotation_locked=False,
+            is_rotation_and_telescope_locked=False,
+        )
+        for side in ("left", "right")
+    }
+    ctrl = SimpleNamespace(
+        cart_position=SimpleNamespace(left=1, right=1),
+        column_rotation=None,
+        arm_positions=arms,
+    )
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=ctrl)
+    assert bridge._read_swolectl_arm_positions().angle == {"left": 1, "right": 1}
+
+    arms["left"].telescope_position = 1  # folded
+    arms["right"].telescope_position = 0  # between detents
+    assert bridge._read_swolectl_arm_positions().angle == {"left": 0, "right": 1}
+
+    # Raw 0x1025 packet path: folded left arm (detent 1, degrees byte 4)
+    folded_word = (1) | (4 << 8) | (0 << 16)
+    bridge.update_hardware_arm_packet(MSG_ARM_POSITION, folded_word.to_bytes(4, "little"))
+    assert bridge._hardware_arm_positions.angle["left"] == 0
+
+
+def test_cached_arm_positions_keep_real_rotation_and_folded_angle(tmp_path):
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=SimpleNamespace())
+    bridge._arm_cache_path = tmp_path / "arms.json"
+    bridge._arm_cache_path.write_text(
+        '{"height": {"left": 9, "right": 1}, "rotation": {"left": 5, "right": 4},'
+        ' "angle": {"left": 0, "right": 3}}',
+        encoding="utf-8",
+    )
+    arms = bridge._load_cached_arm_positions()
+    assert (arms.rotation.left, arms.rotation.right) == (5, 4)
+    assert arms.angle == {"left": 0, "right": 3}
 
 
 def test_librespot_bridge_endpoints(monkeypatch):
@@ -893,6 +959,86 @@ async def test_release_port_and_initialize_do_not_inherit_stale_link_lost(monkey
             await bridge._loop_task
 
 
+@pytest.mark.asyncio
+async def test_uncommanded_hardware_engage_is_disengaged():
+    """The motor board latching resistance on without a daemon command must be turned off."""
+
+    class LatchController:
+        def __init__(self):
+            self.telemetry = SimpleNamespace(device_enabled=True)
+            self.disable_calls = 0
+
+        def disable_resistance(self):
+            self.disable_calls += 1
+            self.telemetry.device_enabled = False
+
+    ctrl = LatchController()
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=ctrl)
+    bridge.state = "IDLE_WEIGHT_OFF"
+    events = []
+    bridge.register_telemetry_callback(lambda ev: events.append(ev))
+    assert bridge.weight_enabled is False
+
+    # First sighting only starts the grace window
+    assert await bridge._check_uncommanded_engage(True) is False
+    assert ctrl.disable_calls == 0
+    # Still latched after the grace window -> disengage + safety event
+    bridge._uncommanded_latch_since -= bridge.UNCOMMANDED_LATCH_GRACE_SEC + 0.1
+    assert await bridge._check_uncommanded_engage(True) is True
+    assert ctrl.disable_calls == 1
+    assert any(ev.get("reason") == "UNCOMMANDED_HARDWARE_ENGAGE" for ev in events)
+
+    # Latch cleared -> guard resets
+    assert await bridge._check_uncommanded_engage(False) is False
+    assert bridge._uncommanded_latch_since is None
+
+
+@pytest.mark.asyncio
+async def test_uncommanded_engage_guard_ignores_commanded_and_mock():
+    class Ctrl:
+        def __init__(self):
+            self.telemetry = SimpleNamespace(device_enabled=False)
+            self.disable_calls = 0
+            self.configured_profile = object()
+
+        def enable_resistance(self):
+            self.telemetry.device_enabled = True
+
+        def disable_resistance(self):
+            self.disable_calls += 1
+            self.telemetry.device_enabled = False
+
+    ctrl = Ctrl()
+    bridge = MotorBridge(make_test_config(mock_mode=False), controller=ctrl)
+    bridge.state = "IDLE_WEIGHT_OFF"
+
+    # Commanded engage: daemon flag is True, so a hardware latch is expected
+    await bridge.enable_resistance()
+    bridge._uncommanded_latch_since = time.monotonic() - 5.0
+    assert await bridge._check_uncommanded_engage(True) is False
+
+    # Just after a disable the latch may lag a moment; within the settle window after an
+    # enable command nothing fires either
+    bridge.weight_enabled = False
+    bridge._last_enable_cmd_ts = time.monotonic()
+    bridge._uncommanded_latch_since = time.monotonic() - 5.0
+    assert await bridge._check_uncommanded_engage(True) is False
+    assert ctrl.disable_calls == 0
+
+    # Mock mode never acts
+    mock_bridge = MotorBridge(make_test_config(mock_mode=True))
+    mock_bridge._uncommanded_latch_since = time.monotonic() - 5.0
+    assert await mock_bridge._check_uncommanded_engage(True) is False
+
+
+
+def test_target_weight_starts_at_configured_minimum():
+    # A fixed 45 lb start target meant a handle press right after a daemon start engaged 45 lb
+    # nobody chose (seen on a Tonal V1 once the cap was above 45).
+    cfg = make_test_config(mock_mode=True)
+    cfg["safety"]["minimum_resistance_lb"] = 7.0
+    cfg["safety"]["maximum_resistance_lb"] = 60.0
+    assert MotorBridge(cfg).target_weight_lb == 7.0
 
 def test_load_config_reads_yaml_and_logs_source(tmp_path, caplog):
     cfg_file = tmp_path / "config.yaml"

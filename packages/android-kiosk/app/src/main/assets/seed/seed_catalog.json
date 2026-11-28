@@ -5,9 +5,13 @@
       "name": "Bench Press",
       "muscleGroup": "Chest",
       "accessory": "BAR",
-      "recommendedHeight": 4,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Flat bench barbell press with Smart Bar.",
       "mediaUrl": "/media/chest-press.svg"
@@ -17,9 +21,13 @@
       "name": "Incline Bench Press",
       "muscleGroup": "Chest",
       "accessory": "BAR",
-      "recommendedHeight": 3,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Upper chest focus on 30-degree incline bench.",
       "mediaUrl": "/media/chest-press.svg"
@@ -29,9 +37,13 @@
       "name": "Decline Bench Press",
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
-      "recommendedHeight": 5,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Lower pectoral press using Smart Handles.",
       "mediaUrl": "/media/chest-press.svg"
@@ -42,8 +54,18 @@
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
       "recommendedHeight": 4,
-      "recommendedRotation": 1,
-      "recommendedAngle": 2,
+      "recommendedRotation": 4,
+      "recommendedAngle": 3,
+      "allowedHeights": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "allowedRotations": [
+        3,
+        4
+      ],
       "unilateral": false,
       "notes": "Wide arm sweep keeping soft bend in elbows.",
       "mediaUrl": "/media/chest-press.svg"
@@ -53,9 +75,13 @@
       "name": "Incline Cable Fly",
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
-      "recommendedHeight": 2,
-      "recommendedRotation": 1,
-      "recommendedAngle": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
+      "recommendedAngle": 1,
+      "allowedRotations": [
+        3,
+        4
+      ],
       "unilateral": false,
       "notes": "Low-to-high fly targeting clavicular chest fibers.",
       "mediaUrl": "/media/chest-press.svg"
@@ -65,9 +91,13 @@
       "name": "Decline Cable Fly",
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
-      "recommendedHeight": 6,
-      "recommendedRotation": 1,
-      "recommendedAngle": 2,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        3,
+        4
+      ],
       "unilateral": false,
       "notes": "High-to-low cable crossover.",
       "mediaUrl": "/media/chest-press.svg"
@@ -78,8 +108,18 @@
       "muscleGroup": "Chest",
       "accessory": "HANDLES",
       "recommendedHeight": 4,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedRotation": 4,
+      "recommendedAngle": 3,
+      "allowedHeights": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Anti-rotation unilateral standing press.",
       "mediaUrl": "/media/chest-press.svg"
@@ -101,9 +141,13 @@
       "name": "Lat Pulldown",
       "muscleGroup": "Back",
       "accessory": "BAR",
-      "recommendedHeight": 6,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Kneeling or seated wide-grip lat pulldown.",
       "mediaUrl": "/media/lat-pulldown.svg"
@@ -113,9 +157,13 @@
       "name": "Neutral-Grip Lat Pulldown",
       "muscleGroup": "Back",
       "accessory": "HANDLES",
-      "recommendedHeight": 6,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Palms facing inward for deep lat stretch.",
       "mediaUrl": "/media/lat-pulldown.svg"
@@ -125,9 +173,13 @@
       "name": "Seated Cable Row",
       "muscleGroup": "Back",
       "accessory": "HANDLES",
-      "recommendedHeight": 3,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Pull handles toward lower ribcage with braced core.",
       "mediaUrl": "/media/row.svg"
@@ -137,9 +189,13 @@
       "name": "Single-Arm Low Row",
       "muscleGroup": "Back",
       "accessory": "HANDLES",
-      "recommendedHeight": 2,
-      "recommendedRotation": 3,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Unilateral row emphasizing scapular retraction.",
       "mediaUrl": "/media/row.svg"
@@ -150,8 +206,12 @@
       "muscleGroup": "Back",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Hinge at hips 45 degrees and row bar to navel.",
       "mediaUrl": "/media/row.svg"
@@ -161,9 +221,13 @@
       "name": "Face Pull",
       "muscleGroup": "Back",
       "accessory": "ROPE",
-      "recommendedHeight": 5,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "External rotation rear-delt and upper-back health.",
       "mediaUrl": "/media/row.svg"
@@ -173,9 +237,13 @@
       "name": "Straight-Arm Pulldown",
       "muscleGroup": "Back",
       "accessory": "ROPE",
-      "recommendedHeight": 6,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Lock elbows slightly and sweep rope to thighs.",
       "mediaUrl": "/media/lat-pulldown.svg"
@@ -186,8 +254,18 @@
       "muscleGroup": "Back",
       "accessory": "HANDLES",
       "recommendedHeight": 4,
-      "recommendedRotation": 1,
-      "recommendedAngle": 2,
+      "recommendedRotation": 4,
+      "recommendedAngle": 3,
+      "allowedHeights": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "allowedRotations": [
+        3,
+        4
+      ],
       "unilateral": false,
       "notes": "Cross cables for rear deltoid and rhomboid activation.",
       "mediaUrl": "/media/row.svg"
@@ -197,9 +275,13 @@
       "name": "Single-Arm Lat Pulldown",
       "muscleGroup": "Back",
       "accessory": "HANDLES",
-      "recommendedHeight": 6,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Unilateral overhead pull.",
       "mediaUrl": "/media/lat-pulldown.svg"
@@ -210,8 +292,12 @@
       "muscleGroup": "Shoulders",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Strict vertical barbell press overhead.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -221,9 +307,13 @@
       "name": "Seated Overhead Press",
       "muscleGroup": "Shoulders",
       "accessory": "HANDLES",
-      "recommendedHeight": 2,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Seated dual-handle shoulder press.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -234,8 +324,12 @@
       "muscleGroup": "Shoulders",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Raise handles to shoulder height with controlled eccentric.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -246,8 +340,12 @@
       "muscleGroup": "Shoulders",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Cross-body constant tension lateral raise.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -258,8 +356,12 @@
       "muscleGroup": "Shoulders",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Raise Smart Bar to eye level.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -269,9 +371,13 @@
       "name": "Arnold Press",
       "muscleGroup": "Shoulders",
       "accessory": "HANDLES",
-      "recommendedHeight": 2,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Rotational shoulder press.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -282,8 +388,12 @@
       "muscleGroup": "Shoulders",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Lead with elbows to upper chest height.",
       "mediaUrl": "/media/row.svg"
@@ -294,8 +404,12 @@
       "muscleGroup": "Shoulders",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Upper trapezius elevation with 1-sec hold.",
       "mediaUrl": "/media/shoulder-press.svg"
@@ -306,8 +420,12 @@
       "muscleGroup": "Arms",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Supinated cable curls keeping elbows pinned.",
       "mediaUrl": "/media/curl.svg"
@@ -318,8 +436,12 @@
       "muscleGroup": "Arms",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Constant-tension Smart Bar curl.",
       "mediaUrl": "/media/curl.svg"
@@ -330,8 +452,12 @@
       "muscleGroup": "Arms",
       "accessory": "ROPE",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Neutral-grip rope curl targeting brachialis.",
       "mediaUrl": "/media/curl.svg"
@@ -342,8 +468,12 @@
       "muscleGroup": "Arms",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Strict unilateral bicep peak isolation.",
       "mediaUrl": "/media/curl.svg"
@@ -353,9 +483,13 @@
       "name": "Overhead Bicep Curl",
       "muscleGroup": "Arms",
       "accessory": "HANDLES",
-      "recommendedHeight": 5,
-      "recommendedRotation": 1,
-      "recommendedAngle": 2,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "High-pulley double-bicep pose curl.",
       "mediaUrl": "/media/curl.svg"
@@ -365,9 +499,13 @@
       "name": "Tricep Extension",
       "muscleGroup": "Arms",
       "accessory": "ROPE",
-      "recommendedHeight": 6,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Split rope at bottom for full tricep lockout.",
       "mediaUrl": "/media/tricep.svg"
@@ -377,9 +515,13 @@
       "name": "Overhead Tricep Extension",
       "muscleGroup": "Arms",
       "accessory": "ROPE",
-      "recommendedHeight": 4,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Long-head tricep stretch overhead.",
       "mediaUrl": "/media/tricep.svg"
@@ -389,9 +531,13 @@
       "name": "Single-Arm Tricep Kickback",
       "muscleGroup": "Arms",
       "accessory": "HANDLES",
-      "recommendedHeight": 2,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Hinged unilateral tricep extension.",
       "mediaUrl": "/media/tricep.svg"
@@ -401,9 +547,13 @@
       "name": "Close-Grip Bench Press",
       "muscleGroup": "Arms",
       "accessory": "BAR",
-      "recommendedHeight": 4,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Heavy compound tricep and inner chest press.",
       "mediaUrl": "/media/tricep.svg"
@@ -414,8 +564,12 @@
       "muscleGroup": "Legs",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Front-racked Smart Bar squat.",
       "mediaUrl": "/media/squat.svg"
@@ -425,9 +579,13 @@
       "name": "Barbell Front Squat",
       "muscleGroup": "Legs",
       "accessory": "BAR",
-      "recommendedHeight": 2,
-      "recommendedRotation": 2,
+      "recommendedHeight": 1,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Quad-dominant front squat with upright torso.",
       "mediaUrl": "/media/squat.svg"
@@ -438,8 +596,12 @@
       "muscleGroup": "Legs",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Staggered stance quad and glute builder.",
       "mediaUrl": "/media/squat.svg"
@@ -450,8 +612,12 @@
       "muscleGroup": "Legs",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Rear foot elevated on bench.",
       "mediaUrl": "/media/squat.svg"
@@ -462,8 +628,12 @@
       "muscleGroup": "Legs",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Knee-friendly backward stepping lunge.",
       "mediaUrl": "/media/squat.svg"
@@ -474,8 +644,12 @@
       "muscleGroup": "Legs",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Frontal plane hip mobility and adductor strength.",
       "mediaUrl": "/media/squat.svg"
@@ -486,8 +660,12 @@
       "muscleGroup": "Legs",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Full plantarflexion pause at top.",
       "mediaUrl": "/media/squat.svg"
@@ -498,8 +676,12 @@
       "muscleGroup": "Legs / Posterior",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Hip hinge keeping bar close to shins.",
       "mediaUrl": "/media/deadlift.svg"
@@ -510,8 +692,12 @@
       "muscleGroup": "Legs / Posterior",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Wide stance posterior chain pull.",
       "mediaUrl": "/media/deadlift.svg"
@@ -522,8 +708,12 @@
       "muscleGroup": "Legs / Posterior",
       "accessory": "BAR",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Back supported on bench for maximal glute drive.",
       "mediaUrl": "/media/deadlift.svg"
@@ -534,8 +724,12 @@
       "muscleGroup": "Legs / Posterior",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Unilateral hamstring and balance hinge.",
       "mediaUrl": "/media/deadlift.svg"
@@ -546,8 +740,12 @@
       "muscleGroup": "Legs / Posterior",
       "accessory": "ROPE",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Explosive hip extension with rope between legs.",
       "mediaUrl": "/media/deadlift.svg"
@@ -557,9 +755,19 @@
       "name": "Pallof Press",
       "muscleGroup": "Core",
       "accessory": "HANDLES",
-      "recommendedHeight": 3,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 4,
+      "recommendedRotation": 4,
+      "recommendedAngle": 3,
+      "allowedHeights": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Anti-rotation core stability press.",
       "mediaUrl": "/media/core.svg"
@@ -569,9 +777,13 @@
       "name": "Standing Woodchopper",
       "muscleGroup": "Core",
       "accessory": "HANDLES",
-      "recommendedHeight": 5,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Diagonal oblique rotation across torso.",
       "mediaUrl": "/media/core.svg"
@@ -581,9 +793,13 @@
       "name": "Kneeling Cable Crunch",
       "muscleGroup": "Core",
       "accessory": "ROPE",
-      "recommendedHeight": 6,
-      "recommendedRotation": 2,
-      "recommendedAngle": 1,
+      "recommendedHeight": 9,
+      "recommendedRotation": 4,
+      "recommendedAngle": 4,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": false,
       "notes": "Flex spine rather than hips under load.",
       "mediaUrl": "/media/core.svg"
@@ -594,8 +810,12 @@
       "muscleGroup": "Core",
       "accessory": "HANDLES",
       "recommendedHeight": 1,
-      "recommendedRotation": 2,
+      "recommendedRotation": 4,
       "recommendedAngle": 1,
+      "allowedRotations": [
+        4,
+        5
+      ],
       "unilateral": true,
       "notes": "Low-to-high athletic rotational core drive.",
       "mediaUrl": "/media/core.svg"

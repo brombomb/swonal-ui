@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.swonal.kiosk.model.ArmPositionSets
 import com.swonal.kiosk.model.ColorMath
 import com.swonal.kiosk.model.Exercise
 import com.swonal.kiosk.model.SwonalJson
@@ -578,7 +579,7 @@ class WorkoutLibraryDialog : BaseSwonalDialog() {
             })
 
             val metaText = buildString {
-                append("${ex.accessory} • H${ex.recommendedHeight} R${ex.recommendedRotation} A${ex.recommendedAngle}")
+                append("${ex.accessory} • ${ArmPositionSets.targetCoords(ex)}")
                 if (oneRmLb != null && oneRmLb > 0) {
                     append(" • 1RM ${Units.formatCompactWeight(oneRmLb, unit)} $unit")
                 }

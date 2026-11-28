@@ -3,6 +3,7 @@ package com.swonal.kiosk.server
 import com.swonal.kiosk.model.SwonalJson
 import com.swonal.kiosk.net.SwonalRepository
 import com.swonal.kiosk.util.CryptoCompat
+import com.swonal.kiosk.util.IdleActivityTracker
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoWSD
 import kotlinx.coroutines.CoroutineScope
@@ -147,7 +148,13 @@ class EmbeddedSwonalServer(
         val response = try {
             val rawPath = session.uri ?: "/"
             when {
-                rawPath == "/api" || rawPath.startsWith("/api/") -> handleApi(session, rawPath)
+                rawPath == "/api" || rawPath.startsWith("/api/") -> {
+                    // Mutating requests are user actions; GET polling from idle phones must not keep the screen on.
+                    if (session.method != Method.GET && session.method != Method.HEAD) {
+                        IdleActivityTracker.noteActivity()
+                    }
+                    handleApi(session, rawPath)
+                }
                 rawPath.startsWith("/media/") -> handleMediaRequest(rawPath)
                 else -> handleStaticWebRequest(rawPath)
             }
@@ -547,7 +554,10 @@ class EmbeddedSwonalServer(
         override fun onMessage(message: WebSocketFrame?) {
             val rawText = message?.textPayload ?: return
             val obj = runCatching { SwonalJson.parseToJsonElement(rawText).jsonObject }.getOrNull() ?: return
-            when (obj["type"]?.jsonPrimitive?.contentOrNull) {
+            val type = obj["type"]?.jsonPrimitive?.contentOrNull
+            // Companion commands count as activity for the screen sleep timeout; keep-alive pings don't.
+            if (type != null && type != "ping") IdleActivityTracker.noteActivity()
+            when (type) {
                 "ping" -> runCatching { send("""{"type":"pong"}""") }
                 "set_weight" -> {
                     val w = obj["weight_lb"]?.jsonPrimitive?.doubleOrNull ?: return

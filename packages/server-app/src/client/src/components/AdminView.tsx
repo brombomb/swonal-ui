@@ -16,6 +16,7 @@ import {
 import { useSwonalState } from '../hooks/useSwonalState';
 import { AccessoryType } from '../types';
 import { getContrastTextColor } from '../utils/units';
+import { formatArmTarget, parsePositionSetInput, withRecommended } from '../utils/armPositions';
 
 interface AdminViewProps {
   swonal: ReturnType<typeof useSwonalState>;
@@ -63,6 +64,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
   const [newExHeight, setNewExHeight] = useState(4);
   const [newExRotation, setNewExRotation] = useState(2);
   const [newExAngle, setNewExAngle] = useState(1);
+  const [newExAllowedHeights, setNewExAllowedHeights] = useState('');
+  const [newExAllowedRotations, setNewExAllowedRotations] = useState('');
+  const [newExAllowedAngles, setNewExAllowedAngles] = useState('');
   const [newExMediaUrl, setNewExMediaUrl] = useState('');
   const [mediaDrafts, setMediaDrafts] = useState<Record<string, string>>({});
   const [exMsg, setExMsg] = useState<string | null>(null);
@@ -145,6 +149,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
   const handleCreateExercise = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newExName.trim()) return;
+    const allowedHeights = parsePositionSetInput(newExAllowedHeights);
+    const allowedRotations = parsePositionSetInput(newExAllowedRotations);
+    const allowedAngles = parsePositionSetInput(newExAllowedAngles);
+    if (!allowedHeights || !allowedRotations || !allowedAngles) {
+      setExMsg('Allowed positions must be whole numbers separated by commas, e.g. 4,5');
+      setTimeout(() => setExMsg(null), 3500);
+      return;
+    }
     const resp = await fetch('/api/exercises', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -156,12 +168,19 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
         recommendedHeight: newExHeight,
         recommendedRotation: newExRotation,
         recommendedAngle: newExAngle,
+        // The recommended value always belongs to its set, so the form adds it for you.
+        allowedHeights: withRecommended(allowedHeights, newExHeight),
+        allowedRotations: withRecommended(allowedRotations, newExRotation),
+        allowedAngles: withRecommended(allowedAngles, newExAngle),
         mediaUrl: newExMediaUrl.trim() || null,
       }),
     });
     if (resp.ok) {
       setNewExName('');
       setNewExMediaUrl('');
+      setNewExAllowedHeights('');
+      setNewExAllowedRotations('');
+      setNewExAllowedAngles('');
       await refreshBootstrap();
       setExMsg('Exercise added to catalog!');
     } else {
@@ -428,11 +447,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
               </label>
 
               <label className="space-y-1">
-                <span className="opacity-65 font-bold">Height (1-6)</span>
+                <span className="opacity-65 font-bold">Height (1 bottom–9 top)</span>
                 <input
                   type="number"
                   min={1}
-                  max={6}
+                  max={12}
                   value={newExHeight}
                   onChange={(e) => setNewExHeight(Number(e.target.value))}
                   className="w-full surface-card px-2.5 py-2 rounded-xl font-mono font-bold outline-none"
@@ -440,11 +459,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
               </label>
 
               <label className="space-y-1">
-                <span className="opacity-65 font-bold">Rotation (1-3)</span>
+                <span className="opacity-65 font-bold">Rotation (2–6, 1 stowed)</span>
                 <input
                   type="number"
                   min={1}
-                  max={3}
+                  max={6}
                   value={newExRotation}
                   onChange={(e) => setNewExRotation(Number(e.target.value))}
                   className="w-full surface-card px-2.5 py-2 rounded-xl font-mono font-bold outline-none"
@@ -452,11 +471,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
               </label>
 
               <label className="space-y-1">
-                <span className="opacity-65 font-bold">Angle (1-2)</span>
+                <span className="opacity-65 font-bold">Angle (1 down–5 up)</span>
                 <input
                   type="number"
                   min={1}
-                  max={2}
+                  max={5}
                   value={newExAngle}
                   onChange={(e) => setNewExAngle(Number(e.target.value))}
                   className="w-full surface-card px-2.5 py-2 rounded-xl font-mono font-bold outline-none"
@@ -473,6 +492,28 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
                 />
                 <span>Unilateral</span>
               </label>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5 text-xs">
+              {(
+                [
+                  ['Allowed heights', newExAllowedHeights, setNewExAllowedHeights],
+                  ['Allowed rotations', newExAllowedRotations, setNewExAllowedRotations],
+                  ['Allowed angles', newExAllowedAngles, setNewExAllowedAngles],
+                ] as const
+              ).map(([label, value, setValue]) => (
+                <label key={label} className="space-y-1">
+                  <span className="opacity-65 font-bold">{label}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder="e.g. 4,5 (blank = exact)"
+                    className="w-full surface-card px-2.5 py-2 rounded-xl font-mono font-bold outline-none"
+                  />
+                </label>
+              ))}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -522,8 +563,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ swonal }) => {
                     <div className="min-w-0">
                       <p className="font-extrabold text-sm truncate">{ex.name}</p>
                       <p className="text-[11px] opacity-65 font-mono">
-                        {ex.muscleGroup} • {ex.accessory} • H{ex.recommendedHeight} R
-                        {ex.recommendedRotation} A{ex.recommendedAngle}
+                        {ex.muscleGroup} • {ex.accessory} • {formatArmTarget(ex)}
                       </p>
                     </div>
 
