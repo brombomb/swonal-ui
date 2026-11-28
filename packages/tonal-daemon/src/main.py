@@ -78,15 +78,28 @@ def load_config(path: Optional[str] = None) -> dict:
         candidates.append(Path(path))
     candidates.extend([BASE_DIR / "config.yaml", BASE_DIR / "config.example.yaml"])
 
+    cfg: Optional[dict] = None
     for candidate in candidates:
-        if candidate.exists() and yaml is not None:
-            try:
-                with open(candidate, "r", encoding="utf-8") as handle:
-                    cfg = yaml.safe_load(handle) or {}
-                    break
-            except Exception as e:
-                logger.warning(f"Failed to parse config with yaml: {e}")
-    else:
+        if not candidate.exists():
+            continue
+        if yaml is None:
+            # Without PyYAML every config file is silently skipped and the safety-relevant
+            # built-in defaults below apply instead (e.g. on Termux Python 3.8 installs).
+            logger.error(
+                "Config file %s exists but PyYAML is not installed: it is IGNORED and "
+                "built-in defaults are used. Install it with: pip install pyyaml",
+                candidate,
+            )
+            break
+        try:
+            with open(candidate, "r", encoding="utf-8") as handle:
+                cfg = yaml.safe_load(handle) or {}
+            logger.info("Loaded daemon config from %s", candidate)
+            break
+        except Exception as e:
+            logger.error("Failed to parse config %s: %s", candidate, e)
+    if cfg is None:
+        logger.warning("No daemon config loaded; using built-in defaults")
         cfg = {
             "daemon": {"host": "0.0.0.0", "port": 8765, "mock_mode": False, "watchdog_timeout_sec": 5.0},
             "serial": {"port": "/dev/ttyACM0", "baudrate": 115200, "expected_board": "501-0100_rev004", "expected_firmware": "5.2.18.0"},
@@ -99,6 +112,24 @@ def load_config(path: Optional[str] = None) -> dict:
     elif os.getenv("MOCK_TONAL", "").strip().lower() in {"1", "true", "yes"}:
         cfg.setdefault("daemon", {})["mock_mode"] = True
     return cfg
+
+
+def _lan_exposure_warning(config: dict, mock_mode: bool) -> Optional[str]:
+    """Return a warning when real motor hardware is reachable from the LAN without a token."""
+    if mock_mode:
+        return None
+    daemon_cfg = config.get("daemon", {}) or {}
+    host = str(daemon_cfg.get("host", "0.0.0.0")).strip()
+    if host in LOOPBACK_HOSTS:
+        return None
+    token = os.getenv("DAEMON_API_TOKEN", "").strip() or str(daemon_cfg.get("api_token", "") or "").strip()
+    if token:
+        return None
+    return (
+        f"Motor daemon listens on {host} with no api_token: any device on the network can "
+        "command resistance. Set daemon.api_token (or DAEMON_API_TOKEN), or set "
+        "daemon.host to 127.0.0.1 if only the on-device kiosk needs it."
+    )
 
 
 async def _broadcast_payload(payload: str) -> None:
@@ -119,6 +150,9 @@ async def lifespan(_: FastAPI):
     global motor, ble, switcher, librespot
     config = load_config()
     motor = MotorBridge(config)
+    exposure_warning = _lan_exposure_warning(config, motor.mock_mode)
+    if exposure_warning:
+        logger.warning(exposure_warning)
 
     async def handle_ble_event(event: dict) -> None:
         if motor is not None:
