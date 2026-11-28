@@ -82,6 +82,7 @@ import {
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
 import { PostWorkoutSummaryModal } from './PostWorkoutSummaryModal';
+import { RepCountDialog } from './RepCountDialog';
 import { MusicPickerDialog } from './MusicPickerDialog';
 import {
   AccessoryType,
@@ -188,6 +189,11 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     stepRoutine,
     logCompletedSet,
     completeSet,
+    repConfirm,
+    confirmRepCount,
+    cancelRepConfirm,
+    setRepCount,
+    resetReps,
     finishActiveWorkout,
     lastCompletedWorkoutSummary,
     dismissWorkoutSummary,
@@ -403,6 +409,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       soundEngine.playVoiceCommandExecuted();
       return executeCoachSuggestedAction(action, {
         currentWeightLb: telemetry.target_weight_lb,
+        currentRepCount: setRepCount,
         activeUnit,
         exercises,
         setTargetWeight,
@@ -417,6 +424,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     },
     [
       telemetry.target_weight_lb,
+      setRepCount,
       activeUnit,
       exercises,
       setTargetWeight,
@@ -2216,7 +2224,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
                   Completed Reps
                 </p>
                 <p className="font-mono tabular-nums text-6xl font-black mt-0.5">
-                  {telemetry.rep_count}
+                  {setRepCount}
                   {currentStep ? (
                     <span className="text-3xl opacity-55"> / {currentStep.targetReps}</span>
                   ) : null}
@@ -2883,7 +2891,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
             <button
               type="button"
               onClick={() => {
-                sendWs({ type: 'reset_reps' });
+                resetReps();
                 setMockStatusMsg('Reset rep counter to 0');
               }}
               className="elevated-pill py-3 rounded-xl text-sm font-bold"
@@ -3205,6 +3213,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           Set Weight
         </button>
       </dialog>
+
+      {/* "NO REPS COUNTED" PROMPT (Complete & Log Set with COMPLETED REPS at 0) */}
+      <RepCountDialog
+        request={repConfirm}
+        accentTextColor={accentTextColor}
+        onConfirm={(reps) => void confirmRepCount(reps)}
+        onCancel={cancelRepConfirm}
+      />
 
       {/* POST-WORKOUT SUMMARY MODAL */}
       <PostWorkoutSummaryModal
