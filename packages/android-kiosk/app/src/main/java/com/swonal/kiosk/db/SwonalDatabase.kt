@@ -250,9 +250,10 @@ class SwonalDatabase(
         )
         c.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS exercise_prefs (
+            CREATE TABLE IF NOT EXISTS exercise_settings (
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 exercise_id TEXT NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+                scope TEXT NOT NULL DEFAULT 'free',
                 weight_lb REAL NOT NULL,
                 mode TEXT NOT NULL DEFAULT 'standard',
                 modifier_pct INTEGER NOT NULL DEFAULT 0,
@@ -261,10 +262,29 @@ class SwonalDatabase(
                 last_target_reps INTEGER,
                 updated_at TEXT NOT NULL,
                 updated_at_ms INTEGER NOT NULL,
-                PRIMARY KEY(user_id, exercise_id)
+                PRIMARY KEY(user_id, exercise_id, scope)
             );
             """.trimIndent()
         )
+        // Pre-release builds of remembered settings used one row per (lifter, exercise) in exercise_prefs.
+        // Carry those rows over (Free Lift rows, and routine rows under their rep goal), then drop it.
+        if (tableExistsUnlocked(c, "exercise_prefs")) {
+            c.execSQL(
+                """
+                INSERT OR IGNORE INTO exercise_settings(
+                    user_id, exercise_id, scope, weight_lb, mode, modifier_pct, accessory,
+                    last_reps, last_target_reps, updated_at, updated_at_ms
+                )
+                SELECT user_id, exercise_id,
+                       CASE WHEN last_target_reps IS NULL THEN 'free' ELSE 'routine:' || last_target_reps END,
+                       weight_lb, mode, modifier_pct, accessory, last_reps, last_target_reps, updated_at, updated_at_ms
+                FROM exercise_prefs
+                WHERE user_id IN (SELECT id FROM users) AND exercise_id IN (SELECT id FROM exercises);
+                """.trimIndent()
+            )
+            c.execSQL("DROP TABLE exercise_prefs;")
+        }
+        c.execSQL("CREATE INDEX IF NOT EXISTS idx_exercise_settings_recent ON exercise_settings(user_id, updated_at_ms DESC);")
         c.execSQL("CREATE INDEX IF NOT EXISTS idx_templates_user ON workout_templates(user_id);")
         c.execSQL("CREATE INDEX IF NOT EXISTS idx_sessions_user_started ON workout_sessions(user_id, started_at DESC);")
         c.execSQL("CREATE INDEX IF NOT EXISTS idx_setlogs_session ON set_logs(session_id, timestamp ASC);")
@@ -272,6 +292,12 @@ class SwonalDatabase(
         c.execSQL("CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);")
         c.execSQL("CREATE INDEX IF NOT EXISTS idx_friend_act_created ON friend_activities(created_at DESC);")
     }
+
+    private fun tableExistsUnlocked(c: SQLiteConnection, table: String): Boolean =
+        c.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").useStmt { s ->
+            s.bindText(1, table)
+            s.step()
+        }
 
     private fun ensureColumnUnlocked(c: SQLiteConnection, table: String, column: String, decl: String) {
         val exists = c.prepare("PRAGMA table_info($table)").useStmt { s ->
@@ -1298,57 +1324,74 @@ class SwonalDatabase(
         }
     }
 
-    suspend fun getExercisePref(userId: String, exerciseId: String): ExercisePref? = withDb { c ->
+    private fun readExercisePref(s: SQLiteStatement): ExercisePref = ExercisePref(
+        userId = s.getText(0),
+        exerciseId = s.getText(1),
+        weightLb = s.getDouble(2),
+        mode = s.getText(3),
+        modifierPct = s.getLong(4).toInt(),
+        accessory = s.getText(5),
+        lastReps = if (s.isNull(6)) null else s.getLong(6).toInt(),
+        lastTargetReps = if (s.isNull(7)) null else s.getLong(7).toInt(),
+        updatedAt = s.getText(8),
+        scope = s.getText(9)
+    )
+
+    private val exercisePrefColumns =
+        "user_id, exercise_id, weight_lb, mode, modifier_pct, accessory, last_reps, last_target_reps, updated_at, scope"
+
+    /** The lifter's remembered settings for an exercise in one [scope] (Free Lift, or a routine rep goal). */
+    suspend fun getExercisePref(userId: String, exerciseId: String, scope: String): ExercisePref? = withDb { c ->
+        c.prepare(
+            "SELECT $exercisePrefColumns FROM exercise_settings WHERE user_id = ? AND exercise_id = ? AND scope = ?"
+        ).useStmt { s ->
+            s.bindText(1, userId)
+            s.bindText(2, exerciseId)
+            s.bindText(3, scope)
+            if (s.step()) readExercisePref(s) else null
+        }
+    }
+
+    /** The lifter's most recent remembered settings for an exercise in any scope (e.g. its last attachment). */
+    suspend fun getMostRecentExercisePref(userId: String, exerciseId: String): ExercisePref? = withDb { c ->
         c.prepare(
             """
-            SELECT user_id, exercise_id, weight_lb, mode, modifier_pct, accessory, last_reps, last_target_reps, updated_at
-            FROM exercise_prefs WHERE user_id = ? AND exercise_id = ?
+            SELECT $exercisePrefColumns FROM exercise_settings
+            WHERE user_id = ? AND exercise_id = ? ORDER BY updated_at_ms DESC LIMIT 1
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, userId)
             s.bindText(2, exerciseId)
-            if (s.step()) {
-                ExercisePref(
-                    userId = s.getText(0),
-                    exerciseId = s.getText(1),
-                    weightLb = s.getDouble(2),
-                    mode = s.getText(3),
-                    modifierPct = s.getLong(4).toInt(),
-                    accessory = s.getText(5),
-                    lastReps = if (s.isNull(6)) null else s.getLong(6).toInt(),
-                    lastTargetReps = if (s.isNull(7)) null else s.getLong(7).toInt(),
-                    updatedAt = s.getText(8)
-                )
-            } else {
-                null
-            }
+            if (s.step()) readExercisePref(s) else null
         }
     }
 
-    /** The exercise this lifter most recently logged a set on (still in the catalog), with its settings. */
+    /** The exercise this lifter most recently finished a set on (still in the catalog), with those settings. */
     suspend fun getLatestExercisePref(userId: String): ExercisePref? = withDb { c ->
         c.prepare(
             """
-            SELECT p.exercise_id FROM exercise_prefs p
+            SELECT p.user_id, p.exercise_id, p.weight_lb, p.mode, p.modifier_pct, p.accessory, p.last_reps,
+                   p.last_target_reps, p.updated_at, p.scope
+            FROM exercise_settings p
             JOIN exercises e ON e.id = p.exercise_id AND e.deleted_at_ms IS NULL
             WHERE p.user_id = ? ORDER BY p.updated_at_ms DESC LIMIT 1
             """.trimIndent()
         ).useStmt { s ->
             s.bindText(1, userId)
-            if (s.step()) s.getText(0) else null
+            if (s.step()) readExercisePref(s) else null
         }
-    }?.let { exId -> getExercisePref(userId, exId) }
+    }
 
     suspend fun upsertExercisePref(pref: ExercisePref): ExercisePref = withTx { c ->
         val nowMs = System.currentTimeMillis()
         val nowIso = IsoTime.formatUtc(nowMs)
         c.prepare(
             """
-            INSERT INTO exercise_prefs(
-                user_id, exercise_id, weight_lb, mode, modifier_pct, accessory,
+            INSERT INTO exercise_settings(
+                user_id, exercise_id, scope, weight_lb, mode, modifier_pct, accessory,
                 last_reps, last_target_reps, updated_at, updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, exercise_id) DO UPDATE SET
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, exercise_id, scope) DO UPDATE SET
                 weight_lb = excluded.weight_lb,
                 mode = excluded.mode,
                 modifier_pct = excluded.modifier_pct,
@@ -1361,14 +1404,15 @@ class SwonalDatabase(
         ).useStmt { s ->
             s.bindText(1, pref.userId)
             s.bindText(2, pref.exerciseId)
-            s.bindDouble(3, pref.weightLb)
-            s.bindText(4, pref.mode)
-            s.bindLong(5, pref.modifierPct.toLong())
-            s.bindText(6, pref.accessory)
-            if (pref.lastReps != null) s.bindLong(7, pref.lastReps.toLong()) else s.bindNull(7)
-            if (pref.lastTargetReps != null) s.bindLong(8, pref.lastTargetReps.toLong()) else s.bindNull(8)
-            s.bindText(9, nowIso)
-            s.bindLong(10, nowMs)
+            s.bindText(3, pref.scope)
+            s.bindDouble(4, pref.weightLb)
+            s.bindText(5, pref.mode)
+            s.bindLong(6, pref.modifierPct.toLong())
+            s.bindText(7, pref.accessory)
+            if (pref.lastReps != null) s.bindLong(8, pref.lastReps.toLong()) else s.bindNull(8)
+            if (pref.lastTargetReps != null) s.bindLong(9, pref.lastTargetReps.toLong()) else s.bindNull(9)
+            s.bindText(10, nowIso)
+            s.bindLong(11, nowMs)
             s.step()
         }
         pref.copy(updatedAt = nowIso)

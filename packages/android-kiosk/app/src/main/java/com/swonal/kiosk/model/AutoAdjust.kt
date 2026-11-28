@@ -2,7 +2,6 @@ package com.swonal.kiosk.model
 
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlin.math.round
 
 /**
  * Rep-goal driven weight auto-adjustment for Exercise Routines.
@@ -28,15 +27,30 @@ object AutoAdjust {
     const val FIXED_DEFAULT_WEIGHT_LB = 45.0
 
     /**
-     * Starting weight for a lifter's very first time on a routine step (nothing remembered yet).
-     * "Auto" steps for lifters with Auto-Adjust ON start at 85% of their best weight on the exercise
-     * (rounded to 5 lb) if they have history, else [AUTO_FIRST_TIME_WEIGHT_LB]. Everyone else starts
-     * at the routine's own weight.
+     * Starting weight for a lifter's very first time on an "Auto" step at this rep goal (nothing
+     * remembered yet). Lifters with Auto-Adjust ON start from their history on the exercise if they have
+     * any, else [AUTO_FIRST_TIME_WEIGHT_LB]. Everyone else starts at the routine's own weight.
+     *
+     * From history the start is the lower of 85% of their best weight and 90% of what their estimated
+     * 1RM says they can do for [targetReps] (Epley), rounded *down* to 5 lb: after a heavy 1–3 rep best,
+     * 85% alone is too heavy for a 12-rep step.
      */
-    fun firstTimeWeightLb(stepWeightLb: Double, autoWeight: Boolean, autoAdjustOn: Boolean, prMaxWeightLb: Double?): Double {
+    fun firstTimeWeightLb(
+        stepWeightLb: Double,
+        autoWeight: Boolean,
+        autoAdjustOn: Boolean,
+        prMaxWeightLb: Double?,
+        prOneRepMaxLb: Double? = null,
+        targetReps: Int? = null
+    ): Double {
         if (!autoWeight || !autoAdjustOn) return stepWeightLb.coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
         if (prMaxWeightLb != null && prMaxWeightLb > 0.0) {
-            return (round((prMaxWeightLb * 0.85) / 5.0) * 5.0).coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
+            var start = prMaxWeightLb * 0.85
+            if (prOneRepMaxLb != null && prOneRepMaxLb > 0.0 && targetReps != null && targetReps > 1) {
+                val forReps = prOneRepMaxLb / (1.0 + targetReps / 30.0)
+                start = minOf(start, forReps * 0.9)
+            }
+            return (floor(start / 5.0 + 1e-9) * 5.0).coerceIn(Units.MIN_WEIGHT_LB, Units.MAX_WEIGHT_LB)
         }
         return AUTO_FIRST_TIME_WEIGHT_LB
     }

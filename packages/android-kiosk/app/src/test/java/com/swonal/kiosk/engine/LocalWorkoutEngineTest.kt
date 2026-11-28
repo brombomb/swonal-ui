@@ -1,6 +1,8 @@
 package com.swonal.kiosk.engine
 
+import androidx.sqlite.execSQL
 import com.swonal.kiosk.db.SwonalDatabase
+import com.swonal.kiosk.model.ExercisePref as P
 import com.swonal.kiosk.model.WorkoutBlock
 import com.swonal.kiosk.model.WorkoutBlockItem
 import com.swonal.kiosk.util.Base64Compat
@@ -280,6 +282,69 @@ class LocalWorkoutEngineTest {
         assertEquals(57.0, updated.weightLb)
         assertEquals("standard", updated.mode)
         assertNull(updated.lastTargetReps)
+    }
+
+    @Test
+    fun `exercise prefs are kept apart for Free Lift and each routine rep goal`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val bench = state.exercises[0]
+
+        engine.saveExercisePref(P(alex.id, bench.id, weightLb = 150.0, lastReps = 1)) // heavy Free Lift single
+        Thread.sleep(5)
+        engine.saveExercisePref(P(alex.id, bench.id, weightLb = 95.0, lastReps = 12, lastTargetReps = 12, scope = P.routineScope(12)))
+        Thread.sleep(5)
+        engine.saveExercisePref(P(alex.id, bench.id, weightLb = 120.0, accessory = "ROPE", lastReps = 5, lastTargetReps = 5, scope = P.routineScope(5)))
+
+        assertEquals(150.0, engine.getExercisePref(alex.id, bench.id)?.weightLb)
+        assertEquals(95.0, engine.getExercisePref(alex.id, bench.id, P.routineScope(12))?.weightLb)
+        assertEquals(120.0, engine.getExercisePref(alex.id, bench.id, P.routineScope(5))?.weightLb)
+        assertNull(engine.getExercisePref(alex.id, bench.id, P.routineScope(8)))
+        // Most recent in any scope (used for the last attachment)
+        val recent = engine.getMostRecentExercisePref(alex.id, bench.id)
+        assertEquals(P.routineScope(5), recent?.scope)
+        assertEquals("ROPE", recent?.accessory)
+    }
+
+    @Test
+    fun `pre-release exercise_prefs rows carry over to scoped settings`() = runBlocking {
+        engine.initialize(loadBundledSeed(), includeDemoUsersAndRoutines = true)
+        val state = engine.getAppState(daemonConnected = true)
+        val alex = state.users[0]
+        val bench = state.exercises[0]
+        val row = state.exercises[1]
+        val path = tempDir.resolve("swonal_test.db").toFile().absolutePath
+        db.close()
+        // The table as earlier builds of this feature created it: one row per lifter and exercise
+        androidx.sqlite.driver.bundled.BundledSQLiteDriver().open(path).let { c ->
+            try {
+                c.execSQL(
+                    """
+                    CREATE TABLE exercise_prefs (
+                        user_id TEXT NOT NULL, exercise_id TEXT NOT NULL, weight_lb REAL NOT NULL,
+                        mode TEXT NOT NULL DEFAULT 'standard', modifier_pct INTEGER NOT NULL DEFAULT 0,
+                        accessory TEXT NOT NULL DEFAULT 'HANDLES', last_reps INTEGER, last_target_reps INTEGER,
+                        updated_at TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, PRIMARY KEY(user_id, exercise_id)
+                    );
+                    """.trimIndent()
+                )
+                c.execSQL("INSERT INTO exercise_prefs VALUES ('${alex.id}', '${bench.id}', 60.0, 'standard', 0, 'BAR', 9, 10, 'x', 1);")
+                c.execSQL("INSERT INTO exercise_prefs VALUES ('${alex.id}', '${row.id}', 35.0, 'chains', 25, 'ROPE', 8, NULL, 'x', 2);")
+                // A row whose lifter no longer exists is dropped instead of failing the upgrade
+                c.execSQL("INSERT INTO exercise_prefs VALUES ('gone-user', '${row.id}', 35.0, 'standard', 0, 'ROPE', 8, NULL, 'x', 3);")
+            } finally {
+                c.close()
+            }
+        }
+        db = SwonalDatabase(path)
+        engine = LocalWorkoutEngine(db = db)
+        assertEquals(60.0, engine.getExercisePref(alex.id, bench.id, P.routineScope(10))?.weightLb)
+        assertNull(engine.getExercisePref(alex.id, bench.id))
+        val freeRow = engine.getExercisePref(alex.id, row.id)
+        assertEquals(35.0, freeRow?.weightLb)
+        assertEquals("chains", freeRow?.mode)
+        assertNull(engine.getMostRecentExercisePref("gone-user", row.id))
     }
 
     @Test

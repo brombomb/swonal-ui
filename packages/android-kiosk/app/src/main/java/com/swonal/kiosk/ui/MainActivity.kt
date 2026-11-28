@@ -1194,8 +1194,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val overload = ui.overloadSuggestion
-        // Auto-Adjust Weights already handles progression; the older +5 lb hint could contradict it
-        if (overload != null && overload.ready && !ui.autoAdjustWeights) {
+        // On AUTO routine steps Auto-Adjust Weights already handles progression and the older +5 lb hint
+        // could contradict it. Everywhere else (Free Lift, fixed-weight steps) Auto-Adjust doesn't apply.
+        val autoAdjustHandles = ui.autoAdjustWeights && step?.autoWeight == true
+        if (overload != null && overload.ready && !autoAdjustHandles) {
             binding.overloadReadyPill.visibility = View.VISIBLE
             val bump = Units.formatCompactWeight(overload.recommendedBumpLb, ui.activeUnit)
             binding.tvOverloadReady.text = "+$bump ${ui.activeUnit} Ready"

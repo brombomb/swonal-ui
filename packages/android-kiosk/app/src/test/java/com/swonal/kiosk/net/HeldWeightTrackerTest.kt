@@ -1,7 +1,9 @@
 package com.swonal.kiosk.net
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HeldWeightTrackerTest {
@@ -9,8 +11,13 @@ class HeldWeightTrackerTest {
     private val w45 = HeldWeightTracker.Held(45.0, "standard", 0, "BAR")
     private val w35 = HeldWeightTracker.Held(35.0, "chains", 25, "HANDLES")
 
-    private fun set(exerciseId: String = "bench", lifter: String = "alex", weight: Double = 80.0, reps: Int = 8) =
-        HeldWeightTracker.FinishedSet(lifter, exerciseId, weight, "standard", 0, "BAR", reps, 10)
+    private fun set(
+        exerciseId: String = "bench",
+        lifter: String = "alex",
+        weight: Double = 80.0,
+        reps: Int = 8,
+        releaseId: Long = 0L
+    ) = HeldWeightTracker.FinishedSet(lifter, exerciseId, weight, "standard", 0, "BAR", reps, 10, releaseId = releaseId)
 
     @Test
     fun `held settings are only offered while the weight is off`() {
@@ -112,9 +119,9 @@ class HeldWeightTrackerTest {
         // Free Lift has no rep goal
         t.onEngaged("taylor", "curl", null)
         assertEquals(HeldWeightTracker.SetContext("taylor", "curl", null), t.currentContext)
-        // Nothing known: keep the previous context
+        // Nothing known: no stale context (the set falls back to whoever is active)
         t.onEngaged(null, null, null)
-        assertEquals("curl", t.currentContext?.exerciseId)
+        assertNull(t.currentContext)
     }
 
     @Test
@@ -138,5 +145,91 @@ class HeldWeightTrackerTest {
         t.markAppRelease()
         t.onEngaged("alex", "bench", 10) // a new lift starts: stale flag from a disengage that never happened
         assertEquals(false, t.takeAppRelease())
+    }
+
+    // --- Review follow-ups ---
+
+    @Test
+    fun `engaging again invalidates an unlogged finished set`() {
+        val t = HeldWeightTracker()
+        t.onEngaged("alex", "bench", 10)
+        t.onReleased(set(reps = 8))
+        // Lifter picks the weight up again without logging; a 0-rep Complete Set must not log the old 8 reps
+        t.onEngaged("alex", "bench", 10)
+        assertNull(t.finishedSetFor("bench"))
+    }
+
+    @Test
+    fun `a mid-lift Complete Set carries the rest of the lift over to the logged step`() {
+        val t = HeldWeightTracker()
+        t.onEngaged("alex", "bench", 10)
+        t.onSetLogged()
+        t.onLoggedWhileEngaged("alex", "bench")
+        val ctx = t.currentContext!!
+        assertTrue(ctx.carriedOver)
+        assertEquals("bench", ctx.exerciseId) // not the lateral raise now on screen
+        assertEquals("alex", t.lifterForSet("taylor"))
+        // The next real lift starts fresh
+        t.onEngaged("alex", "raise", 15)
+        assertFalse(t.currentContext!!.carriedOver)
+        assertEquals("raise", t.currentContext!!.exerciseId)
+    }
+
+    @Test
+    fun `a release is logged at most once`() {
+        val t = HeldWeightTracker()
+        val id = t.nextReleaseId()
+        t.onReleased(set(releaseId = id))
+        assertFalse(t.isLogged(id))
+        t.onSetLogged(id) // auto-log
+        assertTrue(t.isLogged(id))
+        t.onReleased(set(releaseId = id)) // a late duplicate of the same release
+        assertNull(t.finishedSetFor("bench"))
+        val next = t.nextReleaseId()
+        t.onReleased(set(releaseId = next))
+        assertEquals(next, t.finishedSetFor("bench")?.releaseId)
+    }
+
+    @Test
+    fun `a weight change with the weight off keeps a held attachment`() {
+        val t = HeldWeightTracker()
+        t.hold(w45)
+        t.clearHeldWeight()
+        assertEquals(HeldWeightTracker.Held(null, null, null, "BAR"), t.currentHeld)
+        t.hold(HeldWeightTracker.Held(45.0, "standard", 0, null))
+        t.clearHeldWeight()
+        assertNull(t.currentHeld)
+    }
+
+    @Test
+    fun `an external log only clears the matching lifter's set`() {
+        val t = HeldWeightTracker()
+        t.onEngaged("alex", "bench", 10)
+        t.onReleased(set(lifter = "alex", exerciseId = "bench", releaseId = t.nextReleaseId()))
+        // Taylor logs a curl from their phone: Alex's released bench set is untouched
+        assertFalse(t.onExternalSetLogged("taylor", "curl"))
+        assertEquals("alex", t.finishedSetFor("bench")?.lifterId)
+        assertFalse(t.onExternalSetLogged("alex", "row"))
+        assertTrue(t.onExternalSetLogged("alex", "bench"))
+        assertNull(t.finishedSetFor("bench"))
+        // Mid-lift (nothing released yet): matches the engaged set's lifter and exercise
+        t.onEngaged("alex", "row", 12)
+        assertFalse(t.onExternalSetLogged("taylor", "row"))
+        assertEquals("alex", t.currentContext?.lifterId)
+        assertTrue(t.onExternalSetLogged("alex", "row"))
+        assertNull(t.currentContext)
+    }
+
+    @Test
+    fun `the cutout verdict replaces the captured release only if it is still current`() {
+        val t = HeldWeightTracker()
+        val first = set(releaseId = t.nextReleaseId())
+        t.onReleased(first)
+        t.replaceFinished(first, first.copy(safetyCutout = true))
+        assertTrue(t.finishedSetFor("bench")!!.safetyCutout)
+        val second = set(reps = 10, releaseId = t.nextReleaseId())
+        t.onReleased(second)
+        t.replaceFinished(first, first.copy(safetyCutout = false)) // stale: ignored
+        assertEquals(10, t.finishedSetFor("bench")?.reps)
     }
 }

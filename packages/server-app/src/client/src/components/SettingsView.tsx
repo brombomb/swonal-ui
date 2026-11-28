@@ -1443,7 +1443,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ swonal, onAuthLock }
                                           <span>
                                             {item.sets} × {item.targetReps} reps
                                           </span>
-                                          <span>@ {item.targetWeightLb} lb</span>
+                                          <span>@ {item.autoWeight ? 'AUTO' : `${item.targetWeightLb} lb`}</span>
                                           {item.mode && String(item.mode).toLowerCase() !== 'standard' && (
                                             <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]">
                                               {item.mode}

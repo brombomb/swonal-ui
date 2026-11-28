@@ -8,11 +8,13 @@ data class ExerciseSettings(
     val mode: String?,
     val modifierPct: Int?,
     val accessory: String?,
-    /** True when these come from the lifter's remembered settings (not catalog/routine defaults). */
-    val remembered: Boolean
+    /** True when the weight/mode come from the lifter's remembered settings (not catalog/routine defaults). */
+    val remembered: Boolean,
+    /** True when [accessory] is the lifter's remembered attachment rather than the catalog's. */
+    val accessoryRemembered: Boolean = false
 )
 
-/** How a finished set changed the lifter's remembered weight (Auto-Adjust ON, routine sets only). */
+/** How a finished set changed the lifter's remembered weight (Auto-Adjust ON, AUTO routine steps only). */
 sealed class WeightChange {
     data class Adjusted(val newWeightLb: Double, val pctChange: Int, val repDelta: Int) : WeightChange()
     data class AtMaximum(val weightLb: Double) : WeightChange()
@@ -28,17 +30,22 @@ data class SetOutcome(
 /**
  * Pure decision rules for remembered settings and Auto-Adjust Weights (no I/O, unit-testable).
  *
- * - When a set finishes (weight released with at least one rep), the lifter's weight, mode, modifier and
- *   accessory are remembered per exercise. With Auto-Adjust ON and a routine rep goal, the remembered
- *   weight is the *adjusted* weight for next time.
- * - Loading a routine step or Free Lift exercise then simply uses the remembered settings. A routine's own
- *   weight is only the starting weight for a lifter's first time on an exercise.
+ * - A routine step's own prescription wins: its mode and modifier always load, and so does its weight
+ *   unless it is an AUTO step and the lifter has Auto-Adjust ON. Only then is the lifter's remembered
+ *   weight from their last AUTO set at the *same rep goal* used (adjusted by how that set went).
+ * - Free Lift restores what the lifter last did in Free Lift on that exercise. Free Lift and routine
+ *   memories are kept apart, so a heavy Free Lift single never becomes a routine weight.
+ * - A remembered attachment is never restored on an exercise whose catalog attachment is the BAR unless it
+ *   is the BAR: the daemon only runs its bar-tilt cutout with the BAR attachment active.
  */
 object ExerciseSettingsPolicy {
 
     /**
-     * @param prMaxWeightLb the lifter's best weight on this exercise (used for first-time AUTO steps and
-     *   for a Work-In partner's first time)
+     * @param pref the lifter's remembered settings for this exercise at this step's rep goal
+     *   ([ExercisePref.routineScope]); ignored unless the step is AUTO and Auto-Adjust is ON
+     * @param lastAccessory the attachment the lifter last used on this exercise (any scope), if any
+     * @param prMaxWeightLb / [prOneRepMaxLb] the lifter's best weight and estimated 1RM on this exercise
+     *   (first-time AUTO steps, and a Work-In partner's first time)
      * @param workInPartner true when a Partner Work-In rotation hands this step to the next partner
      */
     fun forRoutineStep(
@@ -47,33 +54,40 @@ object ExerciseSettingsPolicy {
         pref: ExercisePref?,
         autoAdjustOn: Boolean,
         prMaxWeightLb: Double?,
-        workInPartner: Boolean = false
+        workInPartner: Boolean = false,
+        prOneRepMaxLb: Double? = null,
+        lastAccessory: String? = null
     ): ExerciseSettings {
-        if (pref == null) {
-            val firstTimeLb = if (workInPartner && prMaxWeightLb != null && prMaxWeightLb > 0.0) {
-                // Work-In keeps its personal start: 85% of the partner's best weight
-                prBasedStartLb(prMaxWeightLb)
-            } else {
-                AutoAdjust.firstTimeWeightLb(step.targetWeightLb, step.autoWeight, autoAdjustOn, prMaxWeightLb)
-            }
-            return ExerciseSettings(
-                weightLb = firstTimeLb,
-                mode = step.mode,
-                modifierPct = step.modifierPct,
-                accessory = exercise?.accessory,
-                remembered = false
+        val autoStep = step.autoWeight && autoAdjustOn
+        val rememberedPref = pref?.takeIf { autoStep && it.scope == ExercisePref.routineScope(step.targetReps) }
+        val weightLb = when {
+            rememberedPref != null -> rememberedPref.weightLb
+            // Work-In keeps its personal start on fixed steps: 85% of the partner's best weight
+            workInPartner && !autoStep && prMaxWeightLb != null && prMaxWeightLb > 0.0 -> prBasedStartLb(prMaxWeightLb)
+            else -> AutoAdjust.firstTimeWeightLb(
+                step.targetWeightLb, step.autoWeight, autoAdjustOn, prMaxWeightLb, prOneRepMaxLb, step.targetReps
             )
         }
-        return ExerciseSettings(pref.weightLb, pref.mode, pref.modifierPct, pref.accessory, remembered = true)
+        val (accessory, accessoryRemembered) = accessoryFor(exercise, rememberedPref?.accessory ?: lastAccessory)
+        return ExerciseSettings(
+            weightLb = weightLb,
+            // The step's mode always loads: a remembered chains/eccentric mode must never add load to a
+            // step written as standard or Spotter
+            mode = step.mode,
+            modifierPct = step.modifierPct,
+            accessory = accessory,
+            remembered = rememberedPref != null,
+            accessoryRemembered = accessoryRemembered
+        )
     }
 
     /** Modes that add load on top of the weight (chains / eccentric / smart flex). */
     private val LOAD_MODES = setOf("chains", "eccentric", "smart_flex")
 
     /**
-     * Free Lift: the remembered settings, else the suggestion. On an exercise the lifter has never done,
-     * load-adding modes (chains / eccentric / smart flex) from the previous exercise reset to standard so
-     * they don't leak onto it; assist modes like Spotter stay as they are.
+     * Free Lift: the remembered Free Lift settings, else the suggestion. On an exercise the lifter has never
+     * done, load-adding modes (chains / eccentric / smart flex) from the previous exercise reset to standard
+     * so they don't leak onto it; assist modes like Spotter stay as they are.
      */
     fun forFreeLift(
         exercise: Exercise,
@@ -81,7 +95,8 @@ object ExerciseSettingsPolicy {
         fallbackWeightLb: Double?,
         currentMode: String? = null
     ): ExerciseSettings {
-        if (pref == null) {
+        val freePref = pref?.takeIf { it.scope == ExercisePref.SCOPE_FREE_LIFT }
+        if (freePref == null) {
             val resetMode = currentMode?.lowercase(java.util.Locale.US) in LOAD_MODES
             return ExerciseSettings(
                 fallbackWeightLb,
@@ -91,7 +106,29 @@ object ExerciseSettingsPolicy {
                 remembered = false
             )
         }
-        return ExerciseSettings(pref.weightLb, pref.mode, pref.modifierPct, pref.accessory, remembered = true)
+        val (accessory, accessoryRemembered) = accessoryFor(exercise, freePref.accessory)
+        return ExerciseSettings(
+            freePref.weightLb, freePref.mode, freePref.modifierPct, accessory,
+            remembered = true,
+            accessoryRemembered = accessoryRemembered
+        )
+    }
+
+    /**
+     * Attachment to load: the remembered one, except that a BAR exercise only ever restores the BAR
+     * automatically. Anything else there is the lifter's pick each time, since with another attachment
+     * active the daemon skips the bar-tilt safety cutout. Returns the attachment and whether it is the
+     * remembered one.
+     */
+    fun accessoryFor(exercise: Exercise?, remembered: String?): Pair<String?, Boolean> {
+        val catalog = exercise?.accessory?.uppercase(java.util.Locale.US)
+        val rem = remembered?.uppercase(java.util.Locale.US)
+        return when {
+            rem == null -> catalog to false
+            catalog == null -> null to false
+            catalog == "BAR" && rem != "BAR" -> catalog to false
+            else -> rem to (rem != catalog)
+        }
     }
 
     /** 85% of a best weight, rounded to 5 lb (the existing Work-In / profile-switch suggestion). */
@@ -110,11 +147,15 @@ object ExerciseSettingsPolicy {
         autoAdjustOn: Boolean,
         unit: String,
         /** A safety cutout (e.g. bar tilt) ended the set: remember it, but don't treat it as a missed goal. */
-        safetyCutout: Boolean = false
-    ): SetOutcome {
+        safetyCutout: Boolean = false,
+        /** The set was on an AUTO routine step (the only routine steps that use remembered weights). */
+        autoStep: Boolean = false
+    ): SetOutcome? {
+        // Fixed-weight routine steps always load their own prescription, so there is nothing to remember
+        if (routineTargetReps != null && !(autoStep && autoAdjustOn)) return null
         var savedLb = weightLb
         var change: WeightChange? = null
-        if (autoAdjustOn && routineTargetReps != null && !safetyCutout) {
+        if (routineTargetReps != null && !safetyCutout) {
             val result = AutoAdjust.nextWeightLb(weightLb, reps, routineTargetReps, unit)
             if (result.adjusted) {
                 // What the motor will actually accept (dynamic modes like chains lower the ceiling)
@@ -138,7 +179,8 @@ object ExerciseSettingsPolicy {
                 modifierPct = modifierPct,
                 accessory = accessory,
                 lastReps = reps,
-                lastTargetReps = routineTargetReps
+                lastTargetReps = routineTargetReps,
+                scope = ExercisePref.scopeFor(routineTargetReps)
             ),
             change = change
         )

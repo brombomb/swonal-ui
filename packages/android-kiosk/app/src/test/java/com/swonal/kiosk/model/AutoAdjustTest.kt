@@ -79,6 +79,19 @@ class AutoAdjustTest {
     }
 
     @Test
+    fun `first-time AUTO weight after a heavy low-rep best fits the step's rep goal`() {
+        // Best set 150 x 2 (Epley 1RM 160): 85% of 150 would be 127.5 lb for 12 reps
+        val e1rm = Units.estimateEpley1Rm(150.0, 2)
+        // 160 / (1 + 12/30) * 0.9 = 102.9 -> rounded down to 100
+        assertEquals(100.0, AutoAdjust.firstTimeWeightLb(45.0, true, true, prMaxWeightLb = 150.0, prOneRepMaxLb = e1rm, targetReps = 12))
+        // A 5-rep step: 160 / (1 + 5/30) * 0.9 = 123.4 -> 120, still under 85% of 150
+        assertEquals(120.0, AutoAdjust.firstTimeWeightLb(45.0, true, true, prMaxWeightLb = 150.0, prOneRepMaxLb = e1rm, targetReps = 5))
+        // Never above 85% of the best weight, and rounded down (never up) to 5 lb
+        assertEquals(125.0, AutoAdjust.firstTimeWeightLb(45.0, true, true, prMaxWeightLb = 150.0, prOneRepMaxLb = 400.0, targetReps = 3))
+        assertEquals(90.0, AutoAdjust.firstTimeWeightLb(45.0, true, true, prMaxWeightLb = 110.0))
+    }
+
+    @Test
     fun `Auto flag survives template flattening and old routines are not Auto`() {
         val legacyJson = """[{"blockType":"STRAIGHT_SET","restSeconds":60,"items":[{"exerciseId":"ex1","sets":2,"targetReps":10,"targetWeightLb":45.0}]}]"""
         val legacy = SwonalJson.decodeFromString<List<WorkoutBlock>>(legacyJson)

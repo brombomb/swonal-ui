@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test
 class ExerciseSettingsPolicyTest {
 
     private val bench = Exercise(id = "bench", name = "Bench Press", muscleGroup = "Chest", accessory = "BAR")
+    private val row = Exercise(id = "row", name = "Seated Row", muscleGroup = "Back", accessory = "HANDLES")
 
     private fun step(weightLb: Double = 60.0, auto: Boolean = false, targetReps: Int = 10, mode: String = "standard") =
         RoutineStep(
@@ -17,8 +18,19 @@ class ExerciseSettingsPolicyTest {
             mode = mode, modifierPct = 0, restSeconds = 60, autoWeight = auto
         )
 
-    private fun pref(weightLb: Double, mode: String = "chains", pct: Int = 25, accessory: String = "ROPE") =
-        ExercisePref(userId = "u1", exerciseId = bench.id, weightLb = weightLb, mode = mode, modifierPct = pct, accessory = accessory)
+    private fun pref(
+        weightLb: Double,
+        mode: String = "chains",
+        pct: Int = 25,
+        accessory: String = "ROPE",
+        scope: String = ExercisePref.SCOPE_FREE_LIFT
+    ) = ExercisePref(
+        userId = "u1", exerciseId = bench.id, weightLb = weightLb, mode = mode, modifierPct = pct,
+        accessory = accessory, scope = scope
+    )
+
+    private fun routinePref(weightLb: Double, reps: Int = 10, accessory: String = "BAR") =
+        pref(weightLb, mode = "standard", pct = 0, accessory = accessory, scope = ExercisePref.routineScope(reps))
 
     private fun afterSet(
         weightLb: Double,
@@ -27,8 +39,9 @@ class ExerciseSettingsPolicyTest {
         autoAdjust: Boolean = true,
         mode: String = "standard",
         pct: Int = 0,
-        unit: String = "LB"
-    ) = ExerciseSettingsPolicy.afterSet("u1", bench.id, weightLb, mode, pct, "BAR", reps, target, autoAdjust, unit)
+        unit: String = "LB",
+        autoStep: Boolean = true
+    ) = ExerciseSettingsPolicy.afterSet("u1", bench.id, weightLb, mode, pct, "BAR", reps, target, autoAdjust, unit, autoStep = autoStep)!!
 
     private fun msg(change: WeightChange?, unit: String = "LB", sameNext: Boolean = true) =
         change?.let { ExerciseSettingsPolicy.changeMessage(it, unit, bench.name, sameNext) }
@@ -59,18 +72,103 @@ class ExerciseSettingsPolicyTest {
         assertEquals(45.0, ExerciseSettingsPolicy.forRoutineStep(fixed, bench, null, false, prMaxWeightLb = null, workInPartner = true).weightLb)
         // Not a Work-In hand-off: a fixed routine weight ignores the PR
         assertEquals(45.0, ExerciseSettingsPolicy.forRoutineStep(fixed, bench, null, false, prMaxWeightLb = 100.0, workInPartner = false).weightLb)
-        // Remembered settings still win for a partner who has done it before
-        assertEquals(42.0, ExerciseSettingsPolicy.forRoutineStep(fixed, bench, pref(42.0), false, prMaxWeightLb = 100.0, workInPartner = true).weightLb)
+        // A fixed step never takes a remembered weight, for a partner either
+        assertEquals(85.0, ExerciseSettingsPolicy.forRoutineStep(fixed, bench, routinePref(42.0), false, prMaxWeightLb = 100.0, workInPartner = true).weightLb)
     }
 
     @Test
-    fun `remembered settings override the routine's weight, mode and accessory`() {
-        val s = ExerciseSettingsPolicy.forRoutineStep(step(weightLb = 60.0, auto = true), bench, pref(42.0), autoAdjustOn = true, prMaxWeightLb = 100.0)
+    fun `an AUTO step with auto-adjust ON uses the remembered weight at that rep goal, with the step's mode`() {
+        val s = ExerciseSettingsPolicy.forRoutineStep(
+            step(weightLb = 60.0, auto = true, mode = "spotter"), bench, routinePref(42.0), autoAdjustOn = true, prMaxWeightLb = 100.0
+        )
         assertEquals(42.0, s.weightLb) // already adjusted when it was saved; never adjusted twice
-        assertEquals("chains", s.mode)
-        assertEquals(25, s.modifierPct)
-        assertEquals("ROPE", s.accessory)
+        assertEquals("spotter", s.mode)
+        assertEquals(0, s.modifierPct)
+        assertEquals("BAR", s.accessory)
         assertTrue(s.remembered)
+    }
+
+    // --- Review: remembered settings must not override a routine's prescription ---
+
+    @Test
+    fun `fixed routine steps always load their own weight and mode, whatever is remembered`() {
+        // Heavy Free Lift single on bench, then a routine bench step written as 95 x 12
+        val heavySingle = pref(150.0, mode = "chains", pct = 25, accessory = "BAR")
+        listOf(true, false).forEach { autoAdjust ->
+            val s = ExerciseSettingsPolicy.forRoutineStep(
+                step(weightLb = 95.0, targetReps = 12), bench, heavySingle, autoAdjustOn = autoAdjust, prMaxWeightLb = 150.0
+            )
+            assertEquals(95.0, s.weightLb)
+            assertEquals("standard", s.mode)
+            assertEquals(0, s.modifierPct)
+            assertFalse(s.remembered)
+        }
+        // Even a remembered routine weight at the same rep goal doesn't change a fixed step
+        assertEquals(
+            95.0,
+            ExerciseSettingsPolicy.forRoutineStep(step(weightLb = 95.0, targetReps = 12), bench, routinePref(110.0, reps = 12), true, null).weightLb
+        )
+    }
+
+    @Test
+    fun `drop set on the same move keeps each step's prescription`() {
+        val remembered = routinePref(110.0, reps = 5) // last top set, beaten goal
+        val drop = step(weightLb = 70.0, targetReps = 10)
+        assertEquals(70.0, ExerciseSettingsPolicy.forRoutineStep(drop, bench, remembered, true, 120.0).weightLb)
+        // AUTO drop step: the 5-rep memory is a different rep goal, so it starts fresh for 10 reps
+        val autoDrop = step(weightLb = 45.0, targetReps = 10, auto = true)
+        val s = ExerciseSettingsPolicy.forRoutineStep(autoDrop, bench, remembered, true, prMaxWeightLb = null)
+        assertEquals(AutoAdjust.AUTO_FIRST_TIME_WEIGHT_LB, s.weightLb)
+        assertFalse(s.remembered)
+    }
+
+    @Test
+    fun `an AUTO step ignores Free Lift memories and lifters with auto-adjust OFF`() {
+        val auto = step(weightLb = 45.0, auto = true)
+        // Free Lift memory is never a routine weight
+        assertEquals(20.0, ExerciseSettingsPolicy.forRoutineStep(auto, bench, pref(150.0), true, null).weightLb)
+        // Auto-Adjust OFF: the routine's own weight
+        assertEquals(45.0, ExerciseSettingsPolicy.forRoutineStep(auto, bench, routinePref(80.0), false, null).weightLb)
+    }
+
+    @Test
+    fun `a remembered load-adding mode never replaces the step's mode`() {
+        listOf("standard", "spotter").forEach { stepMode ->
+            val s = ExerciseSettingsPolicy.forRoutineStep(
+                step(mode = stepMode, auto = true), bench, pref(50.0, mode = "eccentric", pct = 30, scope = ExercisePref.routineScope(10)),
+                autoAdjustOn = true, prMaxWeightLb = null
+            )
+            assertEquals(stepMode, s.mode)
+            assertEquals(0, s.modifierPct)
+        }
+    }
+
+    // --- Review: a remembered attachment must not keep the bar-tilt cutout off ---
+
+    @Test
+    fun `a BAR exercise only restores the BAR automatically`() {
+        val handlesOnBench = pref(60.0, accessory = "HANDLES")
+        val free = ExerciseSettingsPolicy.forFreeLift(bench, handlesOnBench, fallbackWeightLb = null)
+        assertEquals("BAR", free.accessory)
+        assertFalse(free.accessoryRemembered)
+        val routine = ExerciseSettingsPolicy.forRoutineStep(step(), bench, null, false, null, lastAccessory = "HANDLES")
+        assertEquals("BAR", routine.accessory)
+        assertFalse(routine.accessoryRemembered)
+        // The BAR itself, or any attachment on a non-BAR exercise, is restored
+        assertEquals("BAR" to false, ExerciseSettingsPolicy.accessoryFor(bench, "bar"))
+        assertEquals("ROPE" to true, ExerciseSettingsPolicy.accessoryFor(row, "ROPE"))
+        assertEquals("BAR" to true, ExerciseSettingsPolicy.accessoryFor(row, "BAR"))
+        assertEquals("HANDLES" to false, ExerciseSettingsPolicy.accessoryFor(row, null))
+        assertEquals(null to false, ExerciseSettingsPolicy.accessoryFor(null, "ROPE"))
+    }
+
+    @Test
+    fun `fixed routine steps restore the lifter's last attachment on non-BAR exercises`() {
+        val rowStep = step().copy(exerciseId = row.id)
+        val s = ExerciseSettingsPolicy.forRoutineStep(rowStep, row, null, false, null, lastAccessory = "ROPE")
+        assertEquals("ROPE", s.accessory)
+        assertTrue(s.accessoryRemembered)
+        assertFalse(s.remembered) // weight and mode are still the step's
     }
 
     @Test
@@ -83,11 +181,19 @@ class ExerciseSettingsPolicyTest {
 
     @Test
     fun `free lift restores remembered settings`() {
-        val remembered = ExerciseSettingsPolicy.forFreeLift(bench, pref(42.0), fallbackWeightLb = 85.0)
+        val remembered = ExerciseSettingsPolicy.forFreeLift(row, pref(42.0).copy(exerciseId = row.id), fallbackWeightLb = 85.0)
         assertEquals(42.0, remembered.weightLb)
         assertEquals("chains", remembered.mode)
         assertEquals(25, remembered.modifierPct)
+        assertEquals("ROPE", remembered.accessory)
         assertTrue(remembered.remembered)
+    }
+
+    @Test
+    fun `free lift ignores routine memories`() {
+        val s = ExerciseSettingsPolicy.forFreeLift(bench, routinePref(110.0), fallbackWeightLb = 85.0)
+        assertEquals(85.0, s.weightLb)
+        assertFalse(s.remembered)
     }
 
     @Test
@@ -126,20 +232,31 @@ class ExerciseSettingsPolicyTest {
     }
 
     @Test
-    fun `hitting the goal, auto-adjust OFF, or free lift save the weight as used`() {
+    fun `hitting the goal or free lift save the weight as used`() {
         listOf(
             afterSet(50.0, reps = 10, target = 10),
-            afterSet(50.0, reps = 6, target = 10, autoAdjust = false),
             afterSet(50.0, reps = 6, target = null)
         ).forEach { o ->
             assertEquals(50.0, o.pref.weightLb)
             assertNull(o.change)
         }
+        assertEquals(ExercisePref.routineScope(10), afterSet(50.0, reps = 10, target = 10).pref.scope)
+        assertEquals(ExercisePref.SCOPE_FREE_LIFT, afterSet(50.0, reps = 6, target = null).pref.scope)
+    }
+
+    @Test
+    fun `fixed routine steps, or auto-adjust OFF, remember nothing`() {
+        assertNull(ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "standard", 0, "BAR", 6, 10, true, "LB", autoStep = false))
+        assertNull(ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "standard", 0, "BAR", 6, 10, false, "LB", autoStep = true))
+        // Free Lift is remembered whatever the auto-adjust setting, and never adjusted
+        val free = ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "standard", 0, "BAR", 3, null, false, "LB")!!
+        assertEquals(50.0, free.pref.weightLb)
+        assertNull(free.change)
     }
 
     @Test
     fun `remembered mode and accessory come from the set`() {
-        val o = ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "eccentric", 20, "ROPE", 10, 10, true, "LB")
+        val o = ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "eccentric", 20, "ROPE", 10, 10, true, "LB", autoStep = true)!!
         assertEquals("eccentric", o.pref.mode)
         assertEquals(20, o.pref.modifierPct)
         assertEquals("ROPE", o.pref.accessory)
@@ -149,11 +266,14 @@ class ExerciseSettingsPolicyTest {
     fun `routine then free lift then routine keeps the adjusted weight without adjusting twice`() {
         val monday = afterSet(50.0, reps = 8, target = 10)
         assertEquals(45.0, monday.pref.weightLb)
-        val tuesdayLoad = ExerciseSettingsPolicy.forFreeLift(bench, monday.pref, fallbackWeightLb = null)
-        assertEquals(45.0, tuesdayLoad.weightLb)
+        // Free Lift on Tuesday doesn't see (or overwrite) the routine memory
+        val tuesdayLoad = ExerciseSettingsPolicy.forFreeLift(bench, monday.pref, fallbackWeightLb = 30.0)
+        assertEquals(30.0, tuesdayLoad.weightLb)
         val tuesday = afterSet(tuesdayLoad.weightLb!!, reps = 3, target = null)
-        assertEquals(45.0, tuesday.pref.weightLb)
-        val wednesday = ExerciseSettingsPolicy.forRoutineStep(step(weightLb = 60.0), bench, tuesday.pref, autoAdjustOn = true, prMaxWeightLb = null)
+        assertEquals(ExercisePref.SCOPE_FREE_LIFT, tuesday.pref.scope)
+        val wednesday = ExerciseSettingsPolicy.forRoutineStep(
+            step(weightLb = 60.0, auto = true), bench, monday.pref, autoAdjustOn = true, prMaxWeightLb = null
+        )
         assertEquals(45.0, wednesday.weightLb)
     }
 
@@ -169,7 +289,7 @@ class ExerciseSettingsPolicyTest {
 
     @Test
     fun `a safety cutout is remembered but never adjusts the weight`() {
-        val o = ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "standard", 0, "BAR", 4, 10, true, "LB", safetyCutout = true)
+        val o = ExerciseSettingsPolicy.afterSet("u1", bench.id, 50.0, "standard", 0, "BAR", 4, 10, true, "LB", safetyCutout = true, autoStep = true)!!
         assertEquals(50.0, o.pref.weightLb)
         assertEquals(4, o.pref.lastReps)
         assertNull(o.change)

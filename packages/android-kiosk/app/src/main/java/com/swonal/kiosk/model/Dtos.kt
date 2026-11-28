@@ -257,7 +257,11 @@ data class SetLogResponse(
     val partnerRotation: PartnerRotation? = null
 )
 
-/** Last-used settings for one lifter on one exercise (weight, mode, accessory, and rep outcome). */
+/**
+ * Last-used settings for one lifter on one exercise (weight, mode, accessory, and rep outcome), kept
+ * separately per [scope]: Free Lift, and each routine rep goal. That way a heavy Free Lift single, or the
+ * top set of a 5-rep step, never becomes the weight of a 12-rep step on the same move.
+ */
 @Serializable
 data class ExercisePref(
     val userId: String,
@@ -269,8 +273,20 @@ data class ExercisePref(
     val lastReps: Int? = null,
     /** Rep goal of the last set when it was done inside a routine; null for Free Lift sets. */
     val lastTargetReps: Int? = null,
-    val updatedAt: String = ""
-)
+    val updatedAt: String = "",
+    /** [SCOPE_FREE_LIFT], or [routineScope] of the step's rep goal. */
+    val scope: String = SCOPE_FREE_LIFT
+) {
+    companion object {
+        const val SCOPE_FREE_LIFT = "free"
+
+        fun routineScope(targetReps: Int): String = "routine:$targetReps"
+
+        /** Scope a set belongs to: its routine rep goal, else Free Lift. */
+        fun scopeFor(routineTargetReps: Int?): String =
+            if (routineTargetReps != null) routineScope(routineTargetReps) else SCOPE_FREE_LIFT
+    }
+}
 
 @Serializable
 data class PersonalRecord(

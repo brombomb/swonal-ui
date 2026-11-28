@@ -454,8 +454,16 @@ class LocalWorkoutEngine(
 
     suspend fun getPrs(userId: String): List<PersonalRecord> = db.listPrs(userId)
 
-    suspend fun getExercisePref(userId: String, exerciseId: String): ExercisePref? =
-        db.getExercisePref(userId, exerciseId)
+    /** Remembered settings for one scope: Free Lift (default) or a routine rep goal ([ExercisePref.routineScope]). */
+    suspend fun getExercisePref(
+        userId: String,
+        exerciseId: String,
+        scope: String = ExercisePref.SCOPE_FREE_LIFT
+    ): ExercisePref? = db.getExercisePref(userId, exerciseId, scope)
+
+    /** The lifter's most recent remembered settings for an exercise in any scope (e.g. its last attachment). */
+    suspend fun getMostRecentExercisePref(userId: String, exerciseId: String): ExercisePref? =
+        db.getMostRecentExercisePref(userId, exerciseId)
 
     /** Per-lifter "Auto-Adjust Weights" preference (default OFF). */
     suspend fun getAutoAdjustWeights(userId: String): Boolean =
