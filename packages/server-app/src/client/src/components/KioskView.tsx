@@ -82,6 +82,7 @@ import {
 } from 'lucide-react';
 import { useSwonalState } from '../hooks/useSwonalState';
 import { PostWorkoutSummaryModal } from './PostWorkoutSummaryModal';
+import { RepCountDialog } from './RepCountDialog';
 import { MusicPickerDialog } from './MusicPickerDialog';
 import {
   AccessoryType,
@@ -188,6 +189,9 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     stepRoutine,
     logCompletedSet,
     completeSet,
+    repConfirm,
+    confirmRepCount,
+    cancelRepConfirm,
     finishActiveWorkout,
     lastCompletedWorkoutSummary,
     dismissWorkoutSummary,
@@ -403,6 +407,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
       soundEngine.playVoiceCommandExecuted();
       return executeCoachSuggestedAction(action, {
         currentWeightLb: telemetry.target_weight_lb,
+        currentRepCount: telemetry.rep_count,
         activeUnit,
         exercises,
         setTargetWeight,
@@ -417,6 +422,7 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
     },
     [
       telemetry.target_weight_lb,
+      telemetry.rep_count,
       activeUnit,
       exercises,
       setTargetWeight,
@@ -3205,6 +3211,14 @@ export const KioskView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }) =>
           Set Weight
         </button>
       </dialog>
+
+      {/* "NO REPS COUNTED" PROMPT (Complete & Log Set with COMPLETED REPS at 0) */}
+      <RepCountDialog
+        request={repConfirm}
+        accentTextColor={accentTextColor}
+        onConfirm={(reps) => void confirmRepCount(reps)}
+        onCancel={cancelRepConfirm}
+      />
 
       {/* POST-WORKOUT SUMMARY MODAL */}
       <PostWorkoutSummaryModal

@@ -254,6 +254,8 @@ export function findMatchingExercise(exercises: Exercise[], query: string): Exer
 
 export interface VoiceActionHandlers {
   currentWeightLb: number;
+  /** Live COMPLETED REPS; at 0, "complete set" opens the rep prompt instead of logging. */
+  currentRepCount: number;
   activeUnit: WeightUnit;
   exercises: Exercise[];
   setTargetWeight: (weightLb: number, mode?: DynamicMode, modifierPct?: number) => void;
@@ -263,7 +265,7 @@ export interface VoiceActionHandlers {
   stepRoutine: (delta: number) => void;
   selectExercise: (exercise: Exercise) => void;
   skipRest: () => void;
-  completeSet: () => void | Promise<void>;
+  completeSet: () => unknown;
 }
 
 /**
@@ -324,6 +326,10 @@ export function executeCoachSuggestedAction(
     }
     case 'complete_set': {
       void handlers.completeSet();
+      if (handlers.currentRepCount <= 0) {
+        // Nothing counted: completeSet() asks for the rep count on screen instead of logging (issue #16).
+        return 'No reps counted. Enter your reps on screen to log the set.';
+      }
       return 'Set logged. Great work, take your rest!';
     }
     case 'set_weight_enabled': {

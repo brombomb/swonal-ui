@@ -25,6 +25,7 @@ import {
 } from '../types';
 import { soundEngine } from '../utils/soundEngine';
 import { hexToRgba, WeightUnit } from '../utils/units';
+import { decideRepsToLog, LogSetResult, RepConfirmRequest } from '../utils/setReps';
 
 interface SpotifySdkPlayer {
   connect: () => Promise<boolean>;
@@ -223,6 +224,7 @@ export function useSwonalState() {
   const [restSecondsRemaining, setRestSecondsRemaining] = useState<number>(0);
   const [lastCompletedWorkoutSummary, setLastCompletedWorkoutSummary] =
     useState<WorkoutSummaryData | null>(null);
+  const [repConfirm, setRepConfirm] = useState<RepConfirmRequest | null>(null);
   const sessionPrsRef = useRef<SessionPrHit[]>([]);
 
   // Music state
@@ -891,8 +893,17 @@ export function useSwonalState() {
   );
 
   const logCompletedSet = useCallback(
-    async (repsOverride?: number, rpe?: number | null) => {
-      if (!activeUser || !activeExercise) return;
+    async (repsOverride?: number, rpe?: number | null): Promise<LogSetResult> => {
+      if (!activeUser || !activeExercise) return 'not_logged';
+
+      const decision = decideRepsToLog(repsOverride, telemetry.rep_count, currentStep?.targetReps);
+      if (decision.kind === 'confirm') {
+        // Nothing counted and no explicit count: never log a guessed rep count; ask instead.
+        setRepConfirm({ suggestedReps: decision.suggestedReps, rpe: rpe ?? null });
+        return 'needs_reps';
+      }
+      const repsCompleted = decision.reps;
+
       let sessionId = sessionState.activeSessionId;
 
       if (!sessionId) {
@@ -907,11 +918,7 @@ export function useSwonalState() {
           setSessionState((prev) => ({ ...prev, activeSessionId: sess.id }));
         }
       }
-      if (!sessionId) return;
-
-      const repsCompleted =
-        repsOverride ??
-        (telemetry.rep_count > 0 ? telemetry.rep_count : currentStep?.targetReps ?? 10);
+      if (!sessionId) return 'not_logged';
 
       const resp = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/sets`, {
         method: 'POST',
@@ -929,7 +936,7 @@ export function useSwonalState() {
         }),
       });
 
-      if (!resp.ok) return;
+      if (!resp.ok) return 'not_logged';
       const result = (await resp.json()) as {
         newPr: boolean;
         partnerRotation: { rotatedToUserId: string; targetWeightLb: number } | null;
@@ -995,6 +1002,7 @@ export function useSwonalState() {
       }
 
       await refreshUserHistory(activeUser.id);
+      return 'logged';
     },
     [
       activeUser,
@@ -1014,6 +1022,17 @@ export function useSwonalState() {
       refreshUserHistory,
     ]
   );
+
+  /** "No reps counted" prompt: log the entered count (with any RPE from the original tap). */
+  const confirmRepCount = useCallback(
+    (reps: number): Promise<LogSetResult> => {
+      const rpe = repConfirm?.rpe ?? null;
+      setRepConfirm(null);
+      return logCompletedSet(reps, rpe);
+    },
+    [repConfirm, logCompletedSet]
+  );
+  const cancelRepConfirm = useCallback(() => setRepConfirm(null), []);
 
   const finishActiveWorkout = useCallback(async () => {
     const sessionId = sessionState.activeSessionId;
@@ -1447,6 +1466,9 @@ export function useSwonalState() {
     stepRoutine,
     logCompletedSet,
     completeSet: logCompletedSet,
+    repConfirm,
+    confirmRepCount,
+    cancelRepConfirm,
     finishActiveWorkout,
     lastCompletedWorkoutSummary,
     dismissWorkoutSummary: () => setLastCompletedWorkoutSummary(null),

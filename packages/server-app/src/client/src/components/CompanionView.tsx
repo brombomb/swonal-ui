@@ -38,6 +38,7 @@ import {
 import { useSwonalState } from '../hooks/useSwonalState';
 import { MusicPickerDialog } from './MusicPickerDialog';
 import { ProgressionAnalytics } from './ProgressionAnalytics';
+import { RepCountDialog } from './RepCountDialog';
 import { BlockType, CoachSuggestedAction, DynamicMode, WorkoutBlock, WorkoutTemplate } from '../types';
 import { soundEngine } from '../utils/soundEngine';
 import { acceptedPositions, armsMatchExercise, formatArmTarget } from '../utils/armPositions';
@@ -106,6 +107,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     stepRoutine,
     logCompletedSet,
     completeSet,
+    repConfirm,
+    confirmRepCount,
+    cancelRepConfirm,
     skipRestTimer,
     skipRest,
     extendRestTimer,
@@ -417,6 +421,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
       soundEngine.playVoiceCommandExecuted();
       return executeCoachSuggestedAction(action, {
         currentWeightLb: telemetry.target_weight_lb,
+        currentRepCount: telemetry.rep_count,
         activeUnit,
         exercises,
         setTargetWeight,
@@ -431,6 +436,7 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
     },
     [
       telemetry.target_weight_lb,
+      telemetry.rep_count,
       activeUnit,
       exercises,
       setTargetWeight,
@@ -1310,8 +1316,9 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
                   <button
                     type="button"
                     onClick={() => {
-                      void logCompletedSet(undefined, selectedRpe);
-                      showToast('Logged set!');
+                      void logCompletedSet(undefined, selectedRpe).then((result) => {
+                        if (result === 'logged') showToast('Logged set!');
+                      });
                     }}
                     className="flex-1 py-3 rounded-2xl font-extrabold text-sm"
                     style={{ backgroundColor: 'var(--accent-primary)', color: accentTextColor }}
@@ -2424,6 +2431,17 @@ export const CompanionView: React.FC<{ swonal: SwonalHookReturn }> = ({ swonal }
           </button>
         </div>
       </nav>
+
+      <RepCountDialog
+        request={repConfirm}
+        accentTextColor={accentTextColor}
+        onConfirm={(reps) => {
+          void confirmRepCount(reps).then((result) => {
+            if (result === 'logged') showToast('Logged set!');
+          });
+        }}
+        onCancel={cancelRepConfirm}
+      />
 
       <MusicPickerDialog
         dialogRef={musicDialogRef}
