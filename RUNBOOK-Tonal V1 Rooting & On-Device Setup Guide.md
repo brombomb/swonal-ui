@@ -152,7 +152,7 @@ Once Wi-Fi ADB (`:5555`) is active from Phase 1/2, you do **not** need a separat
 
 This automatically installs **Termux**, **Swonal Native Kiosk APK** (Standalone-First mode with embedded SQLite, `:53013` LAN Companion Web UI, and GeckoView ESR), **`librespot-aarch64`** (`99-swonal-librespot.sh`), and **`tonal-daemon`** (`98-swonal-daemon.sh`). Optionally pass `--server-url http://<SERVER_IP>:3000` only if pairing an external sync server.
 
-The installer also grants the Swonal Kiosk **permanent root in Magisk** (no prompt). The kiosk uses it to hand the motor between Swonal and the stock app and for its in-app updater. Termux doesn't need a tap on the screen to finish its first-run setup: `adb shell am start -n com.termux/.app.TermuxActivity` starts it remotely.
+The installer also grants the Swonal Kiosk **permanent root in Magisk** (no prompt). The kiosk uses it to hand the motor between Swonal and the stock app and for its in-app updater. On every boot the kiosk hands the motor to the daemon only if the daemon is installed and **Application Settings → Admin & System → Take over motor on boot** is on (the default); otherwise it leaves stock Tonal alone and shows a notice. To go back to stock later, see *Kiosk Boot Hook* in [SECURITY.md](SECURITY.md) (`pm enable com.riptlabs.mcb.service`, then reboot). Termux doesn't need a tap on the screen to finish its first-run setup: `adb shell am start -n com.termux/.app.TermuxActivity` starts it remotely.
 
 ---
 
