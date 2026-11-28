@@ -170,6 +170,12 @@ class SwonalPreferences(context: Context) {
             prefs.edit().putInt(KEY_SCREEN_SLEEP_TIMEOUT_MIN, ScreenSleepPolicy.normalizeTimeout(value)).apply()
         }
 
+    var autoSetDetectSeconds: Int
+        get() = prefs.getInt(KEY_AUTO_SET_DETECT_SEC, 8).coerceIn(0, 30)
+        set(value) {
+            prefs.edit().putInt(KEY_AUTO_SET_DETECT_SEC, value.coerceIn(0, 30)).apply()
+        }
+
     var developerMode: Boolean
         get() = prefs.getBoolean(KEY_DEV_MODE, false)
         set(value) {
@@ -281,6 +287,7 @@ class SwonalPreferences(context: Context) {
         private const val KEY_BUG_REPORT_WEBHOOK_URL = "bug_report_webhook_url"
         private const val KEY_LOCAL_HTTPS_ENABLED = "local_https_enabled"
         private const val KEY_SCREEN_SLEEP_TIMEOUT_MIN = "screen_sleep_timeout_min"
+        private const val KEY_AUTO_SET_DETECT_SEC = "auto_set_detect_seconds"
 
         fun normalizeBaseUrl(raw: String, fallback: String = DEFAULT_SERVER_URL): String {
             val trimmed = raw.trim().removeSuffix("/")

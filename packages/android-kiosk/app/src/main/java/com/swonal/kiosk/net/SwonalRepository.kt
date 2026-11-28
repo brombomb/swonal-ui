@@ -77,6 +77,10 @@ data class KioskUiState(
     val telemetryDisplayMode: TelemetryDisplayMode = TelemetryDisplayMode.ALWAYS,
     val soundMuted: Boolean = false,
     val developerMode: Boolean = false,
+    val autoSetDetectSeconds: Int = 8,
+    val autoLogRemainingMs: Long = 0L,
+    val autoLogTotalMs: Long = 0L,
+    val autoLogPendingReps: Int = 0,
     val musicProviders: List<MusicProviderInfo> = emptyList(),
     val musicState: MusicPlaybackState = MusicPlaybackState(),
     val musicDevices: List<MusicDevice> = emptyList(),
@@ -419,6 +423,7 @@ class SwonalRepository(
             telemetryDisplayMode = prefs.telemetryDisplayMode,
             soundMuted = prefs.soundMuted,
             developerMode = prefs.developerMode,
+            autoSetDetectSeconds = prefs.autoSetDetectSeconds,
             users = initialCachedUsers,
             exercises = initialCachedExercises,
             activeExerciseId = initialCachedExercises.firstOrNull()?.id
@@ -434,7 +439,6 @@ class SwonalRepository(
     private var prevWeightEnabled = false
     private var prevRepCount = 0
     private var activeTelemetrySource = TelemetrySource.NONE
-    private var lastAutoLoggedStepKey: String? = null
 
     private val started = AtomicBoolean(false)
     private val logSetInFlight = AtomicBoolean(false)
@@ -457,6 +461,10 @@ class SwonalRepository(
     private var musicPollJob: Job? = null
     @Volatile
     private var prBannerJob: Job? = null
+    @Volatile
+    private var autoLogJob: Job? = null
+    @Volatile
+    private var suppressedAutoLogRepCount: Int = 0
     @Volatile
     private var prevRestCountdown: Int = 0
 
@@ -1155,7 +1163,8 @@ class SwonalRepository(
     }
 
     private fun handleTelemetryFrame(frame: TelemetryFrame, source: TelemetrySource) {
-        var shouldAutoLogReps: Int? = null
+        var shouldStartAutoLogReps: Int? = null
+        var shouldCancelAutoLog = false
 
         synchronized(telemetryLock) {
             val sourceSwitched = (activeTelemetrySource != TelemetrySource.NONE && activeTelemetrySource != source)
@@ -1167,6 +1176,13 @@ class SwonalRepository(
             _telemetryFlow.value = frame
             _vbtFlow.value = vbtTracker.update(frame)
 
+            if (frame.weightEnabled && autoLogJob?.isActive == true) {
+                shouldCancelAutoLog = true
+            }
+            if (frame.repCount == 0) {
+                suppressedAutoLogRepCount = 0
+            }
+
             // Suppress edge-triggered cues & auto-log when transitioning between server WS & local fail-safe
             // so a stale cached frame on reconnect can never jump resistance mid-lift.
             if (!sourceSwitched) {
@@ -1175,11 +1191,12 @@ class SwonalRepository(
                 } else if (wasEnabled && !frame.weightEnabled) {
                     _effectsFlow.tryEmit(KioskEffect.PlayCue(SwonalSoundEngine.Cue.WEIGHT_DISENGAGE))
                     val ui = _uiStateFlow.value
-                    val step = ui.currentStep
-                    val stepKey = "${ui.sessionState.activeSessionId}:${ui.currentStepIdx}:${step?.exerciseId}"
-                    if (step != null && frame.repCount >= step.targetReps && stepKey != lastAutoLoggedStepKey) {
-                        lastAutoLoggedStepKey = stepKey
-                        shouldAutoLogReps = frame.repCount
+                    if (frame.repCount >= 1 &&
+                        frame.repCount > suppressedAutoLogRepCount &&
+                        ui.autoSetDetectSeconds > 0 &&
+                        !logSetInFlight.get()
+                    ) {
+                        shouldStartAutoLogReps = frame.repCount
                     }
                 }
                 if (frame.repCount > oldReps) {
@@ -1191,9 +1208,81 @@ class SwonalRepository(
             prevRepCount = frame.repCount
         }
 
-        val repsToLog = shouldAutoLogReps
+        if (shouldCancelAutoLog) {
+            cancelAutoLogCountdown(suppressCurrentReps = false)
+        }
+        val repsToLog = shouldStartAutoLogReps
         if (repsToLog != null) {
-            scope.launch { logCompletedSetInternal(repsToLog) }
+            val totalMs = _uiStateFlow.value.autoSetDetectSeconds * 1000L
+            if (totalMs > 0L) {
+                startAutoLogCountdown(repsToLog, totalMs)
+            }
+        }
+    }
+
+    private fun startAutoLogCountdown(reps: Int, totalMs: Long) {
+        autoLogJob?.cancel()
+        _uiStateFlow.update {
+            it.copy(
+                autoLogRemainingMs = totalMs,
+                autoLogTotalMs = totalMs,
+                autoLogPendingReps = reps
+            )
+        }
+        autoLogJob = scope.launch {
+            try {
+                val startMs = System.nanoTime() / 1_000_000L
+                val endMs = startMs + totalMs
+                while (isActive) {
+                    val nowMs = System.nanoTime() / 1_000_000L
+                    val rem = (endMs - nowMs).coerceAtLeast(0L)
+                    _uiStateFlow.update { it.copy(autoLogRemainingMs = rem) }
+                    if (rem <= 0L) break
+                    delay(100L)
+                }
+                val pending = _uiStateFlow.value.autoLogPendingReps
+                _uiStateFlow.update {
+                    it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
+                }
+                if (pending > 0 && !isWeightCurrentlyEngaged()) {
+                    logCompletedSetInternal(pending)
+                }
+            } finally {
+                if (autoLogJob === this.coroutineContext[Job]) {
+                    autoLogJob = null
+                }
+            }
+        }
+    }
+
+    fun cancelAutoLogCountdownByUser() {
+        cancelAutoLogCountdown(suppressCurrentReps = true)
+    }
+
+    fun cancelAutoLogCountdown(suppressCurrentReps: Boolean = false) {
+        if (suppressCurrentReps) {
+            suppressedAutoLogRepCount = maxOf(
+                suppressedAutoLogRepCount,
+                _telemetryFlow.value.repCount,
+                _uiStateFlow.value.autoLogPendingReps
+            )
+        }
+        autoLogJob?.cancel()
+        autoLogJob = null
+        if (_uiStateFlow.value.autoLogRemainingMs > 0L || _uiStateFlow.value.autoLogPendingReps > 0) {
+            _uiStateFlow.update {
+                it.copy(autoLogRemainingMs = 0L, autoLogTotalMs = 0L, autoLogPendingReps = 0)
+            }
+        }
+    }
+
+    fun confirmAutoLogNow() {
+        val pending = _uiStateFlow.value.autoLogPendingReps
+        cancelAutoLogCountdown()
+        if (pending > 0) {
+            logCompletedSet(pending)
+        } else {
+            logCompletedSet()
         }
     }
 
@@ -1392,6 +1481,8 @@ class SwonalRepository(
 
     fun resetReps() {
         if (_uiStateFlow.value.authRequired) return
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         val sentLocal = if (localDaemon.connected.value) localDaemon.resetRepsDirect() else false
         if (!sentLocal && canSendMotorViaServer()) {
             sendWs(buildJsonObject { put("type", "reset_reps") })
@@ -1414,6 +1505,8 @@ class SwonalRepository(
 
     fun switchUser(userId: String) {
         if (_uiStateFlow.value.authRequired) return
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         scope.launch {
             val nextState = localEngine.setActiveUser(userId)
             _uiStateFlow.update { it.copy(sessionState = nextState) }
@@ -1551,6 +1644,19 @@ class SwonalRepository(
         _uiStateFlow.update { it.copy(developerMode = enabled) }
     }
 
+    fun setAutoSetDetectSeconds(seconds: Int) {
+        val safe = seconds.coerceIn(0, 30)
+        prefs.autoSetDetectSeconds = safe
+        _uiStateFlow.update { it.copy(autoSetDetectSeconds = safe) }
+    }
+
+    fun cycleAutoSetDetectSeconds() {
+        val presets = listOf(0, 5, 8, 10, 15)
+        val cur = _uiStateFlow.value.autoSetDetectSeconds
+        val next = presets.firstOrNull { it > cur } ?: presets.first()
+        setAutoSetDetectSeconds(next)
+    }
+
     private fun updateUserInState(updated: User) {
         _uiStateFlow.update { st ->
             st.copy(users = st.users.map { if (it.id == updated.id) updated else it })
@@ -1635,6 +1741,8 @@ class SwonalRepository(
             _effectsFlow.tryEmit(KioskEffect.ShowMessage("Routine has no exercise steps"))
             return
         }
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         val uid = preferredUserId ?: _uiStateFlow.value.activeUser?.id ?: return
         scope.launch {
             if (isWeightCurrentlyEngaged()) {
@@ -1643,7 +1751,6 @@ class SwonalRepository(
             val session = runCatching { localEngine.createSession(uid, templateId) }.getOrNull()
             val step0 = steps[0]
             val ex0 = _uiStateFlow.value.exercises.firstOrNull { it.id == step0.exerciseId }
-            lastAutoLoggedStepKey = null
             _uiStateFlow.update {
                 it.copy(
                     activeTemplateName = templateName,
@@ -1666,7 +1773,8 @@ class SwonalRepository(
 
     fun selectFreeExercise(exercise: Exercise) {
         if (_uiStateFlow.value.authRequired) return
-        lastAutoLoggedStepKey = null
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         val wasEngaged = isWeightCurrentlyEngaged()
         _uiStateFlow.update {
             it.copy(
@@ -1700,6 +1808,8 @@ class SwonalRepository(
     fun stepRoutine(delta: Int) {
         val ui = _uiStateFlow.value
         if (ui.authRequired) return
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         if (ui.routineSteps.isNotEmpty()) {
             val nextIdx = (ui.currentStepIdx + delta).coerceIn(0, ui.routineSteps.lastIndex)
             if (nextIdx == ui.currentStepIdx) return
@@ -1733,6 +1843,8 @@ class SwonalRepository(
     }
 
     private suspend fun logCompletedSetInternal(repsOverride: Int? = null) {
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         if (!logSetInFlight.compareAndSet(false, true)) return
         try {
             val ui = _uiStateFlow.value
@@ -1847,6 +1959,8 @@ class SwonalRepository(
     }
 
     private suspend fun finishWorkoutInternal() {
+        suppressedAutoLogRepCount = 0
+        cancelAutoLogCountdown()
         val sessionId = _uiStateFlow.value.sessionState.activeSessionId
         val prHits = _uiStateFlow.value.sessionPrHits
         disableWeight()
@@ -1856,7 +1970,6 @@ class SwonalRepository(
         } else {
             null
         }
-        lastAutoLoggedStepKey = null
         _uiStateFlow.update {
             it.copy(
                 activeTemplateName = null,
